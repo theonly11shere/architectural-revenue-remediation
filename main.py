@@ -1,53 +1,28 @@
 import os
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from scorer import run_full_audit_pipeline
 
-app = FastAPI()
-
-# Root directory for HTML files
-FRONTEND_DIR = os.path.dirname(os.path.abspath(__file__))
-
-@app.get("/", response_class=HTMLResponse)
-async def serve_home():
-    file_path = os.path.join(FRONTEND_DIR, "index.html")
-    if os.path.exists(file_path):
-        with open(file_path, "r", encoding="utf-8") as f:
-            return f.read()
-    return "index.html not found", 404
+app = FastAPI(title="Trilloka Revenue Leak Scanner API")
 
 class ScanRequest(BaseModel):
-    url: str
-    tier: str = "free"
+    domain: str
+    business_type: str
 
-@app.post("/api/v1/scan")
-async def api_scan(payload: ScanRequest):
-    # Initialize the real scraper
-    scraper = WebScraper()
-    crawl_result = await scraper.scrape(payload.url)
-    
-    print("CRAWL RESULT:", crawl_result)
-    
-    if not crawl_result.get("is_success"):
-        return {
-            "domain": payload.url,
-            "status": "Crawl Failed: " + crawl_result.get("error", "Unknown"),
-            "scores": {"template": 0, "visual-twin": 0, "sameness": 0},
-            "presence": 0,
-            "leaks": "$0/mo",
-            "score": "0%",
+@app.post("/api/scan")
+async def scan_website_endpoint(payload: ScanRequest):
+    try:
+        audit_data = {
+            "domain": payload.domain,
+            "business_type": payload.business_type
         }
-    
-    # Return successful scan metrics
-    return {
-        "domain": payload.url,
-        "status": "Success",
-        "scores": crawl_result.get("scores", {"template": 85, "visual-twin": 90, "sameness": 88}),
-        "presence": crawl_result.get("presence", 1),
-        "leaks": crawl_result.get("leaks", "$8,450/mo"),
-        "score": crawl_result.get("score", "78%"),
-        "risks": [
-            "Conversion pipeline bottleneck detected",
-            "Missing call-to-action checkpoints on mobile viewport"
-        ]
-    }
+        
+        # Executes the 35 checkpoints, logs telemetry, saves private vault, and emails you
+        result = run_full_audit_pipeline(audit_data)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=True)

@@ -1,4 +1,7 @@
 # scorer.py
+import os
+import smtplib
+from email.message import EmailMessage
 from checkpoints_35 import evaluate_35_checkpoints
 from solutions_50 import resolve_solutions
 from telemetry import log_telemetry_async
@@ -7,10 +10,11 @@ from report_engine import save_private_audit_report
 def run_full_audit_pipeline(audit_data: dict) -> dict:
     """
     Main orchestration engine.
-    Runs audit checks, calculates AI spectrum, splits data into 3 outputs:
+    Runs audit checks, calculates AI spectrum, splits data into outputs:
       1. Async telemetry logger
       2. Secure private report vault
-      3. Public front-end user payload
+      3. Admin email notification dispatch
+      4. Public front-end user payload
     """
     domain = audit_data.get("domain", "unknown.com")
     biz_type = audit_data.get("business_type", "local_services")
@@ -39,7 +43,10 @@ def run_full_audit_pipeline(audit_data: dict) -> dict:
         top_10_solutions=mapped_solutions
     )
 
-    # --- STREAM 3: PUBLIC FRONT-END PAYLOAD (User Modal) ---
+    # --- STREAM 3: ADMIN EMAIL NOTIFICATION DISPATCH ---
+    send_audit_email_to_admin(domain, biz_type, final_score, report_vault_id)
+
+    # --- STREAM 4: PUBLIC FRONT-END PAYLOAD (User Modal) ---
     return {
         "status": "success",
         "domain": domain,
@@ -101,3 +108,34 @@ def generate_inverted_hook(biz_type: str) -> dict:
         "headline": "Forrester research proves that forcing a multi-field registration wall before showing product value causes an immediate 25% drop-off in enterprise evaluation.",
         "body": "Your current funnel structure means YOU ARE BLEEDING 1 IN 4 QUALIFIED DEMO REQUESTS every single day."
     })
+
+def send_audit_email_to_admin(domain: str, biz_type: str, overall_score: float, vault_id: str):
+    sender_email = os.getenv("SMTP_EMAIL", "")
+    sender_password = os.getenv("SMTP_PASSWORD", "")
+    receiver_email = os.getenv("ADMIN_EMAIL", sender_email)
+
+    if not sender_email or not sender_password:
+        return
+
+    msg = EmailMessage()
+    msg["Subject"] = f"🚨 New Audit Completed: {domain} (Score: {overall_score})"
+    msg["From"] = sender_email
+    msg["To"] = receiver_email
+    
+    msg.set_content(f"""
+    A new website audit has just been completed on your scanner!
+
+    - Target Domain: {domain}
+    - Business Model: {biz_type}
+    - Overall Financial Leak Score: {overall_score}
+    - Report Vault ID: {vault_id}
+
+    Log in to your dashboard to view the full prioritized breakdown and leak solutions.
+    """)
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(sender_email, sender_password)
+            server.send_message(msg)
+    except Exception as e:
+        print(f"Failed to send audit email notification: {e}")
