@@ -9,6 +9,17 @@ class ScanRequest(BaseModel):
     domain: str
     business_type: str
 
+@app.get("/")
+async def root():
+    """
+    Root endpoint to verify the API is online and prevent 404s on base URL visits.
+    """
+    return {
+        "status": "online",
+        "service": "Trilloka Revenue Leak & Audit Scanner API",
+        "docs_url": "/docs"
+    }
+
 @app.post("/api/scan")
 async def scan_website_endpoint(payload: ScanRequest):
     try:
