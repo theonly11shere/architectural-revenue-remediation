@@ -1,20 +1,5 @@
 import os
-import socket
-import resend
-
-# Force IPv4 socket resolution to bypass [Errno 101] Network is unreachable 
-# errors caused by cloud container IPv6 routing restrictions on Railway.
-try:
-    old_getaddrinfo = socket.getaddrinfo
-    def new_getaddrinfo(*args, **kwargs):
-        responses = old_getaddrinfo(*args, **kwargs)
-        return [r for r in responses if r[0] == socket.AF_INET]
-    socket.getaddrinfo = new_getaddrinfo
-except Exception:
-    pass
-
-resend.api_key = os.environ.get("RESEND_API_KEY", "")
-
+import requests
 
 async def send_audit_email(
     recipient_email: str,
@@ -22,16 +7,13 @@ async def send_audit_email(
     report_filepath: str,
     markdown_content: str,
 ):
-    """Sends the generated audit report via Resend API."""
-    if not resend.api_key:
-        print(
-            "[Email Warning] RESEND_API_KEY environment variable is not set. "
-            "Skipping email dispatch."
-        )
+    """Sends the generated audit report via direct Resend HTTP API to bypass container network routing blocks."""
+    api_key = os.environ.get("RESEND_API_KEY", "")
+    if not api_key:
+        print("[Email Warning] RESEND_API_KEY environment variable is not set. Skipping email dispatch.")
         return
 
     try:
-        # Use verified Resend domain sender address
         sender_email = os.environ.get("RESEND_FROM_EMAIL", "audit@trilloka.com")
 
         # Read markdown content for the email body summary
@@ -41,7 +23,7 @@ async def send_audit_email(
             else markdown_content
         )
 
-        params = {
+        payload = {
             "from": sender_email,
             "to": [recipient_email],
             "subject": f"Your Trilloka Revenue Leak Audit Report: {target_url}",
@@ -56,8 +38,23 @@ async def send_audit_email(
             ),
         }
 
-        response = resend.Emails.send(params)
-        print(f"[Email Success] Report successfully sent to {recipient_email}")
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+
+        # Direct HTTP POST with explicit timeout to prevent hanging or IPv6 routing lockups
+        response = requests.post(
+            "https://api.resend.com/emails",
+            json=payload,
+            headers=headers,
+            timeout=15
+        )
+
+        if response.status_code in [200, 201]:
+            print(f"[Email Success] Report successfully sent to {recipient_email}")
+        else:
+            print(f"[Email Error] Resend API responded with status {response.status_code}: {response.text}")
 
     except Exception as e:
         print(
