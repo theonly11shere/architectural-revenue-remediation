@@ -29,7 +29,6 @@
             background-size: 40px 40px;
         }
 
-        /* --- HEADER & NAVIGATION --- */
         header {
             display: flex;
             justify-content: space-between;
@@ -71,7 +70,6 @@
             color: var(--accent-gold);
         }
 
-        /* --- HERO SECTION --- */
         .hero-section {
             display: flex;
             flex-direction: column;
@@ -154,7 +152,6 @@
             background-color: var(--accent-gold-hover);
         }
 
-        /* --- MODAL (100% MOBILE RESPONSIVE) --- */
         .modal-overlay {
             position: fixed;
             top: 0;
@@ -227,7 +224,6 @@
             word-break: break-all;
         }
 
-        /* --- THE BAYMARD / RESEARCH HOOK BOX --- */
         .hook-box {
             background: linear-gradient(135deg, rgba(197, 168, 128, 0.08), rgba(11, 12, 16, 0.6));
             border: 1px solid rgba(197, 168, 128, 0.3);
@@ -256,7 +252,6 @@
             color: var(--text-main);
         }
 
-        /* --- METRICS GRID --- */
         .metrics-grid {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -300,7 +295,6 @@
             text-transform: uppercase;
         }
 
-        /* --- SECTIONS (LEAKS & GAPS) --- */
         .section-title-tag {
             color: var(--accent-gold);
             font-size: 0.75rem;
@@ -379,7 +373,6 @@
             margin: 0;
         }
 
-        /* --- REPORT CAPTURE --- */
         .report-capture {
             background-color: #0b0c10;
             border: 1px solid var(--border-color);
@@ -403,7 +396,6 @@
             line-height: 1.5;
         }
 
-        /* --- PRICING TIERS --- */
         .pricing-section-title {
             text-align: center;
             color: var(--accent-gold);
@@ -506,7 +498,6 @@
             color: var(--accent-gold);
         }
 
-        /* --- 100% MOBILE RESPONSIVE MEDIA QUERIES --- */
         @media (max-width: 900px) {
             header {
                 padding: 20px;
@@ -564,7 +555,6 @@
 </head>
 <body>
 
-    <!-- Attached to other pages via proper navigation structure -->
     <header>
         <a href="/" class="logo">TRILLOKA</a>
         <nav>
@@ -594,7 +584,6 @@
         </div>
     </div>
 
-    <!-- The 100% Mobile-Integrated Modal -->
     <div class="modal-overlay" id="resultsModal">
         <div class="modal-container">
             <div class="close-modal" onclick="closeModal()">&times;</div>
@@ -604,13 +593,11 @@
                 <h2 id="modalUrlTitle">karakoramrestaurant.com</h2>
             </div>
 
-            <!-- THE PRIMARY BAYMARD / RESEARCH HOOK -->
             <div class="hook-box" id="dynamicHookBox">
                 <h4>Empirical Behavioral Leakage Detected</h4>
                 <p>We don't rely on generic marketing opinions. To make Trilloka's 50 remediations rock-solid and defensible, we ground every leak and solution in <strong>hard empirical research from sources like Baymard Institute</strong> (which aggregates over 50 independent checkout usability studies across thousands of hours of testing), <strong>Contentsquare, Forrester, and McKinsey</strong>. Based on actual behavioral data, here are the true reasons your business is losing revenue.</p>
             </div>
 
-            <!-- The 4 Dynamic Scores -->
             <div class="metrics-grid">
                 <div class="metric-box">
                     <div class="metric-ring alert" id="metricGeneric">--</div>
@@ -630,11 +617,9 @@
                 </div>
             </div>
 
-            <!-- Top 5 Empirical Behavioral / SEO Leaks -->
             <div class="section-title-tag">Empirical Research Audit</div>
             <div class="section-heading">Top 5 Behavioral & UX Friction Points</div>
             <div class="leaks-container" id="topLeaksContainer">
-                <!-- Dynamically populated by JS, placeholder shown during load -->
                 <div class="leak-item">
                     <div class="leak-info">
                        <h5>Loading structural audit metrics...</h5>
@@ -644,7 +629,6 @@
                 </div>
             </div>
 
-            <!-- Competitor Conversion Gap Analysis -->
             <div class="section-title-tag">Competitive Intelligence</div>
             <div class="section-heading">Competitor Conversion Gap Analysis</div>
             <div class="competitor-gap-box">
@@ -661,7 +645,6 @@
                 <span style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-top: 10px;">Reports are reviewed by The Architect. Expect delivery within 24 hours.</span>
             </div>
 
-            <!-- Updated Pricing Tiers -->
             <div class="pricing-section-title">Upgrade Your Remediation</div>
             <h3 class="pricing-header">Choose your depth</h3>
             
@@ -716,13 +699,12 @@
             const cleanDomain = rawUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
             document.getElementById('modalUrlTitle').innerText = cleanDomain;
 
-            // Show modal immediately with loading state
             document.getElementById('resultsModal').style.display = 'flex';
             document.body.style.overflow = 'hidden';
 
             try {
-                // Connects to your FastAPI Backend
-                const response = await fetch('http://localhost:8080/api/scan', {
+                // POINTS TO THE LIVE RAILWAY API DOMAIN
+                const response = await fetch('https://api.trilloka.com/api/scan', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
@@ -740,13 +722,11 @@
                 }
 
                 if (response.ok && data.status === "success") {
-                    // Populate real metrics from backend pipeline response
                     document.getElementById('metricGeneric').innerText = Math.round(data.ai_spectrum.synthetic_index_pct) + "%";
                     document.getElementById('metricVisual').innerText = Math.round(data.overall_score > 50 ? 88 : 42) + "%";
                     document.getElementById('metricVoice').innerText = Math.round(data.overall_score);
                     document.getElementById('metricPresence').innerText = Math.round(100 - data.overall_score) + "%";
 
-                    // Populate Top 5 Empirical Leaks dynamically (Baymard/Contentsquare focused)
                     const leaksContainer = document.getElementById('topLeaksContainer');
                     leaksContainer.innerHTML = `
                         <div class="leak-item">
@@ -786,7 +766,6 @@
                         </div>
                     `;
 
-                    // Populate Competitor Gap Analysis based on domain context
                     const gapBox = document.getElementById('competitorGapText');
                     gapBox.innerHTML = `For <strong>${cleanDomain}</strong>, top-tier regional competitors capture an estimated <strong>34% higher lead volume</strong> due to streamlined micro-conversion loops and localized semantic trust markers. Your current architecture leaves high-intent traffic exposed to immediate competitor substitution.`;
 
@@ -800,7 +779,7 @@
                     <div class="leak-item">
                         <div class="leak-info">
                             <h5 style="color: var(--red-alert);">Connection Error</h5>
-                            <span>Unable to reach the backend audit engine. Using fallback visual demonstration data for ${cleanDomain}. Verify API deployment.</span>
+                            <span>Unable to reach api.trilloka.com. Verify CORS or Railway deployment status.</span>
                         </div>
                     </div>
                 `;
@@ -826,7 +805,6 @@
             alert('Initiating direct secure session with The Architect (ARCH10 Protocol)...');
         }
         
-        // Close modal when clicking outside of it
         window.onclick = function(event) {
             const modal = document.getElementById('resultsModal');
             if (event.target === modal) {
