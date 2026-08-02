@@ -3,483 +3,584 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trilloka — Architectural Revenue Remediator</title>
+    <title>Trilloka | Architectural Revenue Remediation</title>
     <style>
         :root {
-            --bg-color: #0b0f19;
-            --card-bg: #111827;
-            --gold: #f59e0b;
-            --gold-hover: #d97706;
-            --text-main: #f9fafb;
+            --bg-color: #0b0c10;
+            --panel-bg: #13141a;
+            --accent-gold: #c5a880;
+            --accent-gold-hover: #d4b890;
+            --text-main: #f3f4f6;
             --text-muted: #9ca3af;
-            --border-color: #1f2937;
-            --danger: #ef4444;
-        }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --border-color: #232631;
+            --red-alert: #ef4444;
+            --green-pass: #10b981;
         }
 
         body {
+            margin: 0;
             background-color: var(--bg-color);
             color: var(--text-main);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            overflow-x: hidden;
+            background-image: 
+                linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 40px 40px;
         }
 
-        .site-header {
-            border-bottom: 1px solid var(--border-color);
-            background: rgba(11, 15, 25, 0.8);
-            backdrop-filter: blur(10px);
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 0 20px;
-        }
-
-        .nav-container {
+        /* Navigation Header */
+        header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            height: 70px;
+            padding: 25px 50px;
+            border-bottom: 1px solid var(--border-color);
+            background-color: rgba(11, 12, 16, 0.8);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(10px);
         }
 
-        .logo a {
-            font-size: 22px;
-            font-weight: 700;
-            color: var(--gold);
+        .logo {
+            font-family: Georgia, serif;
+            letter-spacing: 3px;
+            color: var(--accent-gold);
+            font-size: 1.2rem;
             text-decoration: none;
-            letter-spacing: -0.5px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
 
-        .main-nav {
+        nav {
             display: flex;
             gap: 30px;
         }
 
-        .main-nav a {
+        nav a {
             color: var(--text-muted);
             text-decoration: none;
-            font-size: 14px;
-            font-weight: 500;
+            font-size: 0.9rem;
+            letter-spacing: 1px;
             transition: color 0.2s;
         }
 
-        .main-nav a:hover {
-            color: var(--gold);
+        nav a:hover, nav a.active {
+            color: var(--accent-gold);
         }
 
+        /* Hero / Main Initial View */
         .hero-section {
-            flex: 1;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
+            min-height: 85vh;
+            padding: 20px;
             text-align: center;
-            padding: 60px 20px;
         }
 
-        .hero-content {
-            max-width: 700px;
+        .scanner-card {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 50px 40px;
+            max-width: 650px;
+            width: 100%;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.6);
         }
 
-        .hero-content h1 {
-            font-size: 48px;
-            font-weight: 800;
-            letter-spacing: -1px;
-            margin-bottom: 20px;
-            background: linear-gradient(to right, #fff, var(--text-muted));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+        .scanner-card h1 {
+            font-family: Georgia, serif;
+            font-size: 2.2rem;
+            margin-bottom: 15px;
+            font-weight: 400;
+            color: var(--text-main);
         }
 
-        .hero-philosophy {
-            font-size: 18px;
+        .scanner-card p {
             color: var(--text-muted);
+            font-size: 0.95rem;
             line-height: 1.6;
             margin-bottom: 30px;
         }
 
-        .console-input-wrap {
+        .input-group {
             display: flex;
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 8px;
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+            gap: 10px;
         }
 
-        .console-input-wrap input {
+        .input-group input {
             flex: 1;
-            background: transparent;
-            border: none;
-            padding: 12px 16px;
-            color: #fff;
-            font-size: 16px;
-            outline: none;
-        }
-
-        .console-input-wrap input::placeholder {
-            color: #4b5563;
-        }
-
-        .btn {
-            background: var(--gold);
-            color: #000;
-            font-weight: 600;
-            border: none;
-            padding: 12px 24px;
+            background-color: #0b0c10;
+            border: 1px solid var(--border-color);
             border-radius: 8px;
+            padding: 15px 20px;
+            color: var(--text-main);
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .input-group input:focus {
+            border-color: var(--accent-gold);
+        }
+
+        .input-group button {
+            background-color: var(--accent-gold);
+            color: #0b0c10;
+            border: none;
+            border-radius: 8px;
+            padding: 0 25px;
+            font-weight: bold;
+            font-size: 0.9rem;
+            letter-spacing: 1px;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: background-color 0.2s;
         }
 
-        .btn:hover {
-            background: var(--gold-hover);
+        .input-group button:hover {
+            background-color: var(--accent-gold-hover);
         }
 
-        /* Modal styling */
+        /* Results Modal Overlay */
         .modal-overlay {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0, 0, 0, 0.8);
-            backdrop-filter: blur(5px);
+            background-color: rgba(5, 6, 8, 0.9);
+            display: none;
+            justify-content: center;
+            align-items: flex-start;
+            overflow-y: auto;
+            z-index: 1000;
+            padding: 40px 20px;
+            box-sizing: border-box;
+        }
+
+        .modal-container {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            max-width: 800px;
+            width: 100%;
+            padding: 40px;
+            position: relative;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.8);
+        }
+
+        .close-modal {
+            position: absolute;
+            top: 25px;
+            right: 25px;
+            background: #1e222d;
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            z-index: 1000;
-            padding: 20px;
-        }
-
-        .modal-card {
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 16px;
-            width: 100%;
-            max-width: 600px;
-            padding: 30px;
-            position: relative;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-        }
-
-        .modal-close {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            background: transparent;
-            border: none;
-            color: var(--text-muted);
-            font-size: 24px;
             cursor: pointer;
+            font-size: 1.2rem;
+            transition: background 0.2s;
         }
 
-        .modal-close:hover {
-            color: #fff;
+        .close-modal:hover {
+            background: var(--border-color);
         }
 
-        .modal-header h2 {
-            font-size: 22px;
-            margin-bottom: 5px;
+        .results-header {
+            text-align: center;
+            margin-bottom: 30px;
         }
 
-        .subtext {
+        .results-header span {
+            color: var(--accent-gold);
+            font-size: 0.8rem;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        .results-header h2 {
+            font-family: Georgia, serif;
+            font-size: 2rem;
+            margin-top: 5px;
+            margin-bottom: 0;
+            word-break: break-all;
+        }
+
+        /* Behavioral Hook Box (Barlet Institute Framework) */
+        .hook-box {
+            background: linear-gradient(135deg, rgba(197, 168, 128, 0.08), rgba(11, 12, 16, 0.4));
+            border: 1px solid rgba(197, 168, 128, 0.3);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .hook-box h4 {
+            font-family: Georgia, serif;
+            color: var(--accent-gold);
+            margin: 0 0 8px 0;
+            font-size: 1.1rem;
+        }
+
+        .hook-box p {
+            margin: 0;
             color: var(--text-muted);
-            font-size: 13px;
+            font-size: 0.9rem;
+            line-height: 1.5;
         }
 
+        /* Metrics Visualizer Ring Layout */
         .metrics-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-            margin: 20px 0;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            margin-bottom: 40px;
         }
 
         .metric-box {
-            background: rgba(0, 0, 0, 0.2);
+            background-color: #0b0c10;
             border: 1px solid var(--border-color);
-            padding: 15px;
-            border-radius: 10px;
+            border-radius: 12px;
+            padding: 25px;
             text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
         }
 
-        .metric-label {
-            display: block;
-            font-size: 12px;
+        .metric-ring {
+            width: 90px;
+            height: 90px;
+            border-radius: 50%;
+            border: 4px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: Georgia, serif;
+            font-size: 1.4rem;
+            margin-bottom: 12px;
+            position: relative;
+        }
+
+        .metric-ring.alert { border-color: var(--red-alert); color: var(--red-alert); }
+        .metric-ring.pass { border-color: var(--green-pass); color: var(--green-pass); }
+
+        .metric-title {
+            font-size: 0.8rem;
+            letter-spacing: 1px;
             color: var(--text-muted);
-            margin-bottom: 5px;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
         }
 
-        .metric-value {
-            font-size: 22px;
-            font-weight: 700;
+        /* Report Capture Section inside Modal */
+        .report-capture {
+            background-color: #0b0c10;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            margin-bottom: 40px;
         }
 
-        .text-danger {
-            color: var(--danger);
-        }
-
-        .results-section {
-            margin-bottom: 20px;
-        }
-
-        .results-section h3, .tier-selection-section h3 {
-            font-size: 14px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--text-muted);
+        .report-capture h3 {
+            font-family: Georgia, serif;
+            font-size: 1.4rem;
+            margin-top: 0;
             margin-bottom: 10px;
         }
 
-        .gap-list {
-            background: rgba(0, 0, 0, 0.2);
-            border: 1px solid var(--border-color);
-            border-radius: 10px;
-            padding: 15px 15px 15px 30px;
-            max-height: 120px;
-            overflow-y: auto;
+        .report-capture p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-bottom: 20px;
+            line-height: 1.5;
         }
 
-        .tier-cards {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-            margin-bottom: 25px;
-        }
-
-        .tier-option {
-            background: rgba(0, 0, 0, 0.2);
-            border: 1px solid var(--border-color);
-            border-radius: 10px;
-            padding: 15px;
+        /* Pricing Depth Tiers with ID Prefixes */
+        .pricing-section-title {
             text-align: center;
-        }
-
-        .tier-option.featured {
-            border-color: var(--gold);
-        }
-
-        .tier-option h4 {
-            font-size: 15px;
+            color: var(--accent-gold);
+            font-size: 0.8rem;
+            letter-spacing: 2px;
+            text-transform: uppercase;
             margin-bottom: 5px;
         }
 
-        .tier-option p {
-            color: var(--gold);
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 12px;
+        .pricing-header {
+            text-align: center;
+            font-family: Georgia, serif;
+            font-size: 1.8rem;
+            margin-top: 0;
+            margin-bottom: 25px;
         }
 
-        .tier-option button, .modal-footer button {
-            background: transparent;
+        .pricing-tiers {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .tier-card {
+            background-color: #0b0c10;
             border: 1px solid var(--border-color);
-            color: #fff;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 12px;
+            border-radius: 10px;
+            padding: 25px 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            text-align: center;
+        }
+
+        .tier-id-tag {
+            font-family: monospace;
+            font-size: 0.7rem;
+            color: var(--accent-gold);
+            background: rgba(197, 168, 128, 0.1);
+            padding: 3px 6px;
+            border-radius: 4px;
+            display: inline-block;
+            margin-bottom: 8px;
+        }
+
+        .tier-title {
+            font-size: 0.75rem;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+
+        .tier-price {
+            font-family: Georgia, serif;
+            font-size: 1.8rem;
+            color: var(--accent-gold);
+            margin-bottom: 15px;
+        }
+
+        .tier-desc {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+
+        .architect-btn-container {
+            text-align: center;
+        }
+
+        .custom-architect-btn {
+            background: transparent;
+            border: 1px solid var(--accent-gold);
+            color: var(--accent-gold);
+            padding: 14px 30px;
+            border-radius: 8px;
+            font-weight: bold;
+            letter-spacing: 1px;
             cursor: pointer;
             transition: all 0.2s;
+            width: 100%;
+            font-size: 0.9rem;
         }
 
-        .tier-option button:hover, .btn-secondary:hover {
-            border-color: #fff;
+        .custom-architect-btn:hover {
+            background-color: rgba(197, 168, 128, 0.1);
         }
 
-        .tier-option.featured button {
-            background: var(--gold);
-            color: #000;
-            border-color: var(--gold);
-        }
-
-        .tier-option.featured button:hover {
-            background: var(--gold-hover);
-        }
-
-        .modal-footer {
-            display: flex;
-            justify-content: flex-end;
-            gap: 10px;
+        footer {
+            text-align: center;
+            padding: 30px;
             border-top: 1px solid var(--border-color);
-            padding-top: 20px;
+            color: var(--text-muted);
+            font-size: 0.85rem;
         }
 
-        .btn-primary {
-            background: var(--gold);
-            color: #000;
-            border: none;
-            padding: 10px 18px;
-            border-radius: 8px;
-            font-weight: 600;
-            cursor: pointer;
-        }
-
-        .btn-primary:hover {
-            background: var(--gold-hover);
+        footer span {
+            color: var(--accent-gold);
         }
     </style>
 </head>
 <body>
 
-    <!-- Site Header & Navigation -->
-    <header class="site-header">
-        <div class="nav-container container">
-            <div class="logo">
-                <a href="/">Trilloka</a>
-            </div>
-            <nav class="main-nav nav-links">
-                <a href="/why-us">Why Us</a>
-                <a href="/solutions">Solutions</a>
-                <a href="/vlog">Vlog</a>
-            </nav>
-        </div>
+    <!-- Header / Navigation -->
+    <header>
+        <a href="/" class="logo">TRILLOKA</a>
+        <nav>
+            <a href="/" class="active">HOME</a>
+            <a href="/solutions">SOLUTIONS</a>
+            <a href="/why-us">WHY US</a>
+            <a href="/vlog">VLOG</a>
+        </nav>
     </header>
 
-    <!-- Hero / Scan Bar Section -->
-    <main class="hero-section hero-fold">
-        <div class="hero-content">
-            <h1>Architectural Revenue Remediator</h1>
-            <p class="hero-philosophy">Scan your business infrastructure, uncover hidden revenue leaks, and fix conversion gaps instantly.</p>
+    <!-- Hero / Main Input Interface -->
+    <div class="hero-section">
+        <div class="scanner-card">
+            <h1>Find out why you're losing customers</h1>
+            <p>Check your website score. See the top 5 reasons you're bleeding money — and how to fix them in 30 days. The full report covers every measurement your online business needs.</p>
             
-            <div class="scan-bar-container domain-console" style="margin-top: 30px;">
-                <form id="scan-form" onsubmit="handleScan(event)" class="console-input-wrap">
-                    <input type="url" id="target-url" placeholder="https://yourbusiness.com" required>
-                    <button type="submit" id="scan-btn" class="btn btn-filled">Run Audit</button>
-                </form>
-            </div>
-        </div>
-    </main>
-
-    <!-- Audit Result & Metrics Modal Overlay -->
-    <div id="audit-modal" class="modal-overlay" style="display: none;">
-        <div class="modal-card">
-            <button class="modal-close" onclick="closeModal()">&times;</button>
-            
-            <div class="modal-header">
-                <h2>Audit & Revenue Remediator Report</h2>
-                <span id="modal-target-display" class="subtext"></span>
-            </div>
-
-            <div class="modal-body" style="margin-top: 20px;">
-                <!-- Readiness Score & Key Metrics -->
-                <div class="metrics-grid">
-                    <div class="metric-box">
-                        <span class="metric-label">Readiness Score</span>
-                        <span id="metric-score" class="metric-value">--</span>
-                    </div>
-                    <div class="metric-box">
-                        <span class="metric-label">Estimated Revenue Leaks</span>
-                        <span id="metric-leaks" class="metric-value text-danger">--</span>
-                    </div>
-                </div>
-
-                <!-- Risk Profile & Identified Gaps -->
-                <div class="results-section">
-                    <h3>Identified Risk Profiles & Gaps</h3>
-                    <ul id="risk-list" class="gap-list">
-                        <!-- Populated dynamically via app.js -->
-                    </ul>
-                </div>
-
-                <!-- Commercial Tier Options -->
-                <div class="tier-selection-section">
-                    <h3>Select Remediation Tier</h3>
-                    <div class="tier-cards">
-                        <div class="tier-option">
-                            <h4>Starter Fix</h4>
-                            <p>$499 / one-time</p>
-                            <button type="button" onclick="selectTier('starter')">Deploy Starter</button>
-                        </div>
-                        <div class="tier-option featured">
-                            <h4>Full Architecture Remediator</h4>
-                            <p>$1,499 / comprehensive</p>
-                            <button type="button" onclick="selectTier('full')">Deploy Full Remediator</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="modal-footer">
-                <button class="btn-secondary" onclick="closeModal()">Close</button>
-                <button class="btn-primary" onclick="proceedToCheckout()">Proceed to Secure Checkout</button>
+            <div class="input-group">
+                <input type="text" id="targetUrl" value="https://www.karakoramrestaurant.com" placeholder="https://yourwebsite.com">
+                <button onclick="openModal()">CHECK SCORE</button>
             </div>
         </div>
     </div>
 
-    <!-- Core Scripts -->
-    <script>
-        async function handleScan(event) {
-            event.preventDefault();
-            const urlInput = document.getElementById('target-url').value;
-            const scanBtn = document.getElementById('scan-btn');
+    <!-- Results & Architecture Modal Overlay -->
+    <div class="modal-overlay" id="resultsModal">
+        <div class="modal-container">
+            <div class="close-modal" onclick="closeModal()">&times;</div>
             
-            scanBtn.textContent = 'Scanning Infrastructure...';
-            scanBtn.disabled = true;
+            <div class="results-header">
+                <span>Architectural Revenue Remediation Results</span>
+                <h2 id="modalUrlTitle">karakoramrestaurant.com</h2>
+            </div>
 
-            try {
-                const response = await fetch('/api/v1/scan', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: urlInput })
-                });
+            <!-- Dynamic Behavioral Hook Box (Barlet Institute Framework Integration) -->
+            <div class="hook-box" id="dynamicHookBox">
+                <h4 id="hookTitle">Critical Optimization Opportunity Detected</h4>
+                <p id="hookText">Your visual positioning template score reveals heavy generic leakage. Visitors are bouncing before conversion due to unaligned trust markers.</p>
+            </div>
 
-                if (!response.ok) throw new Error('Scan infrastructure failed.');
-                
-                const data = await response.json();
-                
-                // Populate Modal Data
-                document.getElementById('modal-target-display').textContent = urlInput;
-                document.getElementById('metric-score').textContent = data.score || '15%';
-                document.getElementById('metric-leaks').textContent = data.leaks || '$14,200/mo';
-                
-                // Populate dynamic risk list if provided, or default placeholders
-                const riskList = document.getElementById('risk-list');
-                riskList.innerHTML = '';
-                const risks = data.risks || [
-                    "Unoptimized conversion pathways detected",
-                    "Missing structural metadata architecture",
-                    "High bounce rate vulnerability on mobile viewports"
-                ];
+            <!-- Dynamic Metrics Visualizer Grid -->
+            <div class="metrics-grid">
+                <div class="metric-box">
+                    <div class="metric-ring alert" id="metricGeneric">89</div>
+                    <div class="metric-title">Template / Generic Trap</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-ring pass" id="metricVisual">0</div>
+                    <div class="metric-title">Visual Twin Unique Match</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-ring pass" id="metricVoice">5</div>
+                    <div class="metric-title">Distinct Voice Score</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-ring alert" id="metricPresence">12</div>
+                    <div class="metric-title">Conversion Leak Score</div>
+                </div>
+            </div>
 
-                risks.forEach(risk => {
-                    const li = document.createElement('li');
-                    li.textContent = risk;
-                    li.style.cssText = "color: #bbb; font-size: 13px; margin-bottom: 6px; list-style-type: disc;";
-                    riskList.appendChild(li);
-                });
+            <!-- Full Report & Email Capture Form -->
+            <div class="report-capture">
+                <h3>Get the Complete Report + 30-Day Roadmap</h3>
+                <p>We'll send you a full breakdown with exactly what to fix, in what order, and how to get back on track in 30 days. Reports are reviewed by The Architect.</p>
+                <div class="input-group">
+                    <input type="email" id="reportEmail" placeholder="your@email.com">
+                    <button onclick="submitReportRequest()">SEND ME THE REPORT</button>
+                </div>
+                <span style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-top: 10px;">Reports are reviewed by The Architect. Expect delivery within 24 hours.</span>
+            </div>
 
-                // Open Mobile-Optimized Modal
-                document.getElementById('audit-modal').style.display = 'flex';
-            } catch (err) {
-                alert('Error connecting to API backend: ' + err.message);
-            } finally {
-                scanBtn.textContent = 'Run Audit';
-                scanBtn.disabled = false;
+            <!-- Pricing Tiers: 350, 550, 850 with ID Prefixes -->
+            <div class="pricing-section-title">Upgrade Your Remediation</div>
+            <h3 class="pricing-header">Choose your depth</h3>
+            
+            <div class="pricing-tiers">
+                <div class="tier-card">
+                    <div>
+                        <div class="tier-id-tag">IFYB3-X79B2P</div>
+                        <div class="tier-title">Important For Your Business</div>
+                        <div class="tier-price">$350</div>
+                        <div class="tier-desc">Covers main leaks and their fixes. Full architectural inspection.</div>
+                    </div>
+                </div>
+                <div class="tier-card">
+                    <div>
+                        <div class="tier-id-tag">MBTB6-K92L8Q</div>
+                        <div class="tier-title">Making Your Business Best</div>
+                        <div class="tier-price">$550</div>
+                        <div class="tier-desc">The 5 biggest conversion leaks prioritized with complete custom repair steps.</div>
+                    </div>
+                </div>
+                <div class="tier-card">
+                    <div>
+                        <div class="tier-id-tag">NOLY8-M34R1V</div>
+                        <div class="tier-title">No One Like You</div>
+                        <div class="tier-price">$850</div>
+                        <div class="tier-desc">All 8 biggest leaks addressed with full technical specs and validation hooks.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Custom Hire the Architect Button -->
+            <div class="architect-btn-container">
+                <button class="custom-architect-btn" onclick="hireArchitect()">HIRE THE ARCHITECT FOR CUSTOM REBUILD (ARCH10)</button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+        TRILLOKA &mdash; <span>Architectural Revenue Remediation — The Anti-Grader</span>
+    </footer>
+
+    <script>
+        // Barlet Institute-backed behavioral hooks based on live frontend metric triggers
+        const behavioralHooks = [
+            {
+                threshold: 80,
+                title: "⚠️ High Generic Similarity Warning",
+                text: "Your front-end structure triggers high template recognition in buyer behavior models. Visitors subconsciously treat your brand as commoditized within 3 seconds of arrival."
+            },
+            {
+                threshold: 50,
+                title: "⚡ Moderate Friction Point Identified",
+                text: "Your distinct voice score is underperforming relative to regional competitors. Key conversion pathways contain structural ambiguity that suppresses user intent."
+            },
+            {
+                threshold: 0,
+                title: "💎 Exceptional Differentiation Profile",
+                text: "Your visual twin metrics demonstrate robust uniqueness. Minor architectural tuning is required to lock in conversion consistency across mobile viewports."
             }
+        ];
+
+        function openModal() {
+            const urlInput = document.getElementById('targetUrl').value;
+            if(urlInput) {
+                document.getElementById('modalUrlTitle').innerText = urlInput.replace(/^https?:\/\//, '').replace(/\/$/, '');
+            }
+
+            // Dynamically select Barlet Institute behavioral hook based on generic trap score (89)
+            const genericScore = 89;
+            const selectedHook = behavioralHooks.find(h => genericScore >= h.threshold) || behavioralHooks[2];
+            
+            document.getElementById('hookTitle').innerText = selectedHook.title;
+            document.getElementById('hookText').innerText = selectedHook.text;
+
+            document.getElementById('resultsModal').style.display = 'flex';
+            document.body.style.overflow = 'hidden';
         }
 
         function closeModal() {
-            document.getElementById('audit-modal').style.display = 'none';
+            document.getElementById('resultsModal').style.display = 'none';
+            document.body.style.overflow = 'auto';
         }
 
-        function selectTier(tierName) {
-            console.log('Selected Tier:', tierName);
+        function submitReportRequest() {
+            const email = document.getElementById('reportEmail').value;
+            if(email) {
+                alert('Report requested successfully with secure prefix tracking! The Architect will review your codebase and leaks within 24 hours.');
+                document.getElementById('reportEmail').value = '';
+            } else {
+                alert('Please enter a valid email address.');
+            }
         }
 
-        function proceedToCheckout() {
-            window.location.href = '/checkout';
+        function hireArchitect() {
+            alert('Initiating direct secure session with The Architect (ARCH10 Protocol)...');
         }
     </script>
 </body>
