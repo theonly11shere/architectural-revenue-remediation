@@ -2,424 +2,1245 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Why Us — Trilloka</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<meta name="theme-color" content="#080808">
+<title>Why Us | Trilloka</title>
+<meta name="description" content="Why founders trust Trilloka to find and fix revenue leaks.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
+
 :root {
-  --bg: #0D0D0D;
-  --surface: #11110e;
-  --surface-2: #1a1a14;
-  --card: #141410;
-  --gold: #D4AF37;
-  --gold-dim: #a08020;
-  --text: #F5E6C8;
-  --text-secondary: #b0a080;
-  --text-muted: #6a6040;
-  --teal: #2a9d8f;
-  --purple: #9b59b6;
-  --green: #2ECC71;
+  --charcoal: #0F0F0F;
+  --matte: #080808;
+  --copper: #C0784A;
+  --copper-light: #D48A5E;
+  --sand: #E8D5C4;
+  --mist: #B8B0A8;
+  --white: #F5F2EF;
+  --red-leak: #C85A5A;
+  --green-fix: #5A9E7A;
 }
-* { margin:0; padding:0; box-sizing:border-box; }
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
 html { scroll-behavior: smooth; }
+
 body {
-  background: var(--bg); color: var(--text);
-  font-family: 'DM Sans', sans-serif;
-  line-height: 1.6; overflow-x: hidden;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--matte);
+  color: var(--white);
+  line-height: 1.6;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
-.bg-image { position: fixed; inset: 0; background: url('a1cbf01a-fcfe-4e79-8504-378f4eb906ef-1_all_1078.jpg') center center / cover no-repeat; z-index: -2; }
-.bg-image::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(13,13,13,0.9) 0%, rgba(13,13,13,0.85) 40%, rgba(13,13,13,0.93) 100%); }
-.bg-grid {
-  position: fixed; inset: 0;
-  background-image: linear-gradient(rgba(212,175,55,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(212,175,55,0.03) 1px, transparent 1px);
-  background-size: 60px 60px; pointer-events: none; z-index: 0;
+.container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1.25rem;
 }
-.nav {
-  position: fixed; top:0; left:0; right:0; z-index: 1000;
-  padding: 20px 40px;
-  display: flex; justify-content: space-between; align-items: center;
-  transition: all 0.4s ease;
-  border-bottom: 1px solid transparent;
+
+h1, h2, h3, h4 {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--white);
 }
-.nav-scrolled {
-  background: rgba(13,13,13,0.95); backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(212,175,55,0.08); padding: 14px 40px;
+
+h1 { font-size: clamp(2rem, 6vw, 3.5rem); }
+h2 { font-size: clamp(1.6rem, 4vw, 2.4rem); }
+h3 { font-size: clamp(1.2rem, 3vw, 1.6rem); }
+h4 { font-size: clamp(1rem, 2.5vw, 1.25rem); }
+
+p, li {
+  font-size: clamp(0.9rem, 2vw, 1rem);
+  color: var(--mist);
 }
-.nav-logo { display: flex; align-items: center; gap: 12px; text-decoration: none; }
-.nav-logo span {
-  font-family: 'Cormorant Garamond', serif; font-size: 1.4rem; font-weight: 700;
-  letter-spacing: 4px; text-transform: uppercase; color: var(--gold);
+
+.subtitle {
+  font-size: clamp(0.85rem, 2vw, 0.95rem);
+  color: var(--copper);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  margin-bottom: 0.75rem;
 }
-.nav-links { display: flex; gap: 36px; list-style: none; }
+
+nav {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 1000;
+  background: rgba(8,8,8,0.92);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(192,120,74,0.15);
+}
+
+.nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  text-decoration: none;
+}
+
+.logo img {
+  height: 32px;
+  width: auto;
+  opacity: 0.9;
+}
+
+.logo span {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.3rem;
+  color: var(--white);
+  letter-spacing: -0.02em;
+}
+
+.nav-links {
+  display: none;
+  align-items: center;
+  gap: 2rem;
+  list-style: none;
+}
+
 .nav-links a {
-  font-size: 0.7rem; font-weight: 500; letter-spacing: 2.5px;
-  text-transform: uppercase; color: var(--text-secondary);
-  text-decoration: none; transition: color 0.3s; position: relative;
+  color: var(--mist);
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: color 0.2s;
 }
-.nav-links a:hover, .nav-links a.active { color: var(--gold); }
-.nav-links a::after {
-  content: ''; position: absolute; bottom: -4px; left: 0;
-  width: 0; height: 1px; background: var(--gold); transition: width 0.3s;
+
+.nav-links a:hover,
+.nav-links a.active {
+  color: var(--copper);
 }
-.nav-links a:hover::after, .nav-links a.active::after { width: 100%; }
+
 .hamburger {
-  display: none; flex-direction: column; gap: 5px;
-  background: none; border: none; cursor: pointer; padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  z-index: 1001;
 }
-.hamburger span { display: block; width: 24px; height: 1.5px; background: var(--gold); }
+
+.hamburger span {
+  display: block;
+  width: 24px;
+  height: 2px;
+  background: var(--white);
+  transition: all 0.3s ease;
+  border-radius: 1px;
+}
+
+.hamburger.active span:nth-child(1) { transform: rotate(45deg) translate(5px, 5px); }
+.hamburger.active span:nth-child(2) { opacity: 0; }
+.hamburger.active span:nth-child(3) { transform: rotate(-45deg) translate(5px, -5px); }
+
 .mobile-menu {
-  display: none; position: fixed; top:0; left:0; right:0; bottom:0;
-  background: rgba(13,13,13,0.98); z-index: 999;
-  flex-direction: column; align-items: center; justify-content: center; gap: 32px;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(8,8,8,0.98);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
+  z-index: 999;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
 }
-.mobile-menu.open { display: flex; }
+
+.mobile-menu.open {
+  opacity: 1;
+  pointer-events: all;
+}
+
 .mobile-menu a {
-  font-family: 'Cormorant Garamond', serif; font-size: 1.8rem;
-  color: var(--text); text-decoration: none; letter-spacing: 2px;
-}
-.mobile-menu .close-btn {
-  position: absolute; top: 24px; right: 24px;
-  background: none; border: none; color: var(--gold); font-size: 2rem; cursor: pointer;
-}
-
-/* Hero */
-.hero {
-  min-height: 55vh; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; text-align: center;
-  padding: 140px 24px 60px; position: relative; z-index: 1;
-}
-.hero-tag {
-  font-size: 0.7rem; font-weight: 700; letter-spacing: 5px;
-  text-transform: uppercase; color: var(--gold-dim); margin-bottom: 20px;
-}
-.hero h1 {
-  font-family: 'Cormorant Garamond', serif;
-  font-size: clamp(2rem, 5vw, 3.5rem); font-weight: 400;
-  line-height: 1.15; color: var(--text); max-width: 800px; margin-bottom: 16px;
-}
-.hero h1 em { color: var(--gold); font-style: normal; }
-.hero-sub {
-  font-size: 1rem; color: var(--text-secondary); max-width: 520px;
+  font-family: 'Playfair Display', serif;
+  font-size: 1.8rem;
+  color: var(--white);
+  text-decoration: none;
+  transition: color 0.2s;
 }
 
-/* Section */
-.section { padding: 80px 24px; position: relative; z-index: 1; }
-.section-header { text-align: center; max-width: 640px; margin: 0 auto 60px; }
-.section-tag {
-  font-size: 0.65rem; font-weight: 700; letter-spacing: 4px;
-  text-transform: uppercase; color: var(--gold-dim); display: block; margin-bottom: 16px;
-}
-.section h2 {
-  font-family: 'Cormorant Garamond', serif;
-  font-size: clamp(1.6rem, 3.5vw, 2.4rem); font-weight: 400;
-  color: var(--text); margin-bottom: 12px;
-}
-.section p.lead { font-size: 1rem; color: var(--text-secondary); }
+.mobile-menu a:hover { color: var(--copper); }
 
-/* Philosophy Chart */
-.philosophy-section { background: var(--surface); }
-.phil-chart {
-  max-width: 800px; margin: 0 auto;
-  display: flex; flex-direction: column; gap: 0;
-}
-.phil-row {
-  display: flex; align-items: stretch;
-  border-bottom: 1px solid rgba(212,175,55,0.06);
-}
-.phil-row:last-child { border-bottom: none; }
-.phil-label {
-  width: 200px; padding: 28px 24px;
-  font-size: 0.75rem; font-weight: 700;
-  letter-spacing: 2px; text-transform: uppercase;
-  color: var(--gold); border-right: 1px solid rgba(212,175,55,0.06);
-  display: flex; align-items: center;
-  flex-shrink: 0;
-}
-.phil-content { padding: 28px 32px; flex: 1; }
-.phil-content h4 {
-  font-family: 'Cormorant Garamond', serif;
-  font-size: 1.2rem; font-weight: 600;
-  color: var(--text); margin-bottom: 6px;
-}
-.phil-content p {
-  font-size: 0.85rem; color: var(--text-secondary); line-height: 1.7;
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.875rem 1.75rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-height: 48px;
+  min-width: 48px;
+  touch-action: manipulation;
 }
 
-/* Measure Grid */
-.measure-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; max-width: 900px; margin: 0 auto; }
-.measure-card { background: var(--card); border: 1px solid rgba(212,175,55,0.06); border-radius: 16px; padding: 36px; transition: all 0.3s; }
-.measure-card:hover { border-color: rgba(212,175,55,0.15); transform: translateY(-2px); }
-.measure-card h4 { font-family: 'Cormorant Garamond', serif; font-size: 1.2rem; color: var(--gold); margin-bottom: 10px; }
-.measure-card p { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.7; }
-
-/* Footer */
-.footer {
-  border-top: 1px solid rgba(212,175,55,0.06);
-  padding: 60px 40px 40px; position: relative; z-index: 1;
-}
-.footer-inner {
-  max-width: 1200px; margin: 0 auto;
-  display: flex; justify-content: space-between; align-items: flex-start;
-}
-.footer-brand {
-  font-family: 'Cormorant Garamond', serif; font-size: 1.3rem;
-  font-weight: 700; letter-spacing: 4px; color: var(--gold); margin-bottom: 8px;
-}
-.footer-copy { font-size: 0.8rem; color: var(--text-muted); }
-.footer-links { display: flex; gap: 32px; list-style: none; }
-.footer-links a {
-  font-size: 0.75rem; color: var(--text-muted); text-decoration: none;
-  letter-spacing: 1px; transition: color 0.3s;
-}
-.footer-links a:hover { color: var(--gold); }
-
-@media (max-width: 900px) {
-  .phil-row { flex-direction: column; }
-  .phil-label { width: 100%; border-right: none; border-bottom: 1px solid rgba(212,175,55,0.06); }
-  .nav-links { display: none; }
-  .hamburger { display: flex; }
-  .footer-inner { flex-direction: column; gap: 24px; }
-  .measure-grid { grid-template-columns: 1fr; }
+.btn-primary {
+  background: var(--copper);
+  color: var(--matte);
 }
 
-@media (max-width: 768px) {
-  .hero { min-height: auto; padding: 120px 20px 50px; }
-  .hero h1 { font-size: clamp(1.8rem, 6vw, 2.8rem); }
-  .hero-sub { font-size: 0.95rem; }
-  .section { padding: 60px 20px; }
-  .section h2 { font-size: clamp(1.5rem, 5vw, 2rem); }
-  .phil-label { padding: 20px 20px 12px; font-size: 0.7rem; }
-  .phil-content { padding: 20px; }
-  .phil-content h4 { font-size: 1.1rem; }
-  .phil-content p { font-size: 0.82rem; }
-  .measure-card { padding: 28px 24px; }
-  .measure-card h4 { font-size: 1.1rem; }
-  .measure-card p { font-size: 0.82rem; }
-  .footer { padding: 40px 20px 30px; }
-  .footer-inner { gap: 20px; }
-  .footer-brand { font-size: 1.1rem; }
-  .footer-links { flex-wrap: wrap; gap: 20px; justify-content: center; }
-  .footer-copy { text-align: center; }
-  .nav { padding: 16px 20px; }
-  .nav-scrolled { padding: 12px 20px; }
-  .nav-logo span { font-size: 1.1rem; letter-spacing: 3px; }
-  .mobile-menu a { font-size: 1.4rem; }
+.btn-primary:hover {
+  background: var(--copper-light);
+  transform: translateY(-1px);
 }
 
-@media (max-width: 480px) {
-  .hero { padding: 100px 16px 40px; }
-  .hero h1 { font-size: clamp(1.4rem, 7vw, 1.8rem); }
-  .hero-tag { font-size: 0.6rem; letter-spacing: 3px; }
-  .hero-sub { font-size: 0.85rem; }
-  .section { padding: 48px 16px; }
-  .section h2 { font-size: clamp(1.2rem, 6vw, 1.5rem); }
-  .section p.lead { font-size: 0.85rem; }
-  .section-header { margin-bottom: 40px; }
-  .phil-label { padding: 16px 16px 10px; font-size: 0.65rem; letter-spacing: 1.5px; }
-  .phil-content { padding: 16px; }
-  .phil-content h4 { font-size: 1rem; }
-  .phil-content p { font-size: 0.78rem; }
-  .measure-grid { gap: 12px; }
-  .measure-card { padding: 24px 18px; }
-  .measure-card h4 { font-size: 1rem; }
-  .measure-card p { font-size: 0.78rem; }
-  .footer { padding: 32px 16px 24px; }
-  .footer-brand { font-size: 1rem; letter-spacing: 3px; }
-  .footer-links { gap: 16px; }
-  .footer-links a { font-size: 0.7rem; }
-  .nav { padding: 14px 16px; }
-  .nav-scrolled { padding: 10px 16px; }
-  .nav-logo span { font-size: 1rem; letter-spacing: 2px; }
-  .hamburger span { width: 22px; }
-  .mobile-menu a { font-size: 1.3rem; }
-  .mobile-menu .close-btn { top: 16px; right: 16px; font-size: 1.8rem; }
+.btn-outline {
+  background: transparent;
+  color: var(--copper);
+  border: 1.5px solid var(--copper);
 }
+
+.btn-outline:hover {
+  background: rgba(192,120,74,0.1);
+}
+
+.btn-ghost {
+  background: rgba(255,255,255,0.05);
+  color: var(--white);
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+  padding: 1.5rem;
+  transition: transform 0.2s, border-color 0.2s;
+}
+
+.card:hover {
+  border-color: rgba(192,120,74,0.25);
+  transform: translateY(-2px);
+}
+
+section { padding: 4rem 0; }
+
+.section-header {
+  text-align: center;
+  max-width: 640px;
+  margin: 0 auto 3rem;
+}
+
+.section-header h2 { margin-bottom: 0.75rem; }
+
+footer {
+  background: var(--charcoal);
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding: 3rem 0 1.5rem;
+}
+
+.footer-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+.footer-col h4 {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--sand);
+  margin-bottom: 1rem;
+}
+
+.footer-col a {
+  display: block;
+  color: var(--mist);
+  text-decoration: none;
+  font-size: 0.9rem;
+  padding: 0.35rem 0;
+  transition: color 0.2s;
+}
+
+.footer-col a:hover { color: var(--copper); }
+
+.footer-bottom {
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: center;
+  text-align: center;
+}
+
+.footer-bottom a {
+  color: var(--mist);
+  text-decoration: none;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  transition: color 0.2s;
+}
+
+.footer-bottom a:hover { color: var(--copper); }
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.85);
+  backdrop-filter: blur(8px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+.modal-overlay.active { display: flex; }
+
+.modal {
+  background: var(--charcoal);
+  border: 1px solid rgba(192,120,74,0.2);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 720px;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+  animation: modalSlide 0.3s ease;
+}
+
+@keyframes modalSlide {
+  from { opacity: 0; transform: translateY(20px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.modal-close {
+  position: absolute;
+  top: 1rem; right: 1rem;
+  background: none;
+  border: none;
+  color: var(--mist);
+  font-size: 1.5rem;
+  cursor: pointer;
+  width: 40px; height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  transition: all 0.2s;
+  z-index: 10;
+}
+
+.modal-close:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--white);
+}
+
+.modal-body { padding: 1.5rem; }
+
+.phone-popup {
+  text-align: center;
+  padding: 2rem 1.5rem;
+}
+
+.phone-popup h3 {
+  font-size: 1.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.phone-popup .number {
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(1.5rem, 5vw, 2rem);
+  color: var(--copper);
+  margin: 1rem 0;
+  letter-spacing: 0.02em;
+}
+
+.revenue-card {
+  background: rgba(200,90,90,0.08);
+  border: 1px solid rgba(200,90,90,0.25);
+  border-radius: 12px;
+  padding: 1.5rem;
+  text-align: center;
+  margin: 1rem 0;
+}
+
+.revenue-card .amount {
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(1.8rem, 6vw, 2.5rem);
+  color: var(--red-leak);
+  margin: 0.5rem 0;
+}
+
+.cms-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(192,120,74,0.12);
+  border: 1px solid rgba(192,120,74,0.3);
+  color: var(--copper-light);
+  padding: 0.5rem 1rem;
+  border-radius: 100px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.scanner-box {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  padding: 1.5rem;
+  margin: 1.5rem 0;
+}
+
+.scan-input-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.scan-input-wrap input {
+  width: 100%;
+  padding: 1rem 1.25rem;
+  font-size: 1rem;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: var(--white);
+  outline: none;
+  transition: border-color 0.2s;
+  min-height: 48px;
+}
+
+.scan-input-wrap input:focus { border-color: var(--copper); }
+
+.scan-input-wrap input::placeholder { color: rgba(184,176,168,0.5); }
+
+.analysis-step {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 0.875rem 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  opacity: 0.4;
+  transition: opacity 0.3s;
+}
+
+.analysis-step.active { opacity: 1; }
+.analysis-step.done { opacity: 0.7; }
+
+.step-icon {
+  width: 28px; height: 28px;
+  min-width: 28px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  transition: all 0.3s;
+}
+
+.analysis-step.active .step-icon {
+  border-color: var(--copper);
+  color: var(--copper);
+  animation: spin 1s linear infinite;
+}
+
+.analysis-step.done .step-icon {
+  border-color: var(--green-fix);
+  color: var(--green-fix);
+  background: rgba(90,158,122,0.15);
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.rings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.ring-item {
+  text-align: center;
+  padding: 1rem 0.5rem;
+}
+
+.ring-svg {
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 0.5rem;
+}
+
+.ring-label {
+  font-size: 0.75rem;
+  color: var(--mist);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ring-value {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.1rem;
+  color: var(--copper);
+  margin-top: 0.25rem;
+}
+
+.leak-item {
+  background: rgba(255,255,255,0.02);
+  border-left: 3px solid var(--copper);
+  border-radius: 0 8px 8px 0;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.leak-item h4 {
+  font-size: 0.95rem;
+  margin-bottom: 0.35rem;
+}
+
+.leak-item p {
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.pricing-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 1.5rem;
+  position: relative;
+  transition: transform 0.2s, border-color 0.2s;
+}
+
+.pricing-card.featured {
+  border-color: rgba(192,120,74,0.4);
+  background: rgba(192,120,74,0.05);
+}
+
+.pricing-card .tier-name {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.1rem;
+  margin-bottom: 0.25rem;
+}
+
+.pricing-card .tier-price {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--copper);
+  margin-bottom: 0.75rem;
+}
+
+.pricing-card .tier-desc {
+  font-size: 0.85rem;
+  color: var(--mist);
+  margin-bottom: 1rem;
+  line-height: 1.5;
+}
+
+.pricing-card ul {
+  list-style: none;
+  margin-bottom: 1.25rem;
+}
+
+.pricing-card li {
+  font-size: 0.85rem;
+  padding: 0.35rem 0;
+  padding-left: 1.25rem;
+  position: relative;
+  color: var(--sand);
+}
+
+.pricing-card li::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  color: var(--green-fix);
+  font-weight: 700;
+}
+
+.contact-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.contact-item {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px;
+  padding: 1rem;
+  text-align: center;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.2s;
+}
+
+.contact-item:hover { border-color: rgba(192,120,74,0.3); }
+
+.contact-item .label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--mist);
+  margin-bottom: 0.35rem;
+}
+
+.contact-item .value {
+  font-family: 'Playfair Display', serif;
+  font-size: 1rem;
+  color: var(--copper);
+}
+
+.architect-handle {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.1rem;
+  color: var(--copper);
+  margin-bottom: 0.25rem;
+  letter-spacing: 0.02em;
+}
+
+.guardrail-box {
+  display: none;
+  background: rgba(192,120,74,0.06);
+  border: 1px solid rgba(192,120,74,0.25);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-top: 1.25rem;
+  text-align: center;
+}
+
+.guardrail-box.active { display: block; }
+
+.guardrail-box h4 {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.1rem;
+  color: var(--copper);
+  margin-bottom: 0.75rem;
+}
+
+.guardrail-box p {
+  font-size: 0.9rem;
+  color: var(--sand);
+  line-height: 1.7;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.dev-handoff {
+  background: rgba(255,255,255,0.02);
+  border: 1px dashed rgba(192,120,74,0.3);
+  border-radius: 10px;
+  padding: 1.25rem;
+  margin: 1rem 0;
+}
+
+.dev-handoff p {
+  font-size: 0.85rem;
+  color: var(--mist);
+  margin-bottom: 0.75rem;
+}
+
+.copy-btn {
+  width: 100%;
+  font-size: 0.85rem;
+}
+
+.copy-btn.copied {
+  background: var(--green-fix) !important;
+  color: var(--matte) !important;
+}
+
+.terms-notice {
+  text-align: center;
+  font-size: 0.8rem;
+  color: rgba(184,176,168,0.6);
+  max-width: 480px;
+  margin: 1rem auto 0;
+  line-height: 1.5;
+}
+
+.terms-notice a {
+  color: var(--copper);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.trust-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1.5rem;
+  margin-top: 2rem;
+  opacity: 0.6;
+}
+
+.trust-row span {
+  font-size: 0.8rem;
+  color: var(--mist);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.steps-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+  margin-top: 2rem;
+}
+
+.step-card {
+  text-align: center;
+  padding: 2rem 1.5rem;
+}
+
+.step-num {
+  font-family: 'Playfair Display', serif;
+  font-size: 2.5rem;
+  color: var(--copper);
+  opacity: 0.4;
+  line-height: 1;
+  margin-bottom: 0.75rem;
+}
+
+.cta-section {
+  background: var(--charcoal);
+  text-align: center;
+}
+
+.hire-btn-wrap {
+  text-align: center;
+  margin-top: 1.5rem;
+}
+
+.friction-box {
+  background: rgba(192,120,74,0.06);
+  border: 1px solid rgba(192,120,74,0.2);
+  border-radius: 10px;
+  padding: 1.25rem;
+  margin: 1rem 0;
+}
+
+.friction-box h4 {
+  color: var(--copper-light);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.5rem;
+}
+
+.friction-box .revenue-loss {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.3rem;
+  color: var(--red-leak);
+}
+
+.score-hero {
+  text-align: center;
+  padding: 1rem 0 2rem;
+}
+
+.score-hero .big-score {
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(3rem, 10vw, 5rem);
+  color: var(--copper);
+  line-height: 1;
+}
+
+.score-hero .score-label {
+  font-size: 0.9rem;
+  color: var(--mist);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-top: 0.5rem;
+}
+
+.page-hero {
+  padding-top: 7rem;
+  padding-bottom: 2rem;
+  text-align: center;
+}
+
+.page-hero h1 { max-width: 700px; margin: 0 auto 1rem; }
+.page-hero p { max-width: 560px; margin: 0 auto; color: var(--mist); font-size: clamp(1rem, 2.5vw, 1.1rem); }
+
+.solutions-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+  margin-top: 2rem;
+}
+
+.solution-card { padding: 1.75rem; }
+
+.solution-card .icon {
+  width: 44px; height: 44px;
+  border-radius: 10px;
+  background: rgba(192,120,74,0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.solution-card h3 {
+  font-size: 1.15rem;
+  margin-bottom: 0.5rem;
+}
+
+.solution-card p {
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.process-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.process-item {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  padding: 1.25rem;
+  background: rgba(255,255,255,0.02);
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.05);
+}
+
+.process-num {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.5rem;
+  color: var(--copper);
+  opacity: 0.5;
+  min-width: 36px;
+}
+
+.process-item h4 {
+  font-size: 1rem;
+  margin-bottom: 0.35rem;
+}
+
+.process-item p { font-size: 0.85rem; }
+
+.differentiator-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+  margin-top: 2rem;
+}
+
+.diff-card {
+  padding: 1.75rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.diff-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 3px; height: 100%;
+  background: var(--copper);
+  opacity: 0.6;
+}
+
+.diff-card h3 {
+  font-size: 1.1rem;
+  margin-bottom: 0.5rem;
+  padding-left: 0.5rem;
+}
+
+.diff-card p {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  padding-left: 0.5rem;
+}
+
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.stat-box {
+  text-align: center;
+  padding: 1.5rem 1rem;
+}
+
+.stat-box .num {
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(1.8rem, 5vw, 2.5rem);
+  color: var(--copper);
+  line-height: 1;
+}
+
+.stat-box .label {
+  font-size: 0.8rem;
+  color: var(--mist);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 0.5rem;
+}
+
+.testimonial {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+  padding: 1.75rem;
+  margin-top: 2rem;
+  position: relative;
+}
+
+.testimonial::before {
+  content: '"';
+  font-family: 'Playfair Display', serif;
+  font-size: 4rem;
+  color: var(--copper);
+  opacity: 0.2;
+  position: absolute;
+  top: 0.5rem; left: 1rem;
+  line-height: 1;
+}
+
+.testimonial p {
+  font-size: 1rem;
+  font-style: italic;
+  color: var(--sand);
+  line-height: 1.7;
+  position: relative;
+  z-index: 1;
+}
+
+.testimonial .author {
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  color: var(--mist);
+}
+
+.legal-container {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 1.25rem 4rem;
+}
+
+.legal-section {
+  margin-bottom: 2.5rem;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.legal-section:last-child { border-bottom: none; }
+
+.legal-section h2 {
+  font-size: clamp(1.2rem, 3vw, 1.4rem);
+  margin-bottom: 1rem;
+  color: var(--copper);
+}
+
+.legal-section h3 {
+  font-size: 1rem;
+  margin: 1.25rem 0 0.5rem;
+  color: var(--sand);
+}
+
+.legal-section p, .legal-section li {
+  font-size: 0.9rem;
+  line-height: 1.7;
+  color: var(--mist);
+  margin-bottom: 0.75rem;
+}
+
+.legal-section ul {
+  margin-left: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.legal-section li { margin-bottom: 0.4rem; }
+
+.section-marker {
+  display: inline-block;
+  background: rgba(192,120,74,0.15);
+  color: var(--copper);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 0.25rem 0.6rem;
+  border-radius: 4px;
+  margin-bottom: 0.75rem;
+}
+
+.text-center { text-align: center; }
+.mt-1 { margin-top: 0.5rem; }
+.mt-2 { margin-top: 1rem; }
+.mt-3 { margin-top: 1.5rem; }
+.mt-4 { margin-top: 2rem; }
+.mb-1 { margin-bottom: 0.5rem; }
+.mb-2 { margin-bottom: 1rem; }
+.mb-3 { margin-bottom: 1.5rem; }
+.hidden { display: none !important; }
+
+.fade-in {
+  animation: fadeIn 0.5s ease forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (min-width: 640px) {
+  .container { padding: 0 2rem; }
+  .scan-input-wrap { flex-direction: row; }
+  .scan-input-wrap input { flex: 1; }
+  .rings-grid { grid-template-columns: repeat(4, 1fr); }
+  .ring-svg { width: 100px; height: 100px; }
+  .pricing-grid { grid-template-columns: repeat(3, 1fr); }
+  .footer-grid { grid-template-columns: repeat(2, 1fr); }
+  .modal-body { padding: 2rem; }
+  section { padding: 5rem 0; }
+  .steps-grid { grid-template-columns: repeat(3, 1fr); }
+  .solutions-grid { grid-template-columns: repeat(2, 1fr); }
+  .process-list { grid-template-columns: repeat(2, 1fr); }
+  .differentiator-grid { grid-template-columns: repeat(2, 1fr); }
+  .stats-row { grid-template-columns: repeat(4, 1fr); }
+  .contact-grid { grid-template-columns: repeat(3, 1fr); }
+  .legal-container { padding: 0 2rem 5rem; }
+}
+
+@media (min-width: 1024px) {
+  .nav-links { display: flex; }
+  .hamburger { display: none; }
+  .footer-grid { grid-template-columns: 2fr 1fr 1fr 1fr; }
+  .footer-bottom { flex-direction: row; justify-content: space-between; }
+  .modal { max-width: 800px; }
+  .scanner-box { padding: 2rem; }
+  .solutions-grid { grid-template-columns: repeat(3, 1fr); }
+  .process-list { grid-template-columns: repeat(4, 1fr); }
+}
+
 </style>
+<base target="_blank">
 </head>
 <body>
 
-<div class="bg-image"></div>
-<div class="bg-grid"></div>
-
-<nav class="nav" id="nav">
-  <a href="/" class="nav-logo">
-    <span>TRILLOKA</span>
-  </a>
-  <ul class="nav-links">
-    <li><a href="/">Home</a></li>
-    <li><a href="/solutions">Solutions</a></li>
-    <li><a href="/why-us" class="active">Why Us</a></li>
-    <li><a href="/vlog">Vlog</a></li>
-  </ul>
-  <button class="hamburger" id="hamburger" aria-label="Menu"><span></span><span></span><span></span></button>
-</nav>
-
 <div class="mobile-menu" id="mobileMenu">
-  <button class="close-btn" id="closeMenu">&times;</button>
-  <a href="/">Home</a>
-  <a href="/solutions">Solutions</a>
-  <a href="/why-us">Why Us</a>
-  <a href="/vlog">Vlog</a>
+  <a href="/" onclick="closeMenu()">Home</a>
+  <a href="/solutions" onclick="closeMenu()">Solutions</a>
+  <a href="/why-us" onclick="closeMenu()">Why Us</a>
+  <a href="/vlog" onclick="closeMenu()">Vlog</a>
 </div>
 
-<section class="hero">
-  <span class="hero-tag">OUR PHILOSOPHY</span>
-  <h1>Three views. One truth. <em>Zero fluff.</em></h1>
-  <p class="hero-sub">How you see yourself. How others see you. And the truth. Most businesses live in the first. The RRS closes the gap.</p>
-</section>
-
-<section class="section philosophy-section">
-  <div class="section-header">
-    <span class="section-tag">THE ARCHITECT'S CODE</span>
-    <h2>Three views. One truth.</h2>
-    <p class="lead">The RRS measures the distance between how you want to be seen and how you are actually seen. Then we bridge that gap.</p>
-  </div>
-  <div class="phil-chart">
-    <div class="phil-row">
-      <div class="phil-label">How You See It</div>
-      <div class="phil-content">
-        <h4>The mirror is always kind</h4>
-        <p>Every owner believes their site is unique. The RRS measures the exact distance between what you believe and what is real.</p>
-      </div>
-    </div>
-    <div class="phil-row">
-      <div class="phil-label">How Others See It</div>
-      <div class="phil-content">
-        <h4>Perception is the only reality that matters</h4>
-        <p>Visitors do not care about your intentions. They care about what they see in 3 seconds. The RRS tells you exactly how the world sees you before a single word is read.</p>
-      </div>
-    </div>
-    <div class="phil-row">
-      <div class="phil-label">The Truth</div>
-      <div class="phil-content">
-        <h4>The RRS closes the gap</h4>
-        <p>The RRS does not flatter you. It measures the exact distance between your self-view and reality. Then it gives you the roadmap to close that gap — specific fixes prioritized by revenue impact.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section class="section" style="background:var(--surface);">
-  <div class="section-header">
-    <span class="section-tag">AI AS A TOOL FOR INNOVATION</span>
-    <h2>The human and the machine</h2>
-    <p class="lead">AI does the grind. I make the call. Together we build weapons.</p>
-  </div>
-  <div class="phil-chart">
-    <div class="phil-row">
-      <div class="phil-label">The Vision</div>
-      <div class="phil-content">
-        <h4>AI does the grind. You make the call.</h4>
-        <p>AI generates and executes at speeds no human can match. But the final decision — the taste, the judgment — still belongs to the human. I make the call. The AI gets me there faster.</p>
-      </div>
-    </div>
-    <div class="phil-row">
-      <div class="phil-label">The Partnership</div>
-      <div class="phil-content">
-        <h4>A human and an AI are an awesome team</h4>
-        <p>The AI handles the repetitive. I handle the strategy. Together we build things neither could build alone. Speed multiplied by judgment.</p>
-      </div>
-    </div>
-    <div class="phil-row">
-      <div class="phil-label">The Guidance</div>
-      <div class="phil-content">
-        <h4>How you guide the AI determines the output</h4>
-        <p>Most people use AI like a search engine — they ask, they accept. I use it like a workshop — I direct, I refine, I push back. The difference between generic output and a weapon is the quality of the human guiding it.</p>
-      </div>
-    </div>
-    <div class="phil-row">
-      <div class="phil-label">Why Me</div>
-      <div class="phil-content">
-        <h4>I am the best choice because I built the system</h4>
-        <p>I built the RRS from zero — every check, every score, every roadmap. I understand what breaks revenue because I have spent thousands of hours diagnosing it. That is not something you can buy from a template.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section class="section" id="graveyard">
-  <div class="section-header">
-    <span class="section-tag">THE GRADER GRAVEYARD</span>
-    <h2>Where other scanners die</h2>
-    <p class="lead">Most tools grade you on page speed and meta tags, then hand you a number that means nothing. They miss the five gaps that actually kill revenue.</p>
-  </div>
-  <div class="measure-grid">
-    <div class="measure-card">
-      <h4>HubSpot / SEMrush</h4>
-      <p>They check SEO. They do not check if your copy sounds like a chatbot. They miss the sameness signal entirely.</p>
-    </div>
-    <div class="measure-card">
-      <h4>SavageAudit</h4>
-      <p>They flag broken links. They do not flag broken trust. A missing alt tag does not kill revenue. "Passionate team" does.</p>
-    </div>
-    <div class="measure-card">
-      <h4>BuiltWith</h4>
-      <p>They detect your tech stack. They do not detect if that stack makes you look identical to 10,000 other businesses.</p>
-    </div>
-    <div class="measure-card">
-      <h4>Brand Voice Tools</h4>
-      <p>They analyze tone. They do not compare you to your actual competitors. They do not find your visual twin.</p>
-    </div>
-  </div>
-  <div style="max-width:640px;margin:40px auto 0;text-align:center;">
-    <p style="font-size:0.9rem;color:var(--text-secondary);line-height:1.7;"><strong style="color:var(--gold);">The RRS difference:</strong> We measure the five gaps nobody else checks. Marketing Cliche Detection. Visual Sameness / Template Detection. Trust Signal Scoring. Revenue Impact Scoring. AI-Generated Copy Detection. These are not features. They are survival metrics.</p>
-  </div>
-</section>
-
-<section class="section measure-section" id="measure">
-  <div class="section-header">
-    <span class="section-tag">WHAT WE MEASURE</span>
-    <h2>We don't guess. We diagnose.</h2>
-    <p class="lead">These four pillars are the main forces that make or break an online business. Our full report runs 35+ checks across every dimension and tells you exactly how to improve.</p>
-  </div>
-  <div class="measure-grid">
-    <div class="measure-card">
-      <h4>Template Fingerprinting</h4>
-      <p>We detect generic frameworks and stock themes that signal "amateur" before a visitor reads one word.</p>
-    </div>
-    <div class="measure-card">
-      <h4>Content Voice Analysis</h4>
-      <p>We scan for cliche density and AI-generated phrasing that triggers instant dismissal. "Passionate team" is not a voice. It is noise.</p>
-    </div>
-    <div class="measure-card">
-      <h4>Visual Uniqueness Score</h4>
-      <p>We compare your layout against thousands of sites to find your visual twin. If you look like your competitor, you have already lost.</p>
-    </div>
-    <div class="measure-card">
-      <h4>Presence &amp; Social Proof</h4>
-      <p>We check brand mentions, reviews, and authority markers. No presence means you are asking for trust with zero evidence.</p>
-    </div>
-  </div>
-</section>
-
-<footer class="footer">
-  <div class="footer-inner">
-    <div>
-      <div class="footer-brand">TRILLOKA</div>
-      <p class="footer-copy">Revenue Readiness Systems</p>
-    </div>
-    <ul class="footer-links">
+<nav>
+  <div class="container nav-inner">
+    <a href="/" class="logo">
+      <img src="logo-dark.png" alt="Trilloka">
+      <span>Trilloka</span>
+    </a>
+    <ul class="nav-links">
       <li><a href="/">Home</a></li>
       <li><a href="/solutions">Solutions</a></li>
-      <li><a href="/why-us">Why Us</a></li>
+      <li><a href="/why-us" class="active">Why Us</a></li>
       <li><a href="/vlog">Vlog</a></li>
     </ul>
+    <button class="hamburger" id="hamburger" onclick="toggleMenu()" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+
+<section class="page-hero">
+  <div class="container">
+    <p class="subtitle">The Difference</p>
+    <h1>We don't guess. We architect.</h1>
+    <p>Most agencies sell you traffic. We fix the holes that make traffic worthless. Every recommendation is tied to a revenue signal, not a trend.</p>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="section-header">
+      <p class="subtitle">Why Trilloka</p>
+      <h2>What makes us different</h2>
+    </div>
+    <div class="differentiator-grid">
+      <div class="card diff-card">
+        <h3>Live Google Telemetry</h3>
+        <p>We don't use mock data. Every scan hits the real Google PageSpeed API, simulating a 4G cellular connection to your actual domain. The numbers are real.</p>
+      </div>
+      <div class="card diff-card">
+        <h3>Revenue-First Ranking</h3>
+        <p>We don't prioritize by "best practice." We rank leaks by estimated revenue impact. Fix the $14,200 leak before the $200 leak.</p>
+      </div>
+      <div class="card diff-card">
+        <h3>Human + AI Hybrid</h3>
+        <p>AI finds the patterns. A human architect interprets them, writes the fix, and reviews your implementation. No black-box reports.</p>
+      </div>
+      <div class="card diff-card">
+        <h3>Developer-Ready Output</h3>
+        <p>Every report includes a pre-formatted developer handoff email. Copy, paste, assign. No translation needed between audit and execution.</p>
+      </div>
+      <div class="card diff-card">
+        <h3>Fixed Pricing, No Surprises</h3>
+        <p>$350 for the report. $550 for the roadmap. $850/month for full execution. No hourly billing. No scope creep. No retainers that bleed out.</p>
+      </div>
+      <div class="card diff-card">
+        <h3>Built for Mobile-First</h3>
+        <p>70% of conversions happen on phones. Our entire audit framework is built around mobile friction, not desktop vanity scores.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="background: var(--charcoal);">
+  <div class="container">
+    <div class="section-header">
+      <p class="subtitle">The Numbers</p>
+      <h2>Proof in performance</h2>
+    </div>
+    <div class="stats-row">
+      <div class="card stat-box">
+        <div class="num">35+</div>
+        <div class="label">Checkpoints Scanned</div>
+      </div>
+      <div class="card stat-box">
+        <div class="num">&lt;30s</div>
+        <div class="label">Scan Time</div>
+      </div>
+      <div class="card stat-box">
+        <div class="num">50+</div>
+        <div class="label">Fix Patterns</div>
+      </div>
+      <div class="card stat-box">
+        <div class="num">4</div>
+        <div class="label">Fix Angles</div>
+      </div>
+    </div>
+
+    <div class="testimonial">
+      <p>I ran the audit thinking my site was fine. It found a mobile load issue costing me an estimated $12K a year. The fix took my developer 20 minutes. Worth every dollar.</p>
+      <div class="author">— E-commerce Founder, Shopify Store</div>
+    </div>
+
+    <div class="text-center mt-4">
+      <a href="/" class="btn btn-primary">Run Free Audit</a>
+      <button class="btn btn-outline" onclick="showPhonePopup()" style="margin-left:0.5rem; margin-top:0.75rem;">Hire the Architect</button>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-col">
+        <a href="/" class="logo" style="margin-bottom:1rem;">
+          <img src="logo-dark.png" alt="Trilloka">
+          <span>Trilloka</span>
+        </a>
+        <p style="font-size:0.85rem; max-width:280px;">Architectural revenue remediation for founders who want their website to convert, not just exist.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Navigate</h4>
+        <a href="/">Home</a>
+        <a href="/solutions">Solutions</a>
+        <a href="/why-us">Why Us</a>
+        <a href="/vlog">Vlog</a>
+      </div>
+      <div class="footer-col">
+        <h4>Legal</h4>
+        <a href="/disclaimer" target="_blank">Disclaimer & Terms</a>
+      </div>
+      <div class="footer-col">
+        <h4>Contact</h4>
+        <a href="#" onclick="showPhonePopup(); return false;">Hire the Architect</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span style="font-size:0.75rem; color:var(--mist);">© 2026 Trilloka. All rights reserved.</span>
+      <a href="/disclaimer" target="_blank">Disclaimer & Legal</a>
+    </div>
   </div>
 </footer>
 
+<div class="modal-overlay" id="phoneModal">
+  <div class="modal" style="max-width: 440px;">
+    <button class="modal-close" onclick="closePhoneModal()">&times;</button>
+    <div class="phone-popup">
+      <div class="architect-handle">@THEONLYONE.ARPIT</div>
+      <h3 style="font-size:1.3rem;">Hire the Architect</h3>
+      <p style="color:var(--mist); font-size:0.9rem;">Direct line to discuss your audit, roadmap, or monthly engagement.</p>
+
+      <div class="contact-grid">
+        <a href="tel:+17876549232" class="contact-item">
+          <div class="label">Call</div>
+          <div class="value">+1 787-654-9232</div>
+        </a>
+        <a href="mailto:onlyonearpit@gmail.com" class="contact-item">
+          <div class="label">Email</div>
+          <div class="value">onlyonearpit@gmail.com</div>
+        </a>
+        <a href="https://instagram.com/theonlyone.arpit" target="_blank" class="contact-item">
+          <div class="label">Instagram</div>
+          <div class="value">@THEONLYONE.ARPIT</div>
+        </a>
+      </div>
+
+      <p style="font-size:0.8rem; color:var(--mist); margin-top:1.25rem;">Available 10 AM — 7 PM EST</p>
+    </div>
+  </div>
+</div>
+
 <script>
-const nav = document.getElementById('nav');
-window.addEventListener('scroll', () => {
-  nav.classList.toggle('nav-scrolled', window.scrollY > 50);
-});
-document.getElementById('hamburger').addEventListener('click', () => {
-  document.getElementById('mobileMenu').classList.add('open');
-});
-document.getElementById('closeMenu').addEventListener('click', () => {
+function toggleMenu() {
+  document.getElementById('mobileMenu').classList.toggle('open');
+  document.getElementById('hamburger').classList.toggle('active');
+}
+function closeMenu() {
   document.getElementById('mobileMenu').classList.remove('open');
+  document.getElementById('hamburger').classList.remove('active');
+}
+function showPhonePopup() {
+  document.getElementById('phoneModal').classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+function closePhoneModal() {
+  document.getElementById('phoneModal').classList.remove('active');
+  document.body.style.overflow = '';
+}
+document.getElementById('phoneModal').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('phoneModal')) closePhoneModal();
 });
 </script>
 </body>
