@@ -15,7 +15,6 @@
             overflow-x: hidden;
         }
 
-        /* ===== PORTAL OVERLAY ===== */
         #portal-overlay {
             position: fixed;
             top: 0; left: 0;
@@ -43,8 +42,7 @@
         }
         .door-half {
             position: absolute;
-            top: 0;
-            width: 50%;
+            top: 0; width: 50%;
             height: 100%;
             background: linear-gradient(180deg, #0a0a0a 0%, #050505 50%, #0a0a0a 100%);
             transition: transform 2s cubic-bezier(0.7, 0, 0.3, 1);
@@ -168,7 +166,6 @@
         #portal-overlay.opened .seam-glow { opacity: 0; height: 100vh; }
         #portal-overlay.opened { pointer-events: none; }
 
-        /* ===== CHILLOKA REALM ===== */
         #chilloka-realm {
             opacity: 0;
             transform: scale(1.05);
@@ -181,7 +178,6 @@
             filter: blur(0);
         }
 
-        /* Top Bar */
         .top-bar {
             position: absolute;
             top: 0; left: 0;
@@ -223,7 +219,6 @@
             text-shadow: 0 0 10px rgba(201, 162, 39, 0.4);
         }
 
-        /* Hero Section */
         .hero-section {
             position: relative;
             width: 100%;
@@ -274,7 +269,6 @@
             text-shadow: 0 4px 30px rgba(0,0,0,0.9);
         }
 
-        /* Gallery */
         .gallery-section { width: 100%; background: #000; }
         .gallery-grid {
             display: grid;
@@ -341,7 +335,6 @@
             margin: 18px auto 0;
         }
 
-        /* Video Gallery Item */
         .gallery-video {
             position: relative;
             overflow: hidden;
@@ -362,7 +355,6 @@
             z-index: 1;
         }
 
-        /* Video Sections */
         .video-section {
             position: relative;
             width: 100%;
@@ -389,7 +381,6 @@
             z-index: 1;
         }
 
-        /* Architect Section */
         .architect-section {
             background: linear-gradient(to bottom, #000, #0a0a0a, #000);
             padding: 140px 20px;
@@ -421,7 +412,6 @@
             margin: 0 auto;
         }
 
-        /* Thoughts Section */
         .thoughts-section {
             background: #000;
             padding: 140px 20px;
@@ -538,20 +528,17 @@
             transform: translateY(0);
         }
 
-        /* ===== MOBILE RESPONSIVENESS ===== */
         @media (max-width: 768px) {
             .top-bar { padding: 18px 20px; flex-direction: column; gap: 12px; }
             .top-bar .logo { font-size: 0.95rem; letter-spacing: 4px; }
             .top-bar .nav-menu { gap: 14px; flex-wrap: wrap; justify-content: center; }
             .top-bar .nav-menu a { font-size: 0.65rem; letter-spacing: 1.5px; }
-            
             .hero-section { height: 100svh; min-height: 500px; }
             .hero-quote { padding: 0 24px; }
             .gallery-grid { grid-template-columns: 1fr; }
             .gallery-item { height: 350px; }
             .gallery-video { grid-column: span 1; height: 350px; }
             .gallery-item .quote-overlay { padding: 24px; }
-            
             .video-section { height: 60vh; min-height: 360px; }
             .architect-section { padding: 80px 20px; }
             .architect-image { width: 160px; height: 160px; }
@@ -559,7 +546,6 @@
             .thoughts-form input,
             .thoughts-form textarea { padding: 14px 18px; font-size: 16px; }
             .thoughts-form button { padding: 16px 36px; width: 100%; }
-            
             .chilloka-footer { padding: 40px 20px; }
             .portal-text .line1 { letter-spacing: 2px; white-space: normal; line-height: 1.3; font-size: clamp(1.4rem, 6vw, 2.2rem); }
             .portal-text .line2 { letter-spacing: 1.5px; white-space: normal; line-height: 1.4; font-size: clamp(0.8rem, 3.5vw, 1.1rem); }
@@ -579,7 +565,6 @@
 </head>
 <body>
 
-    <!-- ===== PORTAL OVERLAY ===== -->
     <div id="portal-overlay" onclick="openPortal()">
         <video class="portal-video" autoplay muted loop playsinline>
             <source src="100000393.mp4" type="video/mp4">
@@ -601,10 +586,8 @@
         </div>
     </div>
 
-    <!-- ===== CHILLOKA REALM ===== -->
     <div id="chilloka-realm">
 
-        <!-- Hero -->
         <section class="hero-section">
             <video class="hero-video" autoplay muted loop playsinline>
                 <source src="Hero slow video.mp4" type="video/mp4">
@@ -624,11 +607,9 @@
             </div>
         </section>
 
-        <!-- Gallery -->
         <section class="gallery-section">
             <div class="gallery-grid" id="galleryGrid">
 
-                <!-- Image: White Horse -->
                 <div class="gallery-item" data-type="img">
                     <img src="IMG_20201205_125900 (1).jpg" alt="White Horse">
                     <div class="quote-overlay">
@@ -638,7 +619,6 @@
                     </div>
                 </div>
 
-                <!-- Image: River Valley -->
                 <div class="gallery-item" data-type="img">
                     <img src="sunny_river_valley.jpg" alt="River Valley">
                     <div class="quote-overlay">
@@ -648,7 +628,6 @@
                     </div>
                 </div>
 
-                <!-- Snow Video -->
                 <div class="gallery-video" data-type="video">
                     <video autoplay muted loop playsinline>
                         <source src="video_snow.mp4" type="video/mp4">
@@ -656,7 +635,6 @@
                     <div class="video-overlay"></div>
                 </div>
 
-                <!-- Image: Mountain Sunrise -->
                 <div class="gallery-item" data-type="img">
                     <img src="IMG_20201204_165733.jpg" alt="Mountain Sunrise">
                     <div class="quote-overlay">
@@ -666,7 +644,6 @@
                     </div>
                 </div>
 
-                <!-- Image: City River Skyline -->
                 <div class="gallery-item" data-type="img">
                     <img src="da57bff959f671a4940e0267d59cd2b7ca7de77454d0245285817486358f4acf.1.jpg" alt="City River Skyline">
                     <div class="quote-overlay">
@@ -676,7 +653,6 @@
                     </div>
                 </div>
 
-                <!-- Image: Chilloka Scene -->
                 <div class="gallery-item" data-type="img">
                     <img src="a1cbf01a-fcfe-4e79-8504-378f4eb906ef-1_all_1007.jpg" alt="Chilloka Scene">
                     <div class="quote-overlay">
@@ -689,7 +665,6 @@
             </div>
         </section>
 
-        <!-- Hotel Video -->
         <section class="video-section">
             <video autoplay muted loop playsinline>
                 <source src="video_hotel.mp4" type="video/mp4">
@@ -697,7 +672,6 @@
             <div class="video-overlay"></div>
         </section>
 
-        <!-- Architect -->
         <section class="architect-section">
             <div class="architect-container reveal">
                 <h2>Meet the Architect</h2>
@@ -710,7 +684,6 @@
             </div>
         </section>
 
-        <!-- Thoughts -->
         <section class="thoughts-section">
             <div class="reveal">
                 <h2>Share Your Thoughts</h2>
@@ -746,7 +719,7 @@
         line1Text.split('').forEach((ch, i) => {
             const span = document.createElement('span');
             span.className = 'char';
-            span.textContent = ch === ' ' ? '\u00A0' : ch;
+            span.textContent = ch === ' ' ? ' ' : ch;
             span.style.transitionDelay = (i * 0.04) + 's';
             line1El.appendChild(span);
         });
@@ -754,7 +727,7 @@
         line2Text.split('').forEach((ch, i) => {
             const span = document.createElement('span');
             span.className = 'char';
-            span.textContent = ch === ' ' ? '\u00A0' : ch;
+            span.textContent = ch === ' ' ? ' ' : ch;
             span.style.transitionDelay = (0.3 + i * 0.02) + 's';
             line2El.appendChild(span);
         });
