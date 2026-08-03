@@ -4,7 +4,10 @@ import uuid
 import os
 from datetime import datetime
 
-REPORT_VAULT_FILE = "private_reports_vault.json"
+# Automatically uses the Railway volume mount path if present, otherwise defaults to local root
+vault_dir = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", ".")
+REPORT_VAULT_FILE = os.path.join(vault_dir, "private_reports_vault.json")
+
 ADMIN_TOKEN_ENV_VAR = "TRILLOKA_ADMIN_TOKEN"
 
 def _verify_admin_access(token_provided: str) -> bool:

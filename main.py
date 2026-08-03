@@ -5,12 +5,12 @@ from pydantic import BaseModel
 from scorer import run_full_audit_pipeline
 from report_engine import get_report_by_id_admin
 
-app = FastAPI(title="Trilloka Revenue Leak Scanner API")[cite: 5]
+app = FastAPI(title="Trilloka Revenue Leak Scanner API")
 
 # Enable CORS for production domain connectivity
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows requests from trilloka.com[cite: 5]
+    allow_origins=["*"],  # Allows requests from trilloka.com
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
