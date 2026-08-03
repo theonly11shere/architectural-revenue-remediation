@@ -14,7 +14,7 @@ from report_engine import (
 
 app = FastAPI(
     title="Trilloka Revenue Leak & Audit Scanner API",
-    version="1.1.0"
+    version="1.1.1"
 )
 
 # Explicitly allow trilloka.com and local development environments for CORS
@@ -42,7 +42,7 @@ class CompetitorScanRequest(BaseModel):
     competitor_domain: str
     business_type: str = "general"
 
-# --- TELEMETRY HELPER ENGINES ---
+# --- HELPER ENGINES ---
 
 def calculate_revenue_leak(overall_score: float, biz_type: str) -> dict:
     tier_baselines = {
@@ -54,7 +54,6 @@ def calculate_revenue_leak(overall_score: float, biz_type: str) -> dict:
     }
     
     baseline = tier_baselines.get(biz_type.lower(), tier_baselines["general"])
-    
     score_gap = max(0.0, 90.0 - overall_score)
     est_conversion_drop_pct = round((score_gap / 10.0) * 0.035, 3)
     
@@ -101,22 +100,26 @@ def generate_dev_handoff_kit(domain: str, cms: str, top_solutions: list, annual_
     )
 
 async def fetch_live_google_audit(domain: str, biz_type: str = "general"):
-    psi_url = f"https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=https://{domain}&strategy=mobile"
+    # Read Google API Key from Environment
+    api_key = os.environ.get("PAGESPEED_API_KEY", "")
+    key_param = f"&key={api_key}" if api_key else ""
+    
+    psi_url = f"https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=https://{domain}&strategy=mobile{key_param}"
     
     checkpoint_results = []
     top_10_solutions = []
     overall_score = 65.0
     surface_metrics = {
-        "lcp": "3.4s",
-        "inp_tbt": "380ms",
-        "cls": "0.15",
+        "lcp": "N/A",
+        "inp_tbt": "N/A",
+        "cls": "N/A",
         "mobile_performance_score": 65.0
     }
 
     cms_platform = await detect_cms_platform(domain)
 
     try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=35.0, follow_redirects=True) as client:
             response = await client.get(psi_url)
             
             if response.status_code == 200:
@@ -132,9 +135,10 @@ async def fetch_live_google_audit(domain: str, biz_type: str = "general"):
 
                 # LCP
                 lcp_audit = audits.get("largest-contentful-paint", {})
-                lcp_val = lcp_audit.get("displayValue", "3.4s")
+                lcp_val = lcp_audit.get("displayValue", "N/A")
                 surface_metrics["lcp"] = lcp_val
-                if lcp_audit.get("score", 1.0) < 0.5:
+                lcp_score = lcp_audit.get("score", 1.0) or 1.0
+                if lcp_score < 0.5:
                     checkpoint_results.append({"checkpoint": "Largest Contentful Paint (LCP)", "status": f"Failed ({lcp_val})", "impact": "Critical"})
                     top_10_solutions.append(f"Optimize critical hero visual assets to reduce LCP from {lcp_val} down below 2.5s on mobile.")
                 else:
@@ -142,9 +146,10 @@ async def fetch_live_google_audit(domain: str, biz_type: str = "general"):
 
                 # TBT / INP
                 tbt_audit = audits.get("total-blocking-time", {})
-                tbt_val = tbt_audit.get("displayValue", "380ms")
+                tbt_val = tbt_audit.get("displayValue", "N/A")
                 surface_metrics["inp_tbt"] = tbt_val
-                if tbt_audit.get("score", 1.0) < 0.5:
+                tbt_score = tbt_audit.get("score", 1.0) or 1.0
+                if tbt_score < 0.5:
                     checkpoint_results.append({"checkpoint": "Main-Thread JS Latency (INP)", "status": f"Failed ({tbt_val})", "impact": "Critical"})
                     top_10_solutions.append(f"Defer or eliminate heavy third-party tracking scripts causing main-thread execution lag ({tbt_val}).")
                 else:
@@ -152,9 +157,10 @@ async def fetch_live_google_audit(domain: str, biz_type: str = "general"):
 
                 # CLS
                 cls_audit = audits.get("cumulative-layout-shift", {})
-                cls_val = cls_audit.get("displayValue", "0.15")
+                cls_val = cls_audit.get("displayValue", "N/A")
                 surface_metrics["cls"] = cls_val
-                if cls_audit.get("score", 1.0) < 0.5:
+                cls_score = cls_audit.get("score", 1.0) or 1.0
+                if cls_score < 0.5:
                     checkpoint_results.append({"checkpoint": "Layout Stability (CLS)", "status": f"Failed ({cls_val})", "impact": "High"})
                     top_10_solutions.append("Set explicit width/height parameters on dynamic layout elements to stop mobile visual jumping during render.")
                 else:
@@ -162,7 +168,7 @@ async def fetch_live_google_audit(domain: str, biz_type: str = "general"):
 
                 # Image Optimization
                 img_audit = audits.get("uses-optimized-images", {})
-                if img_audit.get("score", 1.0) < 0.8:
+                if (img_audit.get("score", 1.0) or 1.0) < 0.8:
                     checkpoint_results.append({"checkpoint": "Mobile Image Compression", "status": "Warning", "impact": "Medium"})
                     top_10_solutions.append(f"Convert legacy JPEG/PNG formats to WebP/AVIF on {cms_platform} to accelerate cellular load times.")
 
@@ -172,8 +178,11 @@ async def fetch_live_google_audit(domain: str, biz_type: str = "general"):
                     checkpoint_results.append({"checkpoint": "SEO Meta Description", "status": "Failed (Missing)", "impact": "High"})
                     top_10_solutions.append("Add structured meta descriptions to optimize click-through rate from mobile search engine results.")
 
+            else:
+                print(f" [GOOGLE API ERROR] Status Code {response.status_code}: {response.text[:200]}")
+
     except Exception as err:
-        print(f" [API WARNING] Live Google telemetry lookup timed out or failed: {err}")
+        print(f" [API EXCEPTION] Live Google telemetry lookup failed: {err}")
 
     if not checkpoint_results:
         checkpoint_results = [
@@ -206,7 +215,7 @@ async def fetch_live_google_audit(domain: str, biz_type: str = "general"):
 
 @app.get("/")
 def read_root():
-    return {"status": "online", "service": "Trilloka Audit Scanner API", "version": "1.1.0"}
+    return {"status": "online", "service": "Trilloka Audit Scanner API", "version": "1.1.1"}
 
 @app.post("/api/scan")
 async def trigger_scan(payload: ScanRequest):
@@ -215,10 +224,8 @@ async def trigger_scan(payload: ScanRequest):
         target_domain = payload.domain.strip().lower().replace("https://", "").replace("http://", "").split("/")[0]
         biz_type = payload.business_type.strip().lower()
 
-        # Run live audit engine
         audit = await fetch_live_google_audit(target_domain, biz_type)
 
-        # Save private report in encrypted JSON vault
         report_id = save_private_audit_report(
             domain=target_domain,
             biz_type=biz_type,
@@ -231,7 +238,6 @@ async def trigger_scan(payload: ScanRequest):
             surface_metrics=audit["surface_metrics"]
         )
 
-        # Output exact JSON payload expected by frontend
         return {
             "success": True,
             "domain": target_domain,
