@@ -16,10 +16,17 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Enable CORS for frontend integration via trilloka.com and local testing
+# Explicitly whitelist trilloka.com and local testing ports to comply with CORS security rules when credentials are enabled
+origins = [
+    "https://trilloka.com",
+    "https://www.trilloka.com",
+    "http://localhost:8080",
+    "http://localhost:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
