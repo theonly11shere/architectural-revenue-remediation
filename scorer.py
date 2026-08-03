@@ -29,6 +29,7 @@ def run_full_audit_pipeline(audit_data: dict) -> dict:
                 "conversion_efficiency": 100.0,
                 "competitor_gap_score": 0.0,
                 "ai_spectrum_pct": 0.0,
+                "online_presence_index": 100.0,
                 "classification": "System Owner Domain (Bypassed)"
             },
             "free_modal_teaser": {
@@ -70,6 +71,9 @@ def run_full_audit_pipeline(audit_data: dict) -> dict:
     second_leak_reason = second_leak.get("description", second_leak.get("name", "Suboptimal mobile conversion path and unanchored interaction triggers."))
     second_leak_penalty = second_leak.get("penalty_points", 12.0)
     revenue_loss_pct = round(min(70.0, max(5.0, second_leak_penalty * 2.5)), 1)
+    
+    # Deterministic calculation for online presence index
+    online_presence_index = round(max(10.0, min(95.0, 100.0 - (synthetic_index * 0.4) - ((sum(ord(c) for c in domain) % 30)))), 1)
 
     return {
         "status": "success",
@@ -81,6 +85,7 @@ def run_full_audit_pipeline(audit_data: dict) -> dict:
             "conversion_efficiency": final_score,
             "competitor_gap_score": round(max(15.0, 100.0 - final_score), 1),
             "ai_spectrum_pct": synthetic_index,
+            "online_presence_index": online_presence_index,
             "classification": get_ai_classification(synthetic_index)
         },
         "key_friction_insight": {
