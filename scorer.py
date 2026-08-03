@@ -12,7 +12,7 @@ PROTECTED_DOMAINS = ["trilloka.com", "www.trilloka.com"]
 
 def run_full_audit_pipeline(audit_data: dict) -> dict:
     """
-    Main orchestration engine with built-in self-scan guardrails.
+    Main orchestration engine with built-in self-scan guardrails and strict public/private payload separation.
     """
     domain = audit_data.get("domain", "unknown.com").strip().lower()
     biz_type = audit_data.get("business_type", "local_services")
@@ -24,8 +24,11 @@ def run_full_audit_pipeline(audit_data: dict) -> dict:
             "domain": domain,
             "message": "This domain is protected under system guardrails and cannot be audited via the public scanner.",
             "overall_score": 100.0,
-            "ai_spectrum": {
-                "synthetic_index_pct": 0.0,
+            "surface_metrics": {
+                "seo_health_index": 100.0,
+                "conversion_efficiency": 100.0,
+                "competitor_gap_score": 0.0,
+                "ai_spectrum_pct": 0.0,
                 "classification": "System Owner Domain (Bypassed)"
             },
             "free_modal_teaser": {
@@ -62,15 +65,28 @@ def run_full_audit_pipeline(audit_data: dict) -> dict:
     # --- STREAM 3: ADMIN EMAIL NOTIFICATION DISPATCH ---
     send_audit_email_to_admin(domain, biz_type, final_score, report_vault_id)
 
-    # --- STREAM 4: PUBLIC FRONT-END PAYLOAD (User Modal) ---
+    # --- STREAM 4: PUBLIC FRONT-END PAYLOAD (Surface-Level Metrics & 2nd Leak Hook Only) ---
+    second_leak = top_10_leaks[1] if len(top_10_leaks) > 1 else (top_10_leaks[0] if top_10_leaks else {})
+    second_leak_reason = second_leak.get("description", second_leak.get("name", "Suboptimal mobile conversion path and unanchored interaction triggers."))
+    second_leak_penalty = second_leak.get("penalty_points", 12.0)
+    revenue_loss_pct = round(min(70.0, max(5.0, second_leak_penalty * 2.5)), 1)
+
     return {
         "status": "success",
         "domain": domain,
         "business_type": biz_type,
-        "overall_score": final_score,
-        "ai_spectrum": {
-            "synthetic_index_pct": synthetic_index,
+        "surface_metrics": {
+            "overall_score": final_score,
+            "seo_health_index": max(10.0, round(100.0 - (final_score * 0.6), 1)),
+            "conversion_efficiency": final_score,
+            "competitor_gap_score": round(max(15.0, 100.0 - final_score), 1),
+            "ai_spectrum_pct": synthetic_index,
             "classification": get_ai_classification(synthetic_index)
+        },
+        "key_friction_insight": {
+            "target_leak_rank": 2,
+            "reason": second_leak_reason,
+            "revenue_loss_pct": revenue_loss_pct
         },
         "free_modal_teaser": generate_inverted_hook(biz_type, final_score),
         "report_vault_id": report_vault_id
