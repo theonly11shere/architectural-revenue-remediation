@@ -1,8 +1,10 @@
+# scorer.py
 import os
 import random
 import string
 import smtplib
 from email.message import EmailMessage
+from hybrid_scanner import collect_scan_data
 from checkpoints_35 import evaluate_35_checkpoints
 from solutions_50 import resolve_solutions
 from telemetry import log_telemetry_async
@@ -10,8 +12,7 @@ from report_engine import save_private_audit_report
 
 PROTECTED_DOMAINS = ["trilloka.com", "www.trilloka.com"]
 
-# --- MATRIX CONFIGURATIONS (From System Design Framework) ---
-
+# --- MATRIX CONFIGURATIONS ---
 BUSINESS_MODEL_MULTIPLIERS = {
     "local": {"Trust": 1.5, "Conversion": 1.5, "SEO": 0.9},
     "local_services": {"Trust": 1.5, "Conversion": 1.5, "SEO": 0.9},
@@ -42,7 +43,6 @@ TIER_PREFIXES = {
 
 
 def generate_vault_id(score: float) -> str:
-    """Generates a secure Vault ID adhering to Tier prefix standards."""
     if score >= 90:
         tier = 10
     elif score >= 75:
@@ -83,22 +83,25 @@ def run_full_audit_pipeline(audit_data: dict) -> dict:
             "report_vault_id": "ARCH10-PROTECTED"
         }
 
-    # 1. Evaluate 35 Checkpoints
+    # 1. Collect live Google PSI + Playwright Behavioral Data
+    live_findings = collect_scan_data(domain)
+    audit_data.update(live_findings.get("behavioral", {}))
+    audit_data["psi_raw"] = live_findings.get("psi_raw", {})
+
+    # 2. Evaluate 35 Checkpoints
     checkpoint_results = evaluate_35_checkpoints(audit_data)
     
-    # 2. Compute AI Spectrum Index
+    # 3. Compute AI Spectrum Index
     synthetic_index = calculate_ai_spectrum(audit_data)
     
-    # 3. Compute Score & Rank Top 10 Leaks (Harsh & Industry-Weighted)
+    # 4. Compute Score & Rank Top 10 Leaks (Harsh & Industry-Weighted)
     final_score, top_10_leaks = calculate_harsh_score_and_rank_leaks(biz_type, checkpoint_results, synthetic_index)
 
-    # 4. Map Solutions
+    # 5. Map Solutions
     mapped_solutions = resolve_solutions(top_10_leaks)
 
-    # Generate Tier Vault ID
     report_vault_id = generate_vault_id(final_score)
 
-    # --- TELEMETRY & STORAGE ---
     log_telemetry_async(domain, biz_type, audit_data, final_score, synthetic_index)
 
     save_private_audit_report(
@@ -111,7 +114,6 @@ def run_full_audit_pipeline(audit_data: dict) -> dict:
 
     send_audit_email_to_admin(domain, biz_type, final_score, report_vault_id)
 
-    # --- PUBLIC FRONT-END PAYLOAD ---
     second_leak = top_10_leaks[1] if len(top_10_leaks) > 1 else (top_10_leaks[0] if top_10_leaks else {})
     second_leak_reason = second_leak.get("description", second_leak.get("name", "Suboptimal mobile conversion path."))
     second_leak_severity = second_leak.get("financial_leak_score", 12.0)
@@ -143,18 +145,14 @@ def run_full_audit_pipeline(audit_data: dict) -> dict:
 
 
 def calculate_ai_spectrum(data: dict) -> float:
-    if "is_shadcn_tailwind" in data or "lucide_icon_count" in data:
-        pts = 0.0
-        if data.get("is_shadcn_tailwind"): pts += 35.0
-        if data.get("lucide_icon_count", 0) > 10: pts += 20.0
-        if data.get("generic_headline"): pts += 25.0
-        if data.get("unlinked_form"): pts += 20.0
-        if data.get("has_custom_photos"): pts -= 20.0
-        if data.get("has_retargeting_pixel"): pts -= 15.0
-        return max(0.0, min(100.0, float(pts)))
-    
-    domain_hash = sum(ord(c) for c in data.get("domain", "test"))
-    return float((domain_hash % 65) + 20)
+    pts = 0.0
+    if data.get("is_shadcn_tailwind"): pts += 35.0
+    if data.get("lucide_icon_count", 0) > 10: pts += 20.0
+    if data.get("generic_headline"): pts += 25.0
+    if data.get("unlinked_form"): pts += 20.0
+    if data.get("has_custom_photos"): pts -= 20.0
+    if data.get("has_retargeting_pixel"): pts -= 15.0
+    return max(0.0, min(100.0, float(pts)))
 
 
 def get_ai_classification(idx: float) -> str:
@@ -164,11 +162,6 @@ def get_ai_classification(idx: float) -> str:
 
 
 def calculate_harsh_score_and_rank_leaks(biz_type: str, check_results: list, synthetic_index: float):
-    """
-    Weighted Severity Index Scoring Algorithm:
-    Financial Leak Score = (Base Impact Weight + Competitor Bonus + Vertical Relevance Bonus)
-                           * Category Weight * Business Context Multiplier
-    """
     biz_multipliers = BUSINESS_MODEL_MULTIPLIERS.get(biz_type, BUSINESS_MODEL_MULTIPLIERS["general"])
     failed_leaks = [c for c in check_results if not c.get("passed", False)]
     
@@ -176,36 +169,28 @@ def calculate_harsh_score_and_rank_leaks(biz_type: str, check_results: list, syn
 
     for leak in failed_leaks:
         category = leak.get("category", "Conversion")
-        base_weight = leak.get("base_impact_weight", leak.get("penalty_points", 5.0))  # 1 to 10
+        base_weight = leak.get("base_impact_weight", leak.get("penalty_points", 5.0))
         
-        # Additive Bonuses (+3 if competitor has advantage, +3 to +4 if vertical relevant)
         competitor_bonus = 3.0 if leak.get("competitor_advantage", False) else 0.0
-        vertical_bonus = leak.get("vertical_relevance_bonus", 0.0) # 3.0 to 4.0 if matched
+        vertical_bonus = leak.get("vertical_relevance_bonus", 0.0)
         
         raw_severity = base_weight + competitor_bonus + vertical_bonus
 
-        # Multipliers
         cat_weight = CATEGORY_WEIGHTS.get(category, 1.0)
         biz_cat_multiplier = biz_multipliers.get(category, 1.0)
 
-        # Final Financial Leak Score for this specific issue
         financial_leak_score = raw_severity * cat_weight * biz_cat_multiplier
         leak["financial_leak_score"] = round(financial_leak_score, 2)
         
         total_weighted_deduction += financial_leak_score
 
-    # Harsh Industry Penalty Engine (100 Base Score, Harsh Deductions)
-    # AI Template Penalty
     ai_penalty = (synthetic_index / 100.0) * 15.0 if synthetic_index > 60.0 else 0.0
 
-    # Calculate harsh overall score
     starting_score = 100.0
     harsh_score = starting_score - (total_weighted_deduction * 1.35) - ai_penalty
     
-    # Floor score at 12.0 and cap perfect scores appropriately
     final_score = round(max(12.0, min(96.0, harsh_score)), 1)
 
-    # Rank leaks by Financial Leak Score descending
     sorted_leaks = sorted(failed_leaks, key=lambda x: x.get("financial_leak_score", 0.0), reverse=True)
     top_10 = sorted_leaks[:10]
 
@@ -257,4 +242,3 @@ def send_audit_email_to_admin(domain: str, biz_type: str, overall_score: float, 
             server.send_message(msg)
     except Exception as e:
         print(f"Failed to send email: {e}")
-```[cite: 5]
