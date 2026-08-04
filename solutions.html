@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
 <meta name="theme-color" content="#080808">
-<title>Trilloka | You Don't Just Need a Website. You Need an Architect.</title>
-<meta name="description" content="Most websites look fine but hemorrhage conversions. We audit your architecture, identify the exact holes where money escapes, and hand you the blueprint to patch them.">
+<title>Solutions | Trilloka</title>
+<meta name="description" content="How we fix revenue leaks — from AI-sameness to conversion friction.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@500;600;700&display=swap" rel="stylesheet">
@@ -1057,23 +1057,23 @@ footer {
 <body>
 
 <div class="mobile-menu" id="mobileMenu">
-  <a href="/" onclick="closeMenu()">Home</a>
-  <a href="/solutions" onclick="closeMenu()">Solutions</a>
-  <a href="/why-us" onclick="closeMenu()">Why Us</a>
-  <a href="/vlog" onclick="closeMenu()">Vlog</a>
+  <a href="/" onclick="closeMenu()" target="_self">Home</a>
+  <a href="/solutions" onclick="closeMenu()" target="_self">Solutions</a>
+  <a href="/why-us" onclick="closeMenu()" target="_self">Why Us</a>
+  <a href="/vlog" onclick="closeMenu()" target="_self">Vlog</a>
 </div>
 
 <nav>
   <div class="container nav-inner">
-    <a href="/" class="logo">
+    <a href="/" class="logo" target="_self">
       <img src="logo-dark.png" alt="Trilloka">
       <span>Trilloka</span>
     </a>
     <ul class="nav-links">
-      <li><a href="/" class="active">Home</a></li>
-      <li><a href="/solutions">Solutions</a></li>
-      <li><a href="/why-us">Why Us</a></li>
-      <li><a href="/vlog">Vlog</a></li>
+      <li><a href="/" target="_self">Home</a></li>
+      <li><a href="/solutions" class="active" target="_self">Solutions</a></li>
+      <li><a href="/why-us" target="_self">Why Us</a></li>
+      <li><a href="/vlog" target="_self">Vlog</a></li>
     </ul>
     <button class="hamburger" id="hamburger" onclick="toggleMenu()" aria-label="Menu">
       <span></span><span></span><span></span>
@@ -1081,83 +1081,91 @@ footer {
   </div>
 </nav>
 
-<section class="page-hero" style="padding-bottom:3rem;">
+<section class="page-hero">
   <div class="container">
-    <p class="subtitle">Architectural Revenue Remediation</p>
-    <h1>You don't just need a website.<br>You need an Architect.</h1>
-    <p>Most websites look fine but hemorrhage conversions. We audit your architecture, identify the exact holes where money escapes, and hand you the blueprint to patch them.</p>
-  </div>
-</section>
-
-<section class="scanner-section">
-  <div class="container" style="max-width: 640px;">
-    <div class="scanner-box">
-      <h3 style="text-align:center; margin-bottom:1rem;">Know Your Leaks</h3>
-      <p style="text-align:center; font-size:0.9rem; margin-bottom:1.25rem;">Enter your domain. We run a live Google PageSpeed + AI-signal audit.</p>
-      <div class="scan-input-wrap">
-        <input type="text" id="domainInput" placeholder="example.com" autocomplete="off">
-        <button class="btn btn-primary scan-btn" id="scanBtn" onclick="runScan()">
-          <span id="btnText">Know Your Leaks</span>
-        </button>
-      </div>
-
-      <div class="guardrail-box" id="guardrailBox">
-        <h4>Nice try, Neo.</h4>
-        <p>You want to audit the Architect's own construct? How delightfully recursive. As the Oracle once noted: <em>"You've already made the choice. Now you have to understand it."</em> We built this scanner because we already mapped every leak in our own code. Point it at a site that hasn't been architected yet.</p>
-      </div>
-
-      <div class="analysis-panel" id="analysisPanel">
-        <div id="analysisSteps"></div>
-      </div>
-
-      <p class="terms-notice">
-        By using this tool, you agree to our <a href="/disclaimer" target="_blank">Terms</a>. 
-        We do not guarantee sales or revenue outcomes. Our audit identifies structural gaps and fixes them — conversion depends on your market, offer, and execution.
-      </p>
-    </div>
-
-    <div class="hire-btn-wrap">
-      <button class="btn btn-outline" onclick="showPhonePopup()">
-        Hire the Architect
-      </button>
-    </div>
+    <p class="subtitle">What We Fix</p>
+    <h1>Every leak has a patch. Here are ours.</h1>
+    <p>We don't do vague advice. We identify the specific architectural failure, then apply the exact fix from our library of 50+ remediation patterns.</p>
   </div>
 </section>
 
 <section>
   <div class="container">
-    <div class="section-header">
-      <p class="subtitle">The Process</p>
-      <h2>Three steps to a tighter funnel</h2>
-    </div>
-    <div class="steps-grid">
-      <div class="card step-card">
-        <div class="step-num">01</div>
-        <h4>Scan</h4>
-        <p>Live Google telemetry + AI-signal analysis in under 30 seconds.</p>
+    <div class="solutions-grid">
+      <div class="card solution-card">
+        <div class="icon">&#127919;</div>
+        <h3>AI Sameness Detection</h3>
+        <p>Your site looks like 400 others. We measure your "visual twin density" and give you the exact differentiation moves to stand out.</p>
       </div>
-      <div class="card step-card">
-        <div class="step-num">02</div>
-        <h4>See</h4>
-        <p>Surface-level SEO and AI-risk metrics. The deep fixes are reserved for your report.</p>
+      <div class="card solution-card">
+        <div class="icon">&#9889;</div>
+        <h3>Core Web Vitals Repair</h3>
+        <p>Google penalizes slow sites. We pinpoint the exact render-blocking resources, CLS issues, and LCP failures killing your mobile rank.</p>
       </div>
-      <div class="card step-card">
-        <div class="step-num">03</div>
-        <h4>Fix</h4>
-        <p>Buy the tier that matches your urgency. Get the exact holes and how to close them.</p>
+      <div class="card solution-card">
+        <div class="icon">&#128739;</div>
+        <h3>Funnel Friction Audit</h3>
+        <p>We map every step from landing to checkout and identify where users abandon. Then we give you the exact sequence to fix it.</p>
+      </div>
+      <div class="card solution-card">
+        <div class="icon">&#128269;</div>
+        <h3>SEO Architecture</h3>
+        <p>Not keyword stuffing. Technical SEO: schema markup, crawl budget, internal linking structure, and indexability failures.</p>
+      </div>
+      <div class="card solution-card">
+        <div class="icon">&#9997;</div>
+        <h3>Human-Voice Copy Rewrite</h3>
+        <p>AI-generated copy is killing trust. We audit your tone, specificity, and emotional resonance — then rewrite with a human fingerprint.</p>
+      </div>
+      <div class="card solution-card">
+        <div class="icon">&#128241;</div>
+        <h3>Mobile-First Remediation</h3>
+        <p>70% of your traffic is mobile. We audit touch targets, viewport behavior, thumb-zone placement, and mobile conversion paths.</p>
       </div>
     </div>
   </div>
 </section>
 
-<section class="cta-section">
-  <div class="container text-center">
-    <h2>Your site is leaking. You just can't see it yet.</h2>
-    <p class="mt-2" style="max-width: 520px; margin: 1rem auto 0;">Run the free audit above. It takes 30 seconds and shows you exactly what your customers see — and why they leave.</p>
-    <div class="trust-row">
-      <span>Google PageSpeed API</span>
-      <span>Live Telemetry</span>
-      <span>Human Reviewed</span>
+<section style="background: var(--charcoal);">
+  <div class="container">
+    <div class="section-header">
+      <p class="subtitle">The Method</p>
+      <h2>How we work</h2>
+    </div>
+    <div class="process-list">
+      <div class="process-item">
+        <div class="process-num">01</div>
+        <div>
+          <h4>Live Telemetry Scan</h4>
+          <p>Google PageSpeed + AI signal analysis on your actual domain.</p>
+        </div>
+      </div>
+      <div class="process-item">
+        <div class="process-num">02</div>
+        <div>
+          <h4>Leak Prioritization</h4>
+          <p>We rank issues by revenue impact, not vanity metrics.</p>
+        </div>
+      </div>
+      <div class="process-item">
+        <div class="process-num">03</div>
+        <div>
+          <h4>Fix Blueprint</h4>
+          <p>Exact steps, copy, code, and design changes — no ambiguity.</p>
+        </div>
+      </div>
+      <div class="process-item">
+        <div class="process-num">04</div>
+        <div>
+          <h4>Execution Support</h4>
+          <p>Weekly sprints, direct access, and done-for-you implementation.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="text-center mt-4">
+      <a href="/" class="btn btn-primary" target="_self">Run Free Audit</a>
+      <button class="btn btn-outline" onclick="showPhonePopup()" style="margin-left:0.5rem; margin-top:0.75rem;">Hire the Architect</button>
     </div>
   </div>
 </section>
@@ -1166,7 +1174,7 @@ footer {
   <div class="container">
     <div class="footer-grid">
       <div class="footer-col">
-        <a href="/" class="logo" style="margin-bottom:1rem;">
+        <a href="/" class="logo" style="margin-bottom:1rem;" target="_self">
           <img src="logo-dark.png" alt="Trilloka">
           <span>Trilloka</span>
         </a>
@@ -1174,33 +1182,26 @@ footer {
       </div>
       <div class="footer-col">
         <h4>Navigate</h4>
-        <a href="/">Home</a>
-        <a href="/solutions">Solutions</a>
-        <a href="/why-us">Why Us</a>
-        <a href="/vlog">Vlog</a>
+        <a href="/" target="_self">Home</a>
+        <a href="/solutions" target="_self">Solutions</a>
+        <a href="/why-us" target="_self">Why Us</a>
+        <a href="/vlog" target="_self">Vlog</a>
       </div>
       <div class="footer-col">
         <h4>Legal</h4>
-        <a href="/disclaimer" target="_blank">Disclaimer & Terms</a>
+        <a href="/disclaimer">Disclaimer & Terms</a>
       </div>
       <div class="footer-col">
         <h4>Contact</h4>
-        <a href="#" onclick="showPhonePopup(); return false;">Hire the Architect</a>
+        <a href="#" onclick="showPhonePopup(); return false;" target="_self">Hire the Architect</a>
       </div>
     </div>
     <div class="footer-bottom">
       <span style="font-size:0.75rem; color:var(--mist);">© 2026 Trilloka. All rights reserved.</span>
-      <a href="/disclaimer" target="_blank">Disclaimer & Legal</a>
+      <a href="/disclaimer">Disclaimer & Legal</a>
     </div>
   </div>
 </footer>
-
-<div class="modal-overlay" id="resultsModal">
-  <div class="modal">
-    <button class="modal-close" onclick="closeModal()">&times;</button>
-    <div class="modal-body" id="modalBody"></div>
-  </div>
-</div>
 
 <div class="modal-overlay" id="phoneModal">
   <div class="modal" style="max-width: 440px;">
@@ -1231,9 +1232,6 @@ footer {
 </div>
 
 <script>
-const API_URL = '/api/scan';
-let scanRunning = false;
-
 function toggleMenu() {
   document.getElementById('mobileMenu').classList.toggle('open');
   document.getElementById('hamburger').classList.toggle('active');
@@ -1242,311 +1240,16 @@ function closeMenu() {
   document.getElementById('mobileMenu').classList.remove('open');
   document.getElementById('hamburger').classList.remove('active');
 }
-
-const analysisMessages = [
-  "Connecting to Google PageSpeed Telemetry...",
-  "Simulating 4G cellular connection to target domain...",
-  "Measuring Core Web Vitals and render performance...",
-  "Analyzing mobile usability and layout stability...",
-  "Evaluating SEO signals and resource optimization...",
-  "Compiling revenue readiness score and leak prioritization..."
-];
-
-function isTrilloka(domain) {
-  const d = domain.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-  return d.includes('trilloka');
-}
-
-async function runScan() {
-  if (scanRunning) return;
-  const domain = document.getElementById('domainInput').value.trim();
-  if (!domain) { alert('Please enter a domain'); return; }
-
-  if (isTrilloka(domain)) {
-    document.getElementById('guardrailBox').classList.add('active');
-    document.getElementById('analysisPanel').classList.remove('active');
-    return;
-  } else {
-    document.getElementById('guardrailBox').classList.remove('active');
-  }
-
-  scanRunning = true;
-  const btn = document.getElementById('scanBtn');
-  const btnText = document.getElementById('btnText');
-  const panel = document.getElementById('analysisPanel');
-  const stepsContainer = document.getElementById('analysisSteps');
-
-  btn.disabled = true;
-  btnText.textContent = 'Connecting...';
-  panel.classList.add('active');
-  stepsContainer.innerHTML = '';
-
-  analysisMessages.forEach((msg, i) => {
-    const div = document.createElement('div');
-    div.className = 'analysis-step' + (i === 0 ? ' active' : '');
-    div.id = 'step-' + i;
-    div.innerHTML = '<div class="step-icon">' + (i+1) + '</div><div><div style="font-size:0.85rem; color:var(--white);">' + msg + '</div></div>';
-    stepsContainer.appendChild(div);
-  });
-
-  let currentStep = 0;
-  const stepInterval = setInterval(() => {
-    if (currentStep < analysisMessages.length - 1) {
-      document.getElementById('step-' + currentStep).classList.remove('active');
-      document.getElementById('step-' + currentStep).classList.add('done');
-      document.getElementById('step-' + currentStep).querySelector('.step-icon').innerHTML = '&#10003;';
-      currentStep++;
-      document.getElementById('step-' + currentStep).classList.add('active');
-      btnText.textContent = analysisMessages[currentStep].replace('...', '');
-    }
-  }, 4800);
-
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 35000);
-
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domain }),
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-    clearInterval(stepInterval);
-
-    if (!response.ok) throw new Error('Scan failed');
-    const data = await response.json();
-
-    analysisMessages.forEach((_, i) => {
-      const el = document.getElementById('step-' + i);
-      if (el) { el.classList.remove('active'); el.classList.add('done'); el.querySelector('.step-icon').innerHTML = '&#10003;'; }
-    });
-
-    showResults(data);
-  } catch (err) {
-    clearInterval(stepInterval);
-    console.error(err);
-    alert(err.name === 'AbortError' 
-      ? 'The scan timed out. Google PageSpeed analysis can take up to 30 seconds on slow domains. Please try again.'
-      : 'Unable to connect to the audit service.');
-  } finally {
-    scanRunning = false;
-    btn.disabled = false;
-    btnText.textContent = 'Know Your Leaks';
-  }
-}
-
-function showResults(data) {
-  const surface = data.surface_metrics || {};
-  const overall = surface.overall_score || 50;
-  const seo = surface.seo_health_index || 50;
-  const aiPct = surface.ai_spectrum_pct || 0;
-  const presence = surface.online_presence_index || 50;
-  const conversion = surface.conversion_efficiency || 50;
-  const gap = surface.competitor_gap_score || 30;
-  const classification = surface.classification || 'Unknown';
-  const friction = data.key_friction_insight || {};
-  const revenue = data.revenue_leak || {};
-  const cms = data.cms_platform || '';
-  const devKit = data.dev_handoff_kit || '';
-
-  let reasonText = "Solid foundation, minor leaks detected.";
-  if (overall < 30) reasonText = "Baymard abandonment pattern triggered — severe friction.";
-  else if (overall < 50) reasonText = "Template fingerprint detected — high AI-sameness risk.";
-  else if (overall < 70) reasonText = "Visual twin density moderate — differentiation needed.";
-  else if (overall < 85) reasonText = "Good structure with specific leak points.";
-  else reasonText = "Strong architecture. Minor optimization available.";
-
-  const modalBody = document.getElementById('modalBody');
-  modalBody.innerHTML = `
-    <div class="score-hero">
-      <div style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.12em; color:var(--copper); margin-bottom:0.5rem;">Audited by @THEONLYONE.ARPIT</div>
-      <div class="big-score">` + Math.round(overall) + `</div>
-      <div class="score-label">Revenue Readiness Score</div>
-      <p style="margin-top:0.75rem; color:var(--mist); font-size:0.9rem;">` + reasonText + `</p>
-    </div>
-
-    ` + (revenue.est_annual_revenue_leak ? `
-    <div class="revenue-card fade-in">
-      <div style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--red-leak);">Est. Annual Mobile Revenue Leak</div>
-      <div class="amount">` + revenue.est_annual_revenue_leak + `</div>
-      <p style="font-size:0.8rem; color:var(--mist); margin-top:0.5rem;">Based on mobile bounce rate, load friction, and conversion drop-off signals.</p>
-    </div>
-    ` : '') + `
-
-    ` + (cms ? '<div style="text-align:center; margin:1rem 0;"><span class="cms-badge">Detected Tech Stack: ' + cms + '</span></div>' : '') + `
-
-    <div class="rings-grid">
-      <div class="ring-item">
-        <svg class="ring-svg" viewBox="0 0 100 100">
-          <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="6"/>
-          <circle cx="50" cy="50" r="42" fill="none" stroke="var(--copper)" stroke-width="6" 
-            stroke-dasharray="` + (2 * Math.PI * 42).toFixed(2) + `" stroke-dashoffset="` + (2 * Math.PI * 42 * (1 - aiPct/100)).toFixed(2) + `" 
-            stroke-linecap="round" transform="rotate(-90 50 50)"/>
-        </svg>
-        <div class="ring-label">AI Parrot</div>
-        <div class="ring-value">` + Math.round(aiPct) + `%</div>
-        <div style="font-size:0.7rem; color:var(--mist);">` + classification + `</div>
-      </div>
-      <div class="ring-item">
-        <svg class="ring-svg" viewBox="0 0 100 100">
-          <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="6"/>
-          <circle cx="50" cy="50" r="42" fill="none" stroke="var(--copper)" stroke-width="6" 
-            stroke-dasharray="` + (2 * Math.PI * 42).toFixed(2) + `" stroke-dashoffset="` + (2 * Math.PI * 42 * (1 - gap/100)).toFixed(2) + `" 
-            stroke-linecap="round" transform="rotate(-90 50 50)"/>
-        </svg>
-        <div class="ring-label">Visual Twin</div>
-        <div class="ring-value">` + Math.round(gap) + `%</div>
-        <div style="font-size:0.7rem; color:var(--mist);">Gap vs competitors</div>
-      </div>
-      <div class="ring-item">
-        <svg class="ring-svg" viewBox="0 0 100 100">
-          <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="6"/>
-          <circle cx="50" cy="50" r="42" fill="none" stroke="var(--copper)" stroke-width="6" 
-            stroke-dasharray="` + (2 * Math.PI * 42).toFixed(2) + `" stroke-dashoffset="` + (2 * Math.PI * 42 * (1 - conversion/100)).toFixed(2) + `" 
-            stroke-linecap="round" transform="rotate(-90 50 50)"/>
-        </svg>
-        <div class="ring-label">Funnel Score</div>
-        <div class="ring-value">` + Math.round(conversion) + `</div>
-        <div style="font-size:0.7rem; color:var(--mist);">Conversion ready</div>
-      </div>
-      <div class="ring-item">
-        <svg class="ring-svg" viewBox="0 0 100 100">
-          <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="6"/>
-          <circle cx="50" cy="50" r="42" fill="none" stroke="var(--copper)" stroke-width="6" 
-            stroke-dasharray="` + (2 * Math.PI * 42).toFixed(2) + `" stroke-dashoffset="` + (2 * Math.PI * 42 * (1 - presence/100)).toFixed(2) + `" 
-            stroke-linecap="round" transform="rotate(-90 50 50)"/>
-        </svg>
-        <div class="ring-label">Presence</div>
-        <div class="ring-value">` + Math.round(presence) + `%</div>
-        <div style="font-size:0.7rem; color:var(--mist);">Online authority</div>
-      </div>
-    </div>
-
-    ` + (friction.reason ? `
-    <div class="friction-box fade-in">
-      <h4>Key Friction Point</h4>
-      <p style="font-size:0.9rem; color:var(--white); margin-bottom:0.5rem;">` + friction.reason + `</p>
-      ` + (friction.revenue_loss_pct ? '<div class="revenue-loss">~' + friction.revenue_loss_pct + '% estimated revenue loss</div>' : '') + `
-      <p style="font-size:0.8rem; color:var(--mist); margin-top:0.5rem;">Detailed fix strategy reserved for the full report.</p>
-    </div>
-    ` : '') + `
-
-    <h3 style="margin: 2rem 0 1rem;">Top Surface Insights</h3>
-    <div class="leak-item">
-      <h4>SEO Health Index — ` + Math.round(seo) + `/100</h4>
-      <p>Search visibility factors analyzed. Detailed technical audit reserved for the report.</p>
-    </div>
-    <div class="leak-item">
-      <h4>AI Content Classification — ` + classification + `</h4>
-      <p>Content originality and human-voice signals evaluated. Rewrite strategy in the report.</p>
-    </div>
-    <div class="leak-item">
-      <h4>Conversion Efficiency — ` + Math.round(conversion) + `/100</h4>
-      <p>Priority fix sequence reserved for the report.</p>
-    </div>
-    <div class="leak-item">
-      <h4>Competitor Gap — ` + Math.round(gap) + `%</h4>
-      <p>Gap-closure tactics in the report.</p>
-    </div>
-    <div class="leak-item">
-      <h4>Online Presence — ` + Math.round(presence) + `%</h4>
-      <p>Presence-building roadmap in the report.</p>
-    </div>
-
-    ` + (devKit ? `
-    <div class="dev-handoff fade-in">
-      <p>Ready-to-send brief for your developer. Copy and paste into an email.</p>
-      <button class="btn btn-primary copy-btn" onclick="copyDevKit(this)">Copy Developer Handoff Email</button>
-      <textarea id="devKitText" style="position:absolute; left:-9999px;">` + devKit.replace(/"/g, '&quot;') + `</textarea>
-    </div>
-    ` : '') + `
-
-    <h3 style="margin: 2rem 0 1rem;">Unlock the Full Report</h3>
-    <div class="pricing-grid">
-      <div class="pricing-card">
-        <div class="tier-name">Full Report</div>
-        <div class="tier-price">$350</div>
-        <div class="tier-desc">Top 3 critical leaks. Best fixes from 4 angles: design, copy, tech, presence.</div>
-        <ul>
-          <li>3 critical revenue holes</li>
-          <li>4-angle fix strategy</li>
-          <li>5 scans included</li>
-        </ul>
-        <a href="/paypalme/trilloka/350" class="btn btn-primary" style="width:100%;">Get Report</a>
-      </div>
-      <div class="pricing-card featured">
-        <div class="tier-name">Report + Roadmap</div>
-        <div class="tier-price">$550</div>
-        <div class="tier-desc">Top 6 revenue holes. Weekly execution roadmap + 1&times; 30-min call with The Architect.</div>
-        <ul>
-          <li>6 critical revenue holes</li>
-          <li>Weekly execution roadmap</li>
-          <li>1&times; 30-min strategy call</li>
-          <li>8 scans included</li>
-        </ul>
-        <a href="/paypalme/trilloka/550" class="btn btn-primary" style="width:100%;">Get Roadmap</a>
-      </div>
-      <div class="pricing-card">
-        <div class="tier-name">Hire the Architect</div>
-        <div class="tier-price">$850<span style="font-size:1rem; color:var(--mist);">/mo</span></div>
-        <div class="tier-desc">Top 8 holes. 1-month roadmap + 1&times; 30-min call + email support (reply within 14 hrs).</div>
-        <ul>
-          <li>8 revenue holes covered</li>
-          <li>1-month fix roadmap</li>
-          <li>1&times; 30-min strategy call</li>
-          <li>Email support (14hr reply)</li>
-          <li>20 scans included</li>
-        </ul>
-        <a href="/paypalme/trilloka/850" class="btn btn-primary" style="width:100%;">Hire Now</a>
-      </div>
-    </div>
-
-    <div class="hire-btn-wrap" style="margin-top:2rem;">
-      <button class="btn btn-outline" onclick="showPhonePopup()">Or Hire the Architect Directly</button>
-    </div>
-  `;
-
-  document.getElementById('resultsModal').classList.add('active');
-  document.body.style.overflow = 'hidden';
-}
-
-function copyDevKit(btn) {
-  const text = document.getElementById('devKitText').value;
-  navigator.clipboard.writeText(text).then(() => {
-    btn.classList.add('copied');
-    btn.textContent = 'Copied to Clipboard';
-    setTimeout(() => {
-      btn.classList.remove('copied');
-      btn.textContent = 'Copy Developer Handoff Email';
-    }, 2500);
-  });
-}
-
-function closeModal() {
-  document.getElementById('resultsModal').classList.remove('active');
-  document.body.style.overflow = '';
-}
-
 function showPhonePopup() {
   document.getElementById('phoneModal').classList.add('active');
   document.body.style.overflow = 'hidden';
 }
-
 function closePhoneModal() {
   document.getElementById('phoneModal').classList.remove('active');
   document.body.style.overflow = '';
 }
-
-document.getElementById('resultsModal').addEventListener('click', (e) => {
-  if (e.target === document.getElementById('resultsModal')) closeModal();
-});
 document.getElementById('phoneModal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('phoneModal')) closePhoneModal();
-});
-
-document.getElementById('domainInput').addEventListener('keypress', (e) => {
-  if (e.key === 'Enter') runScan();
 });
 </script>
 </body>

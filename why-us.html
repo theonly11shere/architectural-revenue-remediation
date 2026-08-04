@@ -1057,23 +1057,23 @@ footer {
 <body>
 
 <div class="mobile-menu" id="mobileMenu">
-  <a href="/" onclick="closeMenu()">Home</a>
-  <a href="/solutions" onclick="closeMenu()">Solutions</a>
-  <a href="/why-us" onclick="closeMenu()">Why Us</a>
-  <a href="/vlog" onclick="closeMenu()">Vlog</a>
+  <a href="/" onclick="closeMenu()" target="_self">Home</a>
+  <a href="/solutions" onclick="closeMenu()" target="_self">Solutions</a>
+  <a href="/why-us" onclick="closeMenu()" target="_self">Why Us</a>
+  <a href="/vlog" onclick="closeMenu()" target="_self">Vlog</a>
 </div>
 
 <nav>
   <div class="container nav-inner">
-    <a href="/" class="logo">
+    <a href="/" class="logo" target="_self">
       <img src="logo-dark.png" alt="Trilloka">
       <span>Trilloka</span>
     </a>
     <ul class="nav-links">
-      <li><a href="/">Home</a></li>
-      <li><a href="/solutions">Solutions</a></li>
-      <li><a href="/why-us" class="active">Why Us</a></li>
-      <li><a href="/vlog">Vlog</a></li>
+      <li><a href="/" target="_self">Home</a></li>
+      <li><a href="/solutions" target="_self">Solutions</a></li>
+      <li><a href="/why-us" class="active" target="_self">Why Us</a></li>
+      <li><a href="/vlog" target="_self">Vlog</a></li>
     </ul>
     <button class="hamburger" id="hamburger" onclick="toggleMenu()" aria-label="Menu">
       <span></span><span></span><span></span>
@@ -1155,7 +1155,7 @@ footer {
     </div>
 
     <div class="text-center mt-4">
-      <a href="/" class="btn btn-primary">Run Free Audit</a>
+      <a href="/" class="btn btn-primary" target="_self">Run Free Audit</a>
       <button class="btn btn-outline" onclick="showPhonePopup()" style="margin-left:0.5rem; margin-top:0.75rem;">Hire the Architect</button>
     </div>
   </div>
@@ -1165,7 +1165,7 @@ footer {
   <div class="container">
     <div class="footer-grid">
       <div class="footer-col">
-        <a href="/" class="logo" style="margin-bottom:1rem;">
+        <a href="/" class="logo" style="margin-bottom:1rem;" target="_self">
           <img src="logo-dark.png" alt="Trilloka">
           <span>Trilloka</span>
         </a>
@@ -1173,23 +1173,23 @@ footer {
       </div>
       <div class="footer-col">
         <h4>Navigate</h4>
-        <a href="/">Home</a>
-        <a href="/solutions">Solutions</a>
-        <a href="/why-us">Why Us</a>
-        <a href="/vlog">Vlog</a>
+        <a href="/" target="_self">Home</a>
+        <a href="/solutions" target="_self">Solutions</a>
+        <a href="/why-us" target="_self">Why Us</a>
+        <a href="/vlog" target="_self">Vlog</a>
       </div>
       <div class="footer-col">
         <h4>Legal</h4>
-        <a href="/disclaimer" target="_blank">Disclaimer & Terms</a>
+        <a href="/disclaimer">Disclaimer & Terms</a>
       </div>
       <div class="footer-col">
         <h4>Contact</h4>
-        <a href="#" onclick="showPhonePopup(); return false;">Hire the Architect</a>
+        <a href="#" onclick="showPhonePopup(); return false;" target="_self">Hire the Architect</a>
       </div>
     </div>
     <div class="footer-bottom">
       <span style="font-size:0.75rem; color:var(--mist);">© 2026 Trilloka. All rights reserved.</span>
-      <a href="/disclaimer" target="_blank">Disclaimer & Legal</a>
+      <a href="/disclaimer">Disclaimer & Legal</a>
     </div>
   </div>
 </footer>
