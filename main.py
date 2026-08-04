@@ -21,6 +21,8 @@ app = FastAPI(
 origins = [
     "https://trilloka.com",
     "https://www.trilloka.com",
+    "https://api.trilloka.com",
+    "https://trilloka.up.railway.app",
     "http://localhost:8080",
     "http://localhost:3000",
 ]
@@ -67,8 +69,11 @@ def calculate_revenue_leak(overall_score: float, biz_type: str) -> dict:
     }
 
 async def detect_cms_platform(domain: str) -> str:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
     try:
-        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True, headers=headers) as client:
             resp = await client.get(f"https://{domain}")
             html_lower = resp.text.lower()
             
