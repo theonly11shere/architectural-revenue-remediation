@@ -1,5 +1,7 @@
 import os
+import smtplib
 import traceback
+from email.mime.text import MIMEText
 import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,6 +47,45 @@ class CompetitorScanRequest(BaseModel):
     business_type: str = "general"
 
 # --- HELPER ENGINES ---
+
+def send_admin_email_alert(domain: str, score: float, report_id: str, annual_leak: str):
+    """Dispatches instant email alert to admin upon successful audit completion."""
+    smtp_email = os.environ.get("SMTP_EMAIL")
+    smtp_password = os.environ.get("SMTP_PASSWORD")
+    admin_email = os.environ.get("ADMIN_EMAIL", smtp_email)
+
+    if not smtp_email or not smtp_password:
+        print(" ⚠️ [EMAIL ALERT] Skipped: SMTP_EMAIL or SMTP_PASSWORD not set in environment.")
+        return
+
+    subject = f"🚨 New Audit Completed: {domain} (Score: {score})"
+    body = f"""
+    A new website audit was just run on Trilloka!
+
+    ----------------------------------------------
+    Domain: {domain}
+    Overall Score: {score} / 100
+    Est. Annual Leak: {annual_leak}
+    Report Vault ID: {report_id}
+    ----------------------------------------------
+
+    Access raw vault entry:
+    https://api.trilloka.com/admin/vault/{report_id}
+    """
+
+    try:
+        msg = MIMEText(body)
+        msg["Subject"] = subject
+        msg["From"] = smtp_email
+        msg["To"] = admin_email
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(smtp_email, smtp_password)
+            server.sendmail(smtp_email, admin_email, msg.as_string())
+            
+        print(f" 📧 [EMAIL SENT] Admin notification sent to {admin_email}")
+    except Exception as err:
+        print(f" ❌ [EMAIL ERROR] Failed to send email alert: {err}")
 
 def calculate_revenue_leak(overall_score: float, biz_type: str) -> dict:
     tier_baselines = {
@@ -243,6 +284,14 @@ async def trigger_scan(payload: ScanRequest):
             surface_metrics=audit["surface_metrics"]
         )
 
+        # 📧 Trigger real-time admin email notification
+        send_admin_email_alert(
+            domain=target_domain,
+            score=audit["overall_score"],
+            report_id=report_id,
+            annual_leak=audit["revenue_leak"]["est_annual_revenue_leak"]
+        )
+
         return {
             "success": True,
             "domain": target_domain,
@@ -284,6 +333,14 @@ async def trigger_competitor_scan(payload: CompetitorScanRequest):
             revenue_leak=primary_audit["revenue_leak"],
             dev_handoff_kit=primary_audit["dev_handoff_kit"],
             surface_metrics=primary_audit["surface_metrics"]
+        )
+
+        # 📧 Trigger email notification for competitor scan as well
+        send_admin_email_alert(
+            domain=domain,
+            score=primary_audit["overall_score"],
+            report_id=report_id,
+            annual_leak=primary_audit["revenue_leak"]["est_annual_revenue_leak"]
         )
 
         return {
