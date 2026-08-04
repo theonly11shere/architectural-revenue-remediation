@@ -1,5 +1,6 @@
-# scorer.py
 import os
+import random
+import string
 import smtplib
 from email.message import EmailMessage
 from checkpoints_35 import evaluate_35_checkpoints
@@ -7,15 +8,58 @@ from solutions_50 import resolve_solutions
 from telemetry import log_telemetry_async
 from report_engine import save_private_audit_report
 
-# Define your primary domain(s) here to protect your own site from being scanned/logged
 PROTECTED_DOMAINS = ["trilloka.com", "www.trilloka.com"]
 
+# --- MATRIX CONFIGURATIONS (From System Design Framework) ---
+
+BUSINESS_MODEL_MULTIPLIERS = {
+    "local": {"Trust": 1.5, "Conversion": 1.5, "SEO": 0.9},
+    "local_services": {"Trust": 1.5, "Conversion": 1.5, "SEO": 0.9},
+    "ecommerce": {"Trust": 1.4, "Conversion": 1.5, "SEO": 1.2},
+    "shopify": {"Trust": 1.4, "Conversion": 1.5, "SEO": 1.2},
+    "saas": {"Trust": 1.3, "Conversion": 1.4, "SEO": 1.1},
+    "agency": {"Trust": 1.4, "Conversion": 1.3, "SEO": 1.0},
+    "b2b": {"Trust": 1.4, "Conversion": 1.2, "SEO": 1.0},
+    "creator": {"Trust": 1.0, "Conversion": 1.1, "SEO": 1.3},
+    "general": {"Trust": 1.0, "Conversion": 1.0, "SEO": 1.0}
+}
+
+CATEGORY_WEIGHTS = {
+    "Trust": 1.25,
+    "Conversion": 1.25,
+    "SEO": 1.0,
+    "Technical": 1.0,
+    "Content": 0.9,
+    "E-E-A-T": 0.9
+}
+
+TIER_PREFIXES = {
+    3: "IFYB3",   # Tier 3: Important for your business
+    6: "MBTB6",   # Tier 6: Making your business the best
+    8: "NOLY8",   # Tier 8: No one like you
+    10: "ARCH10"  # Tier 10: The Architect
+}
+
+
+def generate_vault_id(score: float) -> str:
+    """Generates a secure Vault ID adhering to Tier prefix standards."""
+    if score >= 90:
+        tier = 10
+    elif score >= 75:
+        tier = 8
+    elif score >= 50:
+        tier = 6
+    else:
+        tier = 3
+
+    prefix = TIER_PREFIXES.get(tier, "IFYB3")
+    rand_suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    return f"{prefix}-{rand_suffix}"
+
+
 def run_full_audit_pipeline(audit_data: dict) -> dict:
-    """
-    Main orchestration engine with built-in self-scan guardrails and strict public/private payload separation.
-    """
     domain = audit_data.get("domain", "unknown.com").strip().lower()
-    biz_type = audit_data.get("business_type", "local_services")
+    biz_type = audit_data.get("business_type", "local_services").strip().lower()
 
     # --- GUARDRAIL: SELF-SCAN PROTECTION ---
     if any(protected in domain for protected in PROTECTED_DOMAINS):
@@ -34,28 +78,30 @@ def run_full_audit_pipeline(audit_data: dict) -> dict:
             },
             "free_modal_teaser": {
                 "headline": "System Guardrail Active",
-                "body": "You have attempted to scan a protected administrative or primary asset. Public conversion audits are restricted for this property."
+                "body": "You have attempted to scan a protected administrative or primary asset."
             },
-            "report_vault_id": "VAULT-PROTECTED-BYPASS"
+            "report_vault_id": "ARCH10-PROTECTED"
         }
 
-    # 1. Run 35 Checkpoints
+    # 1. Evaluate 35 Checkpoints
     checkpoint_results = evaluate_35_checkpoints(audit_data)
     
-    # 2. Compute AI Spectrum Index (0 - 100%) based on real input or domain hash variance
+    # 2. Compute AI Spectrum Index
     synthetic_index = calculate_ai_spectrum(audit_data)
     
-    # 3. Compute Score & Rank Top 10 Conversion Leaks
-    final_score, top_10_leaks = calculate_score_and_rank_leaks(biz_type, checkpoint_results, synthetic_index, domain)
+    # 3. Compute Score & Rank Top 10 Leaks (Harsh & Industry-Weighted)
+    final_score, top_10_leaks = calculate_harsh_score_and_rank_leaks(biz_type, checkpoint_results, synthetic_index)
 
-    # 4. Map Leaks to 50-Solution Library
+    # 4. Map Solutions
     mapped_solutions = resolve_solutions(top_10_leaks)
 
-    # --- STREAM 1: TELEMETRY DISPATCH (Background) ---
+    # Generate Tier Vault ID
+    report_vault_id = generate_vault_id(final_score)
+
+    # --- TELEMETRY & STORAGE ---
     log_telemetry_async(domain, biz_type, audit_data, final_score, synthetic_index)
 
-    # --- STREAM 2: PRIVATE REPORT VAULT (Locked Admin/Paid) ---
-    report_vault_id = save_private_audit_report(
+    save_private_audit_report(
         domain=domain,
         biz_type=biz_type,
         overall_score=final_score,
@@ -63,17 +109,15 @@ def run_full_audit_pipeline(audit_data: dict) -> dict:
         top_10_solutions=mapped_solutions
     )
 
-    # --- STREAM 3: ADMIN EMAIL NOTIFICATION DISPATCH ---
     send_audit_email_to_admin(domain, biz_type, final_score, report_vault_id)
 
-    # --- STREAM 4: PUBLIC FRONT-END PAYLOAD (Surface-Level Metrics & 2nd Leak Hook Only) ---
+    # --- PUBLIC FRONT-END PAYLOAD ---
     second_leak = top_10_leaks[1] if len(top_10_leaks) > 1 else (top_10_leaks[0] if top_10_leaks else {})
-    second_leak_reason = second_leak.get("description", second_leak.get("name", "Suboptimal mobile conversion path and unanchored interaction triggers."))
-    second_leak_penalty = second_leak.get("penalty_points", 12.0)
-    revenue_loss_pct = round(min(70.0, max(5.0, second_leak_penalty * 2.5)), 1)
+    second_leak_reason = second_leak.get("description", second_leak.get("name", "Suboptimal mobile conversion path."))
+    second_leak_severity = second_leak.get("financial_leak_score", 12.0)
+    revenue_loss_pct = round(min(75.0, max(8.0, second_leak_severity * 2.8)), 1)
     
-    # Deterministic calculation for online presence index
-    online_presence_index = round(max(10.0, min(95.0, 100.0 - (synthetic_index * 0.4) - ((sum(ord(c) for c in domain) % 30)))), 1)
+    online_presence_index = round(max(10.0, min(95.0, final_score * 0.95)), 1)
 
     return {
         "status": "success",
@@ -81,9 +125,9 @@ def run_full_audit_pipeline(audit_data: dict) -> dict:
         "business_type": biz_type,
         "surface_metrics": {
             "overall_score": final_score,
-            "seo_health_index": max(10.0, round(100.0 - (final_score * 0.6), 1)),
+            "seo_health_index": max(10.0, round(final_score * 0.9, 1)),
             "conversion_efficiency": final_score,
-            "competitor_gap_score": round(max(15.0, 100.0 - final_score), 1),
+            "competitor_gap_score": round(max(10.0, 100.0 - final_score), 1),
             "ai_spectrum_pct": synthetic_index,
             "online_presence_index": online_presence_index,
             "classification": get_ai_classification(synthetic_index)
@@ -96,6 +140,7 @@ def run_full_audit_pipeline(audit_data: dict) -> dict:
         "free_modal_teaser": generate_inverted_hook(biz_type, final_score),
         "report_vault_id": report_vault_id
     }
+
 
 def calculate_ai_spectrum(data: dict) -> float:
     if "is_shadcn_tailwind" in data or "lucide_icon_count" in data:
@@ -111,43 +156,78 @@ def calculate_ai_spectrum(data: dict) -> float:
     domain_hash = sum(ord(c) for c in data.get("domain", "test"))
     return float((domain_hash % 65) + 20)
 
+
 def get_ai_classification(idx: float) -> str:
     if idx >= 70.0: return "Raw AI Generator Output"
     if 30.0 <= idx < 70.0: return "Strategic Human-AI Hybrid"
     return "Legacy Custom / Bespoke"
 
-def calculate_score_and_rank_leaks(biz_type: str, check_results: list, synthetic_index: float, domain: str):
-    base_score = 85.0
-    domain_mod = (sum(ord(c) for c in domain) % 25)
+
+def calculate_harsh_score_and_rank_leaks(biz_type: str, check_results: list, synthetic_index: float):
+    """
+    Weighted Severity Index Scoring Algorithm:
+    Financial Leak Score = (Base Impact Weight + Competitor Bonus + Vertical Relevance Bonus)
+                           * Category Weight * Business Context Multiplier
+    """
+    biz_multipliers = BUSINESS_MODEL_MULTIPLIERS.get(biz_type, BUSINESS_MODEL_MULTIPLIERS["general"])
     failed_leaks = [c for c in check_results if not c.get("passed", False)]
     
-    total_deductions = sum(c.get("penalty_points", 5.0) for c in failed_leaks) if failed_leaks else (domain_mod * 1.5)
-    
-    if synthetic_index >= 70.0:
-        final_score = min(42.0, max(24.0, base_score - total_deductions))
-    else:
-        final_score = max(25.0, min(88.0, base_score - (domain_mod * 0.8)))
+    total_weighted_deduction = 0.0
 
-    sorted_leaks = sorted(failed_leaks, key=lambda x: x.get("penalty_points", 0.0), reverse=True) if failed_leaks else []
+    for leak in failed_leaks:
+        category = leak.get("category", "Conversion")
+        base_weight = leak.get("base_impact_weight", leak.get("penalty_points", 5.0))  # 1 to 10
+        
+        # Additive Bonuses (+3 if competitor has advantage, +3 to +4 if vertical relevant)
+        competitor_bonus = 3.0 if leak.get("competitor_advantage", False) else 0.0
+        vertical_bonus = leak.get("vertical_relevance_bonus", 0.0) # 3.0 to 4.0 if matched
+        
+        raw_severity = base_weight + competitor_bonus + vertical_bonus
+
+        # Multipliers
+        cat_weight = CATEGORY_WEIGHTS.get(category, 1.0)
+        biz_cat_multiplier = biz_multipliers.get(category, 1.0)
+
+        # Final Financial Leak Score for this specific issue
+        financial_leak_score = raw_severity * cat_weight * biz_cat_multiplier
+        leak["financial_leak_score"] = round(financial_leak_score, 2)
+        
+        total_weighted_deduction += financial_leak_score
+
+    # Harsh Industry Penalty Engine (100 Base Score, Harsh Deductions)
+    # AI Template Penalty
+    ai_penalty = (synthetic_index / 100.0) * 15.0 if synthetic_index > 60.0 else 0.0
+
+    # Calculate harsh overall score
+    starting_score = 100.0
+    harsh_score = starting_score - (total_weighted_deduction * 1.35) - ai_penalty
+    
+    # Floor score at 12.0 and cap perfect scores appropriately
+    final_score = round(max(12.0, min(96.0, harsh_score)), 1)
+
+    # Rank leaks by Financial Leak Score descending
+    sorted_leaks = sorted(failed_leaks, key=lambda x: x.get("financial_leak_score", 0.0), reverse=True)
     top_10 = sorted_leaks[:10]
 
-    return round(final_score, 1), top_10
+    return final_score, top_10
+
 
 def generate_inverted_hook(biz_type: str, score: float) -> dict:
     hooks = {
         "ecommerce": {
-            "headline": f"With an assessed performance score of {score}, current transaction friction is creating a severe bottleneck at cart entry.",
-            "body": "Aggregate behavioral benchmarks indicate you are leaking up to 65% of potential checkouts due to unoptimized field requirements."
+            "headline": f"Assessed conversion efficiency is currently at {score}/100, leaving substantial revenue at cart exit.",
+            "body": "Your store exhibits critical checkout friction, causing high-intent prospective buyers to abandon transactions."
         },
         "local_services": {
-            "headline": f"Your current conversion index sits at {score}, driving high bounce rates among mobile visitors seeking immediate contact options.",
-            "body": "Lack of direct tap-to-action elements means prospective local clients are abandoning your page for competitors within seconds."
+            "headline": f"Your current conversion score of {score}/100 is driving high bounce rates among mobile visitors.",
+            "body": "Lack of immediate click-to-call triggers and local Trust signals causes local clients to click back to competitors."
         }
     }
     return hooks.get(biz_type, {
-        "headline": f"Your digital audit score of {score} reflects critical drop-off points in your primary conversion funnel.",
-        "body": "Immediate structural adjustments are required to capture high-intent traffic before they exit the domain."
+        "headline": f"Your digital audit score of {score}/100 reflects critical conversion friction.",
+        "body": "Immediate structural fixes are required to capture high-intent traffic before they exit the site."
     })
+
 
 def send_audit_email_to_admin(domain: str, biz_type: str, overall_score: float, vault_id: str):
     sender_email = os.getenv("SMTP_EMAIL") or os.getenv("SMTP_USER")
@@ -155,7 +235,6 @@ def send_audit_email_to_admin(domain: str, biz_type: str, overall_score: float, 
     receiver_email = os.getenv("ADMIN_EMAIL", sender_email)
 
     if not sender_email or not sender_password:
-        print("SMTP credentials missing. Email notification skipped.")
         return
 
     msg = EmailMessage()
@@ -168,16 +247,14 @@ def send_audit_email_to_admin(domain: str, biz_type: str, overall_score: float, 
 
     - Target Domain: {domain}
     - Business Model: {biz_type}
-    - Overall Financial Leak Score: {overall_score}
+    - Overall Score: {overall_score}
     - Report Vault ID: {vault_id}
-
-    Log in to your dashboard to view the full prioritized breakdown and leak solutions.
     """)
 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(sender_email, sender_password)
             server.send_message(msg)
-            print(f"Audit email notification successfully sent for {domain}")
     except Exception as e:
-        print(f"Failed to send audit email notification: {e}")
+        print(f"Failed to send email: {e}")
+```[cite: 5]
