@@ -14,7 +14,7 @@ class HybridScanner:
     """
 
     def __init__(self, google_api_key: str = None):
-        self.google_api_key = google_api_key or os.environ.get("GOOGLE_PAGESPEED_API_KEY", "")
+        self.google_api_key = google_api_key or os.environ.get("PAGESPEED_API_KEY", "")
 
     def execute_hybrid_scan(self, target_domain: str) -> Dict[str, Any]:
         """Runs the complete 3-phase hybrid telemetry sequence."""
@@ -217,4 +217,3 @@ class HybridScanner:
 def collect_scan_data(domain: str) -> Dict[str, Any]:
     """Synchronous function entry point."""
     scanner = HybridScanner()
-    return scanner.execute_hybrid_scan(domain)

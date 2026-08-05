@@ -46,7 +46,7 @@ def health_check() -> Dict[str, Any]:
     return {
         "status": "online",
         "system": "Trilloka Architect Engine v3.0",
-        "google_pagespeed_configured": bool(os.getenv("GOOGLE_PAGESPEED_API_KEY")),
+        "google_pagespeed_configured": bool(os.getenv("PAGESPEED_API_KEY")),
         "vault_storage_active": True
     }
 
@@ -163,7 +163,14 @@ async def run_audit(request: AuditRequest, background_tasks: BackgroundTasks) ->
 @app.post("/api/scan")
 async def run_scan(request: AuditRequest, background_tasks: BackgroundTasks) -> Dict[str, Any]:
     """Frontend alias for /api/audit. Same 3-phase telemetry scan."""
-    return await run_audit(request, background_tasks)
+    try:
+        return await run_audit(request, background_tasks)
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = traceback.format_exc()
+        print("[SCAN CRASH]", error_detail)
+        raise HTTPException(status_code=500, detail=f"Scan pipeline crash: {str(e)}")
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
