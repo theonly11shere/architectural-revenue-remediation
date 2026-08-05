@@ -1,7 +1,6 @@
 import os
-import smtplib
 import traceback
-from email.mime.text import MIMEText
+import resend
 import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -49,43 +48,41 @@ class CompetitorScanRequest(BaseModel):
 # --- HELPER ENGINES ---
 
 def send_admin_email_alert(domain: str, score: float, report_id: str, annual_leak: str):
-    """Dispatches instant email alert to admin upon successful audit completion."""
-    smtp_email = os.environ.get("SMTP_EMAIL")
-    smtp_password = os.environ.get("SMTP_PASSWORD")
-    admin_email = os.environ.get("ADMIN_EMAIL", smtp_email)
+    """Dispatches instant email alert to admin upon successful audit completion via Resend."""
+    resend_key = os.getenv("RESEND_API_KEY")
+    receiver_email = os.getenv("ADMIN_EMAIL") or os.getenv("ALERT_EMAIL") or "arpitt22@trilloka.com"
+    sender_email = os.getenv("FROM_EMAIL") or os.getenv("EMAIL_FROM") or "arpitt22@trilloka.com"
 
-    if not smtp_email or not smtp_password:
-        print(" ⚠️ [EMAIL ALERT] Skipped: SMTP_EMAIL or SMTP_PASSWORD not set in environment.")
+    if not resend_key:
+        print(" ⚠️ [Resend] Skipped: RESEND_API_KEY environment variable is not set.")
         return
 
+    resend.api_key = resend_key
+
     subject = f"🚨 New Audit Completed: {domain} (Score: {score})"
-    body = f"""
-    A new website audit was just run on Trilloka!
-
-    ----------------------------------------------
-    Domain: {domain}
-    Overall Score: {score} / 100
-    Est. Annual Leak: {annual_leak}
-    Report Vault ID: {report_id}
-    ----------------------------------------------
-
-    Access raw vault entry:
-    https://api.trilloka.com/admin/vault/{report_id}
+    html_body = f"""
+    <h2>New Website Audit Completed on Trilloka</h2>
+    <ul>
+        <li><strong>Domain:</strong> {domain}</li>
+        <li><strong>Overall Score:</strong> {score} / 100</li>
+        <li><strong>Est. Annual Leak:</strong> {annual_leak}</li>
+        <li><strong>Report Vault ID:</strong> {report_id}</li>
+    </ul>
+    <p>
+        <a href="https://api.trilloka.com/admin/vault/{report_id}">Access raw vault entry</a>
+    </p>
     """
 
     try:
-        msg = MIMEText(body)
-        msg["Subject"] = subject
-        msg["From"] = smtp_email
-        msg["To"] = admin_email
-
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(smtp_email, smtp_password)
-            server.sendmail(smtp_email, admin_email, msg.as_string())
-            
-        print(f" 📧 [EMAIL SENT] Admin notification sent to {admin_email}")
+        response = resend.Emails.send({
+            "from": f"Trilloka Audit <{sender_email}>",
+            "to": [receiver_email],
+            "subject": subject,
+            "html": html_body
+        })
+        print(f" 📧 [EMAIL SENT] Admin notification sent via Resend! ID: {response.get('id')}")
     except Exception as err:
-        print(f" ❌ [EMAIL ERROR] Failed to send email alert: {err}")
+        print(f" ❌ [EMAIL ERROR] Failed to send email alert via Resend API: {err}")
 
 def calculate_revenue_leak(overall_score: float, biz_type: str) -> dict:
     tier_baselines = {
@@ -207,7 +204,7 @@ async def fetch_live_google_audit(domain: str, biz_type: str = "general"):
                 surface_metrics["cls"] = cls_val
                 cls_score = cls_audit.get("score", 1.0) or 1.0
                 if cls_score < 0.5:
-                    checkpoint_results.append({"checkpoint": "Layout Stability (CLS)", "status": f"Failed ({cls_val})", "impact": "High"})
+                    checkpoint_results.append({"checkpoint": "Layout Stability (CLS)", "status": "Failed ({cls_val})", "impact": "High"})
                     top_10_solutions.append("Set explicit width/height parameters on dynamic layout elements to stop mobile visual jumping during render.")
                 else:
                     checkpoint_results.append({"checkpoint": "Layout Stability (CLS)", "status": f"Passed ({cls_val})", "impact": "Low"})
@@ -284,7 +281,7 @@ async def trigger_scan(payload: ScanRequest):
             surface_metrics=audit["surface_metrics"]
         )
 
-        # 📧 Trigger real-time admin email notification
+        # 📧 Trigger real-time admin email notification via Resend
         send_admin_email_alert(
             domain=target_domain,
             score=audit["overall_score"],
