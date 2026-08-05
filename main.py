@@ -159,5 +159,10 @@ async def run_audit(request: AuditRequest, background_tasks: BackgroundTasks) ->
         )
 
 
+
+@app.post("/api/scan")
+async def run_scan(request: AuditRequest, background_tasks: BackgroundTasks) -> Dict[str, Any]:
+    """Frontend alias for /api/audit. Same 3-phase telemetry scan."""
+    return await run_audit(request, background_tasks)
+
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

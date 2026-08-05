@@ -1188,7 +1188,6 @@ footer {
   .constellation-row { gap: 0.75rem; }
 }
 </style>
-<base target="_blank">
 </head>
 <body>
 
@@ -1380,6 +1379,7 @@ footer {
 <script>
 const API_URL = 'https://trilloka.up.railway.app/api/scan';
 let scanRunning = false;
+let currentDevKit = '';
 
 function toggleMenu() {
   document.getElementById('mobileMenu').classList.toggle('open');
@@ -1503,6 +1503,7 @@ function showResults(data) {
   const revenue = data.revenue_leak || {};
   const cms = data.cms_platform || '';
   const devKit = data.dev_handoff_kit || '';
+  currentDevKit = typeof devKit === 'string' ? devKit : JSON.stringify(devKit, null, 2);
 
   let reasonText = "Solid foundation, minor leaks detected.";
   if (overall < 30) reasonText = "Severe mobile rendering friction detected.";
@@ -1554,10 +1555,10 @@ function showResults(data) {
       'stroke-linecap="round" transform="rotate(-90 63 63)" style="transition:stroke-dashoffset 1.2s ease ' + delay + 's;"/></svg>';
   };
 
-  const scoreCirc = (r, pct) => {
+  const scoreCirc = (r, pct, gradId) => {
     const c = 2 * Math.PI * r;
     return '<circle cx="75" cy="75" r="' + r + '" fill="none" stroke="#2A3040" stroke-width="4"/>' +
-      '<circle cx="75" cy="75" r="' + r + '" fill="none" stroke="url(#scoreGrad)" stroke-width="4" ' +
+      '<circle cx="75" cy="75" r="' + r + '" fill="none" stroke="url(#' + gradId + ')" stroke-width="4" ' +
       'stroke-dasharray="' + c.toFixed(2) + '" stroke-dashoffset="' + (c * (1 - pct/100)).toFixed(2) + '" ' +
       'stroke-linecap="round" transform="rotate(-90 75 75)" style="transition:stroke-dashoffset 1.5s ease 0.1s; filter:drop-shadow(0 0 8px rgba(216,182,106,0.4));"/>';
   };
@@ -1578,12 +1579,12 @@ function showResults(data) {
       <div class="ms-ring-wrap">
         <svg viewBox="0 0 150 150">
           <defs>
-            <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <linearGradient id="scoreGradMobile" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" style="stop-color:#D8B66A;stop-opacity:0.6" />
               <stop offset="100%" style="stop-color:#D8B66A;stop-opacity:0.3" />
             </linearGradient>
           </defs>
-          ` + scoreCirc(70, overall) + `
+          ` + scoreCirc(70, overall, 'scoreGradMobile') + `
         </svg>
         <div class="ms-inner">
           <div class="ms-value">` + Math.round(overall) + `</div>
@@ -1654,12 +1655,12 @@ function showResults(data) {
         <div class="score-orb">
           <svg class="score-ring-svg" viewBox="0 0 150 150">
             <defs>
-              <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <linearGradient id="scoreGradDesktop" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" style="stop-color:#D8B66A;stop-opacity:0.6" />
                 <stop offset="100%" style="stop-color:#D8B66A;stop-opacity:0.3" />
               </linearGradient>
             </defs>
-            ` + scoreCirc(70, overall) + `
+            ` + scoreCirc(70, overall, 'scoreGradDesktop') + `
           </svg>
           <div class="score-inner">
             <div class="s-value">` + Math.round(overall) + `</div>
@@ -1805,48 +1806,50 @@ function showResults(data) {
     ` + (devKit ? `
     <div class="dev-handoff fade-in">
       <p>Ready-to-send brief for your developer. Copy and paste into an email.</p>
-      <button class="btn btn-primary copy-btn" onclick="copyDevKit(this)">Copy Developer Handoff Email</button>
-      <textarea id="devKitText" style="position:absolute; left:-9999px;">` + (typeof devKit === 'string' ? devKit : JSON.stringify(devKit, null, 2)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') + `</textarea>
+      <button class="btn btn-primary copy-btn" onclick="copyDevKit(this, currentDevKit)">Copy Developer Handoff Email</button>
     </div>
     ` : '') + `
 
     <h3 style="margin: 2rem 0 1rem;">Unlock the Full Report</h3>
     <div class="pricing-grid">
       <div class="pricing-card">
-        <div class="tier-name">Full Report</div>
+        <div class="tier-name">The Recovery Report</div>
         <div class="tier-price">$350</div>
-        <div class="tier-desc">Top 3 critical leaks. Best fixes from 4 angles: design, copy, tech, presence.</div>
+        <div class="tier-desc">Top 4 biggest leaks fix</div>
         <ul>
-          <li>3 critical revenue holes</li>
-          <li>4-angle fix strategy</li>
-          <li>5 scans included</li>
+          <li>Standard Solutions</li>
+          <li>5 Scans / month</li>
+          <li>Full 50-Point Audit</li>
+          <li>Frontend SEO Data — Free Instant Access</li>
         </ul>
         <a href="https://paypal.me/trilloka/350" target="_blank" class="btn btn-primary" style="width:100%;">Get Report</a>
       </div>
       <div class="pricing-card featured">
-        <div class="tier-name">Report + Roadmap</div>
+        <div class="tier-name">The First Mark Report</div>
         <div class="tier-price">$550</div>
-        <div class="tier-desc">Top 6 revenue holes. Weekly execution roadmap + 1&times; 30-min call with The Architect.</div>
+        <div class="tier-desc">Top 8 Leaks</div>
         <ul>
-          <li>6 critical revenue holes</li>
-          <li>Weekly execution roadmap</li>
-          <li>1&times; 30-min strategy call</li>
-          <li>8 scans included</li>
+          <li>3-Angle Solutions (Tech, CRO, Copy)</li>
+          <li>10 Scans / month</li>
+          <li>Two 15-Min Calls</li>
+          <li>Full 50-Point Audit</li>
+          <li>Frontend SEO Data — Full Access</li>
         </ul>
-        <a href="https://paypal.me/trilloka/550" target="_blank" class="btn btn-primary" style="width:100%;">Get Roadmap</a>
+        <a href="https://paypal.me/trilloka/550" target="_blank" class="btn btn-primary" style="width:100%;">Get Report</a>
       </div>
       <div class="pricing-card">
-        <div class="tier-name">Hire the Architect</div>
-        <div class="tier-price">$850<span style="font-size:1rem; color:var(--mist);">/mo</span></div>
-        <div class="tier-desc">Top 8 holes. 1-month roadmap + 1&times; 30-min call + email support (reply within 14 hrs).</div>
+        <div class="tier-name">The Master Class</div>
+        <div class="tier-price">$850</div>
+        <div class="tier-desc">Top 12 Biggest Financial Leaks</div>
         <ul>
-          <li>8 revenue holes covered</li>
-          <li>1-month fix roadmap</li>
-          <li>1&times; 30-min strategy call</li>
-          <li>Email support (14hr reply)</li>
-          <li>20 scans included</li>
+          <li>3-Angle Solutions (Tech, CRO, Copy)</li>
+          <li>16 Scans / month</li>
+          <li>1-Month Implementation Roadmap</li>
+          <li>Two 15-Min Calls</li>
+          <li>Full 50-Point Audit</li>
+          <li>Frontend SEO Data — Full Access</li>
         </ul>
-        <a href="https://paypal.me/trilloka/850" target="_blank" class="btn btn-primary" style="width:100%;">Hire Now</a>
+        <a href="https://paypal.me/trilloka/850" target="_blank" class="btn btn-primary" style="width:100%;">Get Report</a>
       </div>
     </div>
 
@@ -1859,9 +1862,8 @@ function showResults(data) {
   document.body.style.overflow = 'hidden';
 }
 
-function copyDevKit(btn) {
-  const text = document.getElementById('devKitText').value;
-  navigator.clipboard.writeText(text).then(() => {
+function copyDevKit(btn, textToCopy) {
+  navigator.clipboard.writeText(textToCopy).then(() => {
     btn.classList.add('copied');
     btn.textContent = 'Copied to Clipboard';
     setTimeout(() => {
