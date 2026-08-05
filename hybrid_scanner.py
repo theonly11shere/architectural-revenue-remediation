@@ -51,7 +51,23 @@ class HybridScanner:
         psi_raw = pagespeed_meta.get("psi_raw", {})
 
         # 3. Targeted Mobile Playwright Execution (DOM + Behavioral & CRO Checks)
-        dom_and_behavioral_meta = self._run_targeted_playwright(url, psi_raw)
+        # Gracefully skip if Chromium is not available (e.g. Railway containers)
+        try:
+            dom_and_behavioral_meta = self._run_targeted_playwright(url, psi_raw)
+        except Exception as e:
+            print(f"[Hybrid Scanner] Playwright skipped — Chromium unavailable or crashed: {e}")
+            dom_and_behavioral_meta = {
+                "title": "",
+                "meta_description": "",
+                "h1_tags": [],
+                "image_count": 0,
+                "missing_alt_images": 0,
+                "page_content_len": 0,
+                "click_to_call_present": False,
+                "mobile_cta_visible": False,
+                "form_payload_fired": False,
+                "tap_targets_flagged": []
+            }
 
         # Merge all telemetry sources into unified dataset
         return {
