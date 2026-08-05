@@ -2,8 +2,7 @@
 import os
 import random
 import string
-import smtplib
-from email.message import EmailMessage
+import resend
 from hybrid_scanner import collect_scan_data
 from checkpoints_35 import evaluate_35_checkpoints
 from solutions_50 import resolve_solutions
@@ -215,30 +214,33 @@ def generate_inverted_hook(biz_type: str, score: float) -> dict:
 
 
 def send_audit_email_to_admin(domain: str, biz_type: str, overall_score: float, vault_id: str):
-    sender_email = os.getenv("SMTP_EMAIL") or os.getenv("SMTP_USER")
-    sender_password = os.getenv("SMTP_PASSWORD")
-    receiver_email = os.getenv("ADMIN_EMAIL", sender_email)
+    resend_key = os.getenv("RESEND_API_KEY")
+    
+    # Resolves from Railway variables in order of priority, with a sensible default fallback
+    receiver_email = os.getenv("ADMIN_EMAIL") or os.getenv("ALERT_EMAIL") or "arpitt22@trilloka.com"
+    sender_email = os.getenv("FROM_EMAIL") or os.getenv("EMAIL_FROM") or "arpitt22@trilloka.com"
 
-    if not sender_email or not sender_password:
+    if not resend_key:
+        print("⚠️ [Resend] Skipping email notification: RESEND_API_KEY environment variable is not set.")
         return
 
-    msg = EmailMessage()
-    msg["Subject"] = f"🚨 New Audit Completed: {domain} (Score: {overall_score})"
-    msg["From"] = sender_email
-    msg["To"] = receiver_email
-    
-    msg.set_content(f"""
-    A new website audit has just been completed on your scanner!
-
-    - Target Domain: {domain}
-    - Business Model: {biz_type}
-    - Overall Score: {overall_score}
-    - Report Vault ID: {vault_id}
-    """)
+    resend.api_key = resend_key
 
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(sender_email, sender_password)
-            server.send_message(msg)
+        response = resend.Emails.send({
+            "from": f"Trilloka Audit <{sender_email}>",
+            "to": [receiver_email],
+            "subject": f"🚨 New Audit Completed: {domain} (Score: {overall_score})",
+            "html": f"""
+                <h2>New Website Audit Completed</h2>
+                <ul>
+                    <li><strong>Target Domain:</strong> {domain}</li>
+                    <li><strong>Business Model:</strong> {biz_type}</li>
+                    <li><strong>Overall Score:</strong> {overall_score}/100</li>
+                    <li><strong>Report Vault ID:</strong> {vault_id}</li>
+                </ul>
+            """
+        })
+        print(f"✅ [Resend] Audit email dispatched successfully! ID: {response.get('id')}")
     except Exception as e:
-        print(f"Failed to send email: {e}")
+        print(f"❌ [Resend] Failed to send email via Resend API: {e}")
