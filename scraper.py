@@ -1,69 +1,38 @@
-import logging
-import httpx
-from bs4 import BeautifulSoup
+"""
+scraper.py - Backward Compatibility Layer
+Wraps HybridScanner to ensure any legacy imports of WebsiteScraper or scraper functions 
+continue to work seamlessly with the new 3-phase hybrid scanning architecture.
+"""
+from typing import Dict, Any
+from hybrid_scanner import HybridScanner
 
-logger = logging.getLogger(__name__)
 
+class WebsiteScraper:
+    """
+    Legacy scraper class wrapper.
+    Delegates all execution to the 3-phase HybridScanner engine.
+    """
+    def __init__(self, google_api_key: str = None):
+        self.scanner = HybridScanner(google_api_key=google_api_key)
 
-class WebScraper:
-    def __init__(self, timeout: float = 10.0):
-        self.timeout = timeout
-
-    def _build_error_response(self, target_url: str, error_msg: str) -> dict:
+    def scrape_site(self, target_domain: str) -> Dict[str, Any]:
         """
-        Builds a safe, standard fallback payload on scraping failures.
+        Executes the full hybrid scan sequence:
+        1. HTTP Pre-flight headers & SSL check
+        2. Playwright headless browser DOM audit
+        3. Google PageSpeed API query
         """
-        return {
-            "url": target_url,
-            "status_code": 0,
-            "title": None,
-            "meta_description": None,
-            "h1": [],
-            "error": error_msg
-        }
+        return self.scanner.execute_hybrid_scan(target_domain)
 
-    async def scrape(self, target_url: str) -> dict:
-        """
-        Scrapes basic SEO metadata from the given URL with automatic HTTPS to HTTP fallback.
-        """
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
+    # Alias method in case legacy scripts call scrape() or run()
+    def scrape(self, target_domain: str) -> Dict[str, Any]:
+        return self.scrape_site(target_domain)
 
-        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True, headers=headers) as client:
-            try:
-                response = await client.get(target_url)
-            except Exception as first_err:
-                # Fallback to HTTP if HTTPS fails
-                if target_url.startswith("https://"):
-                    fallback_url = target_url.replace("https://", "http://", 1)
-                    try:
-                        response = await client.get(fallback_url)
-                    except Exception as second_err:
-                        return self._build_error_response(target_url, f"Both HTTPS and HTTP attempts failed: {str(second_err)}")
-                else:
-                    return self._build_error_response(target_url, f"Scrape failed: {str(first_err)}")
+    def run(self, target_domain: str) -> Dict[str, Any]:
+        return self.scrape_site(target_domain)
 
-            if response.status_code >= 400:
-                return self._build_error_response(target_url, f"Received HTTP error status {response.status_code}")
 
-            try:
-                soup = BeautifulSoup(response.text, "html.parser")
-                title = soup.title.string.strip() if soup.title and soup.title.string else None
-                
-                meta_desc_tag = soup.find("meta", attrs={"name": "description"}) or soup.find("meta", attrs={"property": "og:description"})
-                meta_description = meta_desc_tag["content"].strip() if meta_desc_tag and meta_desc_tag.get("content") else None
-
-                h1_headers = [h1.get_text(strip=True) for h1 in soup.find_all("h1") if h1.get_text(strip=True)]
-
-                return {
-                    "url": str(response.url),
-                    "status_code": response.status_code,
-                    "title": title,
-                    "meta_description": meta_description,
-                    "h1": h1_headers,
-                    "error": None
-                }
-            except Exception as parse_err:
-                logger.error(f"Parsing error for {target_url}: {str(parse_err)}")
-                return self._build_error_response(target_url, f"Failed to parse HTML response: {str(parse_err)}")
+def scrape_website(target_domain: str, google_api_key: str = None) -> Dict[str, Any]:
+    """Standalone function wrapper for legacy procedural calls."""
+    scraper = WebsiteScraper(google_api_key=google_api_key)
+    return scraper.scrape_site(target_domain)

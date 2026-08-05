@@ -1,82 +1,79 @@
 import os
 import json
-import uuid
-from datetime import datetime, timezone
-from typing import Dict, Any, Optional
+import datetime
+from typing import Dict, Any, List
 
-REPORT_VAULT_FILE = os.environ.get("REPORT_VAULT_PATH", "report_vault.json")
+class ReportGenerator:
+    """
+    Trilloka Architect Engine:
+    - Generates 1 Master Admin Report (Top 15 Leaks, 3-Angle Solutions, 50 Checkpoints, Roadmap).
+    - Archives 1 Raw Telemetry Snapshot to the Vault.
+    """
 
+    def generate_admin_master_report(self, audit_data: Dict[str, Any], scan_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Generates the master Admin Report for Architect review."""
+        leaks = audit_data.get("tiered_remediation_packages", {}).get("tier_10_arch10", [])
+        
+        # Take Top 15 Leaks for the Admin
+        top_15_leaks = leaks[:15]
+        
+        # Build 3-Angle Solutions for each leak
+        enriched_leaks = []
+        for leak in top_15_leaks:
+            enriched_leaks.append({
+                "id": leak.get("id"),
+                "severity_score": leak.get("severity_score"),
+                "leak_name": leak.get("leak_name"),
+                "impact_summary": leak.get("impact_summary"),
+                "solutions_3_angles": {
+                    "angle_1_technical": f"Fix server/code infrastructure for {leak.get('leak_name')}.",
+                    "angle_2_cro_ux": f"Optimize user visual flow and reduce friction related to {leak.get('leak_name')}.",
+                    "angle_3_copy_strategy": f"Adjust messaging & value proposition around {leak.get('leak_name')}."
+                }
+            })
 
-def get_recent_cached_report(domain: str, max_age_minutes: int = 60) -> Optional[Dict[str, Any]]:
-    """Retrieves a cached report if a domain was scanned recently to guarantee score consistency."""
-    if not os.path.exists(REPORT_VAULT_FILE):
-        return None
+        admin_payload = {
+            "report_type": "ADMIN_MASTER_ARCHITECT_REPORT",
+            "generated_at": datetime.datetime.utcnow().isoformat(),
+            "target_domain": audit_data.get("target_domain"),
+            "business_type": audit_data.get("business_type"),
+            "overall_health_score": audit_data.get("overall_health_score"),
+            "score_rating": audit_data.get("score_rating"),
+            "top_15_financial_leaks": enriched_leaks,
+            "full_50_checkpoint_basis": {
+                "total_checkpoints_assessed": 50,
+                "passed": 50 - audit_data.get("total_leaks_found", 0),
+                "failed": audit_data.get("total_leaks_found", 0),
+                "behavioral_diagnostics": audit_data.get("behavioral_diagnostics", {})
+            },
+            "one_month_implementation_roadmap": [
+                {"week": 1, "focus": "Critical Trust & SSL/Security Patches"},
+                {"week": 2, "focus": "Mobile CTA & Click-To-Call Conversion Friction"},
+                {"week": 3, "focus": "Core Web Vitals & Mobile Latency Optimization"},
+                {"week": 4, "focus": "E-E-A-T Anchors & Copywriting Alignment"}
+            ]
+        }
+        return admin_payload
 
-    try:
-        with open(REPORT_VAULT_FILE, "r") as f:
-            vault = json.load(f)
-
-        now = datetime.now(timezone.utc)
-        for report_id, report in vault.items():
-            if report.get("domain") == domain:
-                created_at_str = report.get("created_at")
-                if created_at_str:
-                    created_at = datetime.fromisoformat(created_at_str)
-                    if (now - created_at).total_seconds() < (max_age_minutes * 60):
-                        return report
-    except Exception as e:
-        print(f"Error reading report cache vault: {e}")
-    
-    return None
-
-
-def save_private_audit_report(
-    domain: str,
-    biz_type: str,
-    overall_score: float,
-    checkpoint_results: list,
-    top_10_solutions: list,
-    report_vault_id: Optional[str] = None
-) -> str:
-    """Saves generated private audit report into the storage vault."""
-    vault = {}
-    if os.path.exists(REPORT_VAULT_FILE):
-        try:
-            with open(REPORT_VAULT_FILE, "r") as f:
-                vault = json.load(f)
-        except Exception:
-            vault = {}
-
-    report_id = report_vault_id or str(uuid.uuid4())
-    
-    report_data = {
-        "report_id": report_id,
-        "domain": domain,
-        "business_type": biz_type,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "overall_score": overall_score,
-        "surface_metrics": {
-            "overall_score": overall_score,
-            "seo_health_index": max(10.0, round(overall_score * 0.9, 1)),
-            "conversion_efficiency": overall_score,
-            "competitor_gap_score": round(max(10.0, 100.0 - overall_score), 1),
-            "online_presence_index": round(max(10.0, min(95.0, overall_score * 0.95)), 1)
-        },
-        "revenue_leak": f"${int((100 - overall_score) * 120)}/mo",
-        "dev_handoff_kit": {
-            "status": "Ready",
-            "checkpoints_count": len(checkpoint_results)
-        },
-        "checkpoints_summary": checkpoint_results,
-        "top_10_conversion_leaks": top_10_solutions
-    }
-
-    vault[report_id] = report_data
-
-    try:
-        with open(REPORT_VAULT_FILE, "w") as f:
-            json.dump(vault, f, indent=2)
-    except Exception as e:
-        print(f"Failed to write report to vault: {e}")
-
-    return report_id
+    def archive_to_vault(self, target_domain: str, admin_report: Dict[str, Any], raw_scan_data: Dict[str, Any]) -> str:
+        """Stores immutable snapshot in local vault directory or DB."""
+        vault_dir = "./vault_archives"
+        os.makedirs(vault_dir, exist_ok=True)
+        
+        timestamp = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        sanitized_domain = target_domain.replace("https://", "").replace("http://", "").replace("/", "_")
+        filename = f"{vault_dir}/{sanitized_domain}_{timestamp}.json"
+        
+        vault_entry = {
+            "vault_id": f"VAULT-{timestamp}",
+            "domain": target_domain,
+            "archived_at": datetime.datetime.utcnow().isoformat(),
+            "admin_report": admin_report,
+            "raw_telemetry": raw_scan_data
+        }
+        
+        with open(filename, "w") as f:
+            json.dump(vault_entry, f, indent=2)
+            
+        print(f"[Vault] Archived scan snapshot to {filename}")
+        return filename
