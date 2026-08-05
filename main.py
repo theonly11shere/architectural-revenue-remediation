@@ -4,9 +4,12 @@ import logging
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-import requests
+
+# Internal Imports
+from report_engine import get_recent_cached_report
+from scorer import run_full_audit_pipeline
 
 # Initialize FastAPI App
 app = FastAPI(
@@ -35,93 +38,56 @@ class LeadCaptureRequest(BaseModel):
     website: Optional[str] = None
 
 
-# Core Helper: Fetch Google PageSpeed Insights Audit
-async def fetch_live_google_audit(domain: str, biz_type: str = "general"):
-    # Read Google API Key from Environment with fallback support
-    api_key = os.environ.get("GOOGLE_PAGESPEED_API_KEY") or os.environ.get("PAGESPEED_API_KEY", "")
-    key_param = f"&key={api_key}" if api_key else ""
-
-    psi_url = f"https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=https://{domain}&strategy=mobile{key_param}"
-
-    checkpoint_results = []
-    top_10_solutions = []
-    overall_score = 65.0
-    surface_metrics = {
-        "lcp": "N/A",
-        "inp_tbt": "N/A",
-        "cls": "N/A",
-        "mobile_performance_score": 65.0
-    }
-
-    try:
-        response = requests.get(psi_url, timeout=20)
-        if response.status_code == 200:
-            data = response.json()
-            lighthouse = data.get("lighthouseResult", {})
-            audits = lighthouse.get("audits", {})
-            categories = lighthouse.get("categories", {})
-
-            # Extract lighthouse mobile score (scale 0-100)
-            score_category = categories.get("performance", {}).get("score")
-            if score_category is not None:
-                overall_score = round(score_category * 100, 1)
-
-            # Core Web Vitals
-            lcp = audits.get("largest-contentful-paint", {}).get("displayValue", "N/A")
-            tbt = audits.get("total-blocking-time", {}).get("displayValue", "N/A")
-            cls = audits.get("cumulative-layout-shift", {}).get("displayValue", "N/A")
-
-            surface_metrics = {
-                "lcp": lcp,
-                "inp_tbt": tbt,
-                "cls": cls,
-                "mobile_performance_score": overall_score
-            }
-        else:
-            logging.warning(f"Google PSI API returned status code {response.status_code}")
-    except Exception as e:
-        logging.error(f"Error executing fetch_live_google_audit for {domain}: {e}")
-
-    return {
-        "domain": domain,
-        "overall_score": overall_score,
-        "surface_metrics": surface_metrics,
-        "revenue_leak": f"${int((100 - overall_score) * 120)}/mo",
-        "cms_platform": "Detected Web Server",
-        "dev_handoff_kit": {
-            "status": "Ready",
-            "checkpoints_count": len(checkpoint_results)
-        },
-        "checkpoints_summary": checkpoint_results,
-        "top_10_conversion_leaks": top_10_solutions
-    }
-
-
-# API Endpoints
 @app.get("/")
 def read_root():
     return {"status": "online", "system": "Trilloka Engine"}
+
 
 @app.post("/api/scan")
 async def trigger_scan(payload: ScanRequest):
     if not payload.domain:
         raise HTTPException(status_code=400, detail="Domain parameter is required.")
     
+    # Clean domain string
     clean_domain = payload.domain.strip().lower().replace("https://", "").replace("http://", "").split("/")[0]
-    result = await fetch_live_google_audit(clean_domain, payload.business_type)
-    
-    return {
-        "success": True,
-        **result
+    biz_type = payload.business_type if payload.business_type else "general"
+
+    # 1. Cache Check: Use cached report if domain was scanned within 60 mins
+    cached_report = get_recent_cached_report(clean_domain, max_age_minutes=60)
+    if cached_report:
+        logging.info(f" [CACHE HIT] Serving cached audit for {clean_domain}")
+        return {
+            "success": True,
+            "cached": True,
+            **cached_report
+        }
+
+    # 2. Fresh Run: Execute clean pipeline (Google PSI + Playwright + Scorer + Vault + Resend)
+    logging.info(f" [CACHE MISS] Running fresh audit pipeline for {clean_domain}")
+    audit_payload = {
+        "domain": clean_domain,
+        "business_type": biz_type
     }
+    
+    try:
+        scan_result = run_full_audit_pipeline(audit_payload)
+        return {
+            "success": True,
+            "cached": False,
+            **scan_result
+        }
+    except Exception as e:
+        logging.error(f"Error executing audit pipeline for {clean_domain}: {e}")
+        raise HTTPException(status_code=500, detail=f"Audit pipeline failed: {str(e)}")
+
 
 @app.post("/api/lead")
 async def capture_lead(payload: LeadCaptureRequest):
-    # Endpoint to process audit lead captures
     return {
         "success": True,
         "message": f"Lead registered for {payload.email}"
     }
+
 
 if __name__ == "__main__":
     import uvicorn

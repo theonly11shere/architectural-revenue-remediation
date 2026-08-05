@@ -105,12 +105,14 @@ def run_full_audit_pipeline(audit_data: dict) -> dict:
 
     log_telemetry_async(domain, biz_type, audit_data, final_score, synthetic_index)
 
+    # --- UPDATED: Pass report_vault_id to keep vault ID synced ---
     save_private_audit_report(
         domain=domain,
         biz_type=biz_type,
         overall_score=final_score,
         checkpoint_results=checkpoint_results,
-        top_10_solutions=mapped_solutions
+        top_10_solutions=mapped_solutions,
+        report_vault_id=report_vault_id
     )
 
     # Calculate estimated revenue leak for notification
