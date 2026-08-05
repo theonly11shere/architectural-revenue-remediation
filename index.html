@@ -364,7 +364,6 @@ footer {
   border-color: var(--copper);
   box-shadow: 0 0 0 3px rgba(216,182,106,0.12);
 }
-.scan-input-wrap input:focus { border-color: var(--copper); }
 .scan-input-wrap input::placeholder { color: rgba(169,167,160,0.5); }
 .analysis-step {
   display: flex;
@@ -1807,7 +1806,7 @@ function showResults(data) {
     <div class="dev-handoff fade-in">
       <p>Ready-to-send brief for your developer. Copy and paste into an email.</p>
       <button class="btn btn-primary copy-btn" onclick="copyDevKit(this)">Copy Developer Handoff Email</button>
-      <textarea id="devKitText" style="position:absolute; left:-9999px;">` + devKit.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') + `</textarea>
+      <textarea id="devKitText" style="position:absolute; left:-9999px;">` + (typeof devKit === 'string' ? devKit : JSON.stringify(devKit, null, 2)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') + `</textarea>
     </div>
     ` : '') + `
 
