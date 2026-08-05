@@ -159,7 +159,6 @@ async def run_audit(request: AuditRequest, background_tasks: BackgroundTasks) ->
         )
 
 
-
 @app.post("/api/scan")
 async def run_scan(request: AuditRequest, background_tasks: BackgroundTasks) -> Dict[str, Any]:
     """Frontend alias for /api/audit. Same 3-phase telemetry scan."""
@@ -174,3 +173,4 @@ async def run_scan(request: AuditRequest, background_tasks: BackgroundTasks) -> 
         raise HTTPException(status_code=500, detail=f"Scan pipeline crash: {str(e)}")
 
 if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

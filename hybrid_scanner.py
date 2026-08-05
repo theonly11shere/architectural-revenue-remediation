@@ -217,3 +217,4 @@ class HybridScanner:
 def collect_scan_data(domain: str) -> Dict[str, Any]:
     """Synchronous function entry point."""
     scanner = HybridScanner()
+    return scanner.execute_hybrid_scan(domain)
