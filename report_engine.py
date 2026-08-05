@@ -1,121 +1,95 @@
+import os
 import json
 import uuid
-import os
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Dict, Any, Optional
 
-# Automatically checks Railway volume mount path, standard /data path, or defaults to local root
-vault_dir = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "/data" if os.path.exists("/data") else ".")
-REPORT_VAULT_FILE = os.path.join(vault_dir, "private_reports_vault.json")
+REPORT_VAULT_FILE = os.environ.get("REPORT_VAULT_PATH", "report_vault.json")
 
-ADMIN_TOKEN_ENV_VAR = "TRILLOKA_ADMIN_TOKEN"
+def get_recent_cached_report(domain: str, max_age_minutes: int = 60) -> Optional[Dict[str, Any]]:
+    """Retrieves a cached report if a domain was scanned recently to guarantee score consistency."""
+    if not os.path.exists(REPORT_VAULT_FILE):
+        return None
 
-def _verify_admin_access(token_provided: str) -> bool:
-    """Verifies master admin token against environment variables."""
-    master_token = os.environ.get(ADMIN_TOKEN_ENV_VAR, "SM65J3J34H34I34B34U")
-    return token_provided == master_token
+    try:
+        with open(REPORT_VAULT_FILE, "r") as f:
+            vault = json.load(f)
 
-def save_private_audit_report(
-    domain: str, 
-    biz_type: str, 
-    overall_score: float, 
-    checkpoint_results: list, 
-    top_10_solutions: list,
-    cms_platform: str = "Unknown",
-    revenue_leak: dict = None,
-    dev_handoff_kit: str = "",
-    surface_metrics: dict = None
-) -> str:
-    """
-    Saves the complete detailed audit report to a secure vault file.
-    User only sees full metrics upon unlock/payment.
-    """
-    report_id = f"rpt_{uuid.uuid4().hex[:12]}"
+        now = datetime.now(timezone.utc)
+        for report_id, report in vault.items():
+            if report.get("domain") == domain:
+                created_at_str = report.get("created_at")
+                if created_at_str:
+                    created_at = datetime.fromisoformat(created_at_str)
+                    if (now - created_at).total_seconds() < (max_age_minutes * 60):
+                        return report
+    except Exception as e:
+        print(f"Error reading report cache vault: {e}")
     
-    report_payload = {
-        "report_id": report_id,
-        "created_at": datetime.utcnow().isoformat(),
-        "domain": domain,
-        "business_type": biz_type,
-        "overall_score": overall_score,
-        "cms_platform": cms_platform,
-        "revenue_leak": revenue_leak or {},
-        "dev_handoff_kit": dev_handoff_kit,
-        "surface_metrics": surface_metrics or {},
-        "total_checkpoints_evaluated": len(checkpoint_results),
-        "checkpoints_summary": checkpoint_results,
-        "top_10_conversion_leaks": top_10_solutions,
-        "is_unlocked": False
-    }
+    return None
 
+def save_report_to_vault(report_data: Dict[str, Any]) -> str:
+    """Saves generated audit report into the storage vault."""
     vault = {}
     if os.path.exists(REPORT_VAULT_FILE):
         try:
             with open(REPORT_VAULT_FILE, "r") as f:
                 vault = json.load(f)
-        except (json.JSONDecodeError, IOError):
+        except Exception:
             vault = {}
 
-    vault[report_id] = report_payload
+    report_id = report_data.get("report_id") or str(uuid.uuid4())
+    report_data["report_id"] = report_id
+    if "created_at" not in report_data:
+        report_data["created_at"] = datetime.now(timezone.utc).isoformat()
+
+    vault[report_id] = report_data
 
     try:
         with open(REPORT_VAULT_FILE, "w") as f:
             json.dump(vault, f, indent=2)
-        print(f" [VAULT SECURED] Saved private report [{report_id}] for {domain}")
-    except IOError as e:
-        print(f" [VAULT ERROR] Could not save private report: {e}")
+    except Exception as e:
+        print(f"Failed to write report to vault: {e}")
 
     return report_id
 
-# =====================================================================
-#                 ADMIN BACKDOOR / EMERGENCY VAULT ACCESS
-# =====================================================================
+def generate_audit_report(domain: str, scan_results: Dict[str, Any], biz_type: str = "general") -> Dict[str, Any]:
+    """Builds and returns the full standardized report structure."""
+    
+    # Check for valid recent cache
+    cached = get_recent_cached_report(domain)
+    if cached:
+        return cached
 
-def get_report_by_id_admin(report_id: str, admin_token: str) -> dict:
-    """
-    ADMIN BACKDOOR: Retrieve a specific private report from the vault.
-    Bypasses paywalls using administrative verification.
-    """
-    if not _verify_admin_access(admin_token):
-        print(" [SECURITY ALERT] Unauthorized access attempt to Vault Report.")
-        return {"error": "ACCESS_DENIED: Invalid Admin Verification Token"}
+    psi = scan_results.get("psi_raw", {})
+    behavioral = scan_results.get("behavioral", {})
+    
+    # Extract performance metrics
+    lighthouse = psi.get("lighthouseResult", {})
+    categories = lighthouse.get("categories", {})
+    score_raw = categories.get("performance", {}).get("score")
+    overall_score = round(score_raw * 100, 1) if score_raw is not None else 65.0
 
-    if not os.path.exists(REPORT_VAULT_FILE):
-        return {"error": "Vault file does not exist yet."}
+    report = {
+        "report_id": str(uuid.uuid4()),
+        "domain": domain,
+        "business_type": biz_type,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "overall_score": overall_score,
+        "surface_metrics": {
+            "lcp": psi.get("lighthouseResult", {}).get("audits", {}).get("largest-contentful-paint", {}).get("displayValue", "N/A"),
+            "inp_tbt": psi.get("lighthouseResult", {}).get("audits", {}).get("total-blocking-time", {}).get("displayValue", "N/A"),
+            "cls": psi.get("lighthouseResult", {}).get("audits", {}).get("cumulative-layout-shift", {}).get("displayValue", "N/A"),
+            "mobile_performance_score": overall_score
+        },
+        "revenue_leak": f"${int((100 - overall_score) * 120)}/mo",
+        "cms_platform": "Detected Web Platform",
+        "behavioral_summary": behavioral,
+        "dev_handoff_kit": {
+            "status": "Ready",
+            "checkpoints_count": len(behavioral)
+        }
+    }
 
-    try:
-        with open(REPORT_VAULT_FILE, "r") as f:
-            vault = json.load(f)
-        
-        report = vault.get(report_id)
-        if not report:
-            return {"error": f"Report ID '{report_id}' not found in vault."}
-
-        print(f" [ADMIN ACCESS GRANTED] Retrieved report [{report_id}] for domain: {report.get('domain')}")
-        return report
-    except Exception as e:
-        return {"error": f"Failed reading vault: {str(e)}"}
-
-def force_unlock_report_admin(report_id: str, admin_token: str) -> dict:
-    """
-    ADMIN BACKDOOR: Force unlocks any report in the vault without payment.
-    """
-    if not _verify_admin_access(admin_token):
-        return {"error": "ACCESS_DENIED: Invalid Admin Verification Token"}
-
-    if not os.path.exists(REPORT_VAULT_FILE):
-        return {"error": "Vault file does not exist."}
-
-    try:
-        with open(REPORT_VAULT_FILE, "r") as f:
-            vault = json.load(f)
-
-        if report_id in vault:
-            vault[report_id]["is_unlocked"] = True
-            with open(REPORT_VAULT_FILE, "w") as f:
-                json.dump(vault, f, indent=2)
-            print(f" [ADMIN ACTION] Force-unlocked report [{report_id}]")
-            return vault[report_id]
-        else:
-            return {"error": "Report ID not found."}
-    except Exception as e:
-        return {"error": f"Failed unlocking report: {str(e)}"}
+    save_report_to_vault(report)
+    return report

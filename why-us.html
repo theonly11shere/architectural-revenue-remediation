@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
-<meta name="theme-color" content="#080808">
+<meta name="theme-color" content="#090B12">
 <title>Why Us | Trilloka</title>
 <meta name="description" content="Why founders trust Trilloka to find and fix revenue leaks.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -12,13 +12,13 @@
 <style>
 
 :root {
- --charcoal: #0F0F0F;
- --matte: #080808;
- --copper: #C0784A;
- --copper-light: #D48A5E;
- --sand: #E8D5C4;
- --mist: #B8B0A8;
- --white: #F5F2EF;
+ --charcoal: #121621;
+ --matte: #090B12;
+ --copper: #D8B66A;
+ --copper-light: #D8B66A;
+ --sand: #A9A7A0;
+ --mist: #A9A7A0;
+ --white: #F2F0E8;
  --red-leak: #C85A5A;
  --green-fix: #5A9E7A;
 }
@@ -72,9 +72,9 @@ nav {
  position: fixed;
  top: 0; left: 0; right: 0;
  z-index: 1000;
- background: rgba(8,8,8,0.92);
+ background: rgba(9,11,18,0.92);
  backdrop-filter: blur(20px);
- border-bottom: 1px solid rgba(192,120,74,0.15);
+ border-bottom: 1px solid rgba(216,182,106,0.15);
 }
 
 .nav-inner {
@@ -100,7 +100,7 @@ nav {
 .logo span {
  font-family: 'Playfair Display', serif;
  font-size: 1.3rem;
- color: var(--white);
+ color: var(--copper);
  letter-spacing: -0.02em;
 }
 
@@ -151,7 +151,7 @@ nav {
 .mobile-menu {
  position: fixed;
  top: 0; left: 0; right: 0; bottom: 0;
- background: rgba(8,8,8,0.98);
+ background: rgba(9,11,18,0.98);
  display: flex;
  flex-direction: column;
  align-items: center;
@@ -171,7 +171,7 @@ nav {
 .mobile-menu a {
  font-family: 'Playfair Display', serif;
  font-size: 1.8rem;
- color: var(--white);
+ color: #A9A7A0;
  text-decoration: none;
  transition: color 0.2s;
 }
@@ -213,25 +213,25 @@ nav {
 }
 
 .btn-outline:hover {
- background: rgba(192,120,74,0.1);
+ background: rgba(216,182,106,0.1);
 }
 
 .btn-ghost {
- background: rgba(255,255,255,0.05);
+ background: #121621;
  color: var(--white);
- border: 1px solid rgba(255,255,255,0.1);
+ border: 1px solid #40546A;
 }
 
 .card {
- background: rgba(255,255,255,0.03);
- border: 1px solid rgba(255,255,255,0.06);
+ background: #121621;
+ border: 1px solid #2A3040;
  border-radius: 12px;
  padding: 1.5rem;
  transition: transform 0.2s, border-color 0.2s;
 }
 
 .card:hover {
- border-color: rgba(192,120,74,0.25);
+ border-color: rgba(216,182,106,0.25);
  transform: translateY(-2px);
 }
 
@@ -247,7 +247,7 @@ section { padding: 4rem 0; }
 
 footer {
  background: var(--charcoal);
- border-top: 1px solid rgba(255,255,255,0.06);
+ border-top: 1px solid #2A3040;
  padding: 3rem 0 1.5rem;
 }
 
@@ -278,7 +278,7 @@ footer {
 .footer-col a:hover { color: var(--copper); }
 
 .footer-bottom {
- border-top: 1px solid rgba(255,255,255,0.06);
+ border-top: 1px solid #2A3040;
  padding-top: 1.5rem;
  display: flex;
  flex-direction: column;
@@ -315,7 +315,7 @@ footer {
 
 .modal {
  background: var(--charcoal);
- border: 1px solid rgba(192,120,74,0.2);
+ border: 1px solid rgba(216,182,106,0.2);
  border-radius: 16px;
  width: 100%;
  max-width: 720px;
@@ -348,7 +348,7 @@ footer {
 }
 
 .modal-close:hover {
- background: rgba(255,255,255,0.08);
+ background: rgba(242,240,232,0.08);
  color: var(--white);
 }
 
@@ -392,8 +392,8 @@ footer {
  display: inline-flex;
  align-items: center;
  gap: 0.5rem;
- background: rgba(192,120,74,0.12);
- border: 1px solid rgba(192,120,74,0.3);
+ background: rgba(216,182,106,0.12);
+ border: 1px solid rgba(216,182,106,0.3);
  color: var(--copper-light);
  padding: 0.5rem 1rem;
  border-radius: 100px;
@@ -404,8 +404,8 @@ footer {
 }
 
 .scanner-box {
- background: rgba(255,255,255,0.03);
- border: 1px solid rgba(255,255,255,0.08);
+ background: #121621;
+ border: 1px solid #2A3040;
  border-radius: 16px;
  padding: 1.5rem;
  margin: 1.5rem 0;
@@ -421,8 +421,8 @@ footer {
  width: 100%;
  padding: 1rem 1.25rem;
  font-size: 1rem;
- background: rgba(255,255,255,0.05);
- border: 1px solid rgba(255,255,255,0.1);
+ background: #121621;
+ border: 1px solid #40546A;
  border-radius: 8px;
  color: var(--white);
  outline: none;
@@ -432,14 +432,14 @@ footer {
 
 .scan-input-wrap input:focus { border-color: var(--copper); }
 
-.scan-input-wrap input::placeholder { color: rgba(184,176,168,0.5); }
+.scan-input-wrap input::placeholder { color: rgba(169,167,160,0.5); }
 
 .analysis-step {
  display: flex;
  align-items: center;
  gap: 0.875rem;
  padding: 0.875rem 0;
- border-bottom: 1px solid rgba(255,255,255,0.04);
+ border-bottom: 1px solid #2A3040;
  opacity: 0.4;
  transition: opacity 0.3s;
 }
@@ -451,7 +451,7 @@ footer {
  width: 28px; height: 28px;
  min-width: 28px;
  border-radius: 50%;
- border: 2px solid rgba(255,255,255,0.2);
+ border: 2px solid #2A3040;
  display: flex;
  align-items: center;
  justify-content: center;
@@ -506,7 +506,7 @@ footer {
 }
 
 .leak-item {
- background: rgba(255,255,255,0.02);
+ background: #1A2030;
  border-left: 3px solid var(--copper);
  border-radius: 0 8px 8px 0;
  padding: 1rem;
@@ -531,8 +531,8 @@ footer {
 }
 
 .pricing-card {
- background: rgba(255,255,255,0.03);
- border: 1px solid rgba(255,255,255,0.08);
+ background: #121621;
+ border: 1px solid #2A3040;
  border-radius: 12px;
  padding: 1.5rem;
  position: relative;
@@ -540,8 +540,8 @@ footer {
 }
 
 .pricing-card.featured {
- border-color: rgba(192,120,74,0.4);
- background: rgba(192,120,74,0.05);
+ border-color: rgba(216,182,106,0.4);
+ background: rgba(216,182,106,0.05);
 }
 
 .pricing-card .tier-name {
@@ -593,8 +593,8 @@ footer {
 }
 
 .contact-item {
- background: rgba(255,255,255,0.03);
- border: 1px solid rgba(255,255,255,0.06);
+ background: #121621;
+ border: 1px solid #2A3040;
  border-radius: 10px;
  padding: 1rem;
  text-align: center;
@@ -603,7 +603,7 @@ footer {
  transition: border-color 0.2s;
 }
 
-.contact-item:hover { border-color: rgba(192,120,74,0.3); }
+.contact-item:hover { border-color: rgba(216,182,106,0.3); }
 
 .contact-item .label {
  font-size: 0.7rem;
@@ -629,8 +629,8 @@ footer {
 
 .guardrail-box {
  display: none;
- background: rgba(192,120,74,0.06);
- border: 1px solid rgba(192,120,74,0.25);
+ background: rgba(216,182,106,0.06);
+ border: 1px solid rgba(216,182,106,0.25);
  border-radius: 12px;
  padding: 1.5rem;
  margin-top: 1.25rem;
@@ -655,8 +655,8 @@ footer {
 }
 
 .dev-handoff {
- background: rgba(255,255,255,0.02);
- border: 1px dashed rgba(192,120,74,0.3);
+ background: #1A2030;
+ border: 1px dashed rgba(216,182,106,0.3);
  border-radius: 10px;
  padding: 1.25rem;
  margin: 1rem 0;
@@ -681,7 +681,7 @@ footer {
 .terms-notice {
  text-align: center;
  font-size: 0.8rem;
- color: rgba(184,176,168,0.6);
+ color: rgba(169,167,160,0.6);
  max-width: 480px;
  margin: 1rem auto 0;
  line-height: 1.5;
@@ -741,8 +741,8 @@ footer {
 }
 
 .friction-box {
- background: rgba(192,120,74,0.06);
- border: 1px solid rgba(192,120,74,0.2);
+ background: rgba(216,182,106,0.06);
+ border: 1px solid rgba(216,182,106,0.2);
  border-radius: 10px;
  padding: 1.25rem;
  margin: 1rem 0;
@@ -803,7 +803,7 @@ footer {
 .solution-card .icon {
  width: 44px; height: 44px;
  border-radius: 10px;
- background: rgba(192,120,74,0.1);
+ background: rgba(216,182,106,0.1);
  display: flex;
  align-items: center;
  justify-content: center;
@@ -833,9 +833,9 @@ footer {
  gap: 1rem;
  align-items: flex-start;
  padding: 1.25rem;
- background: rgba(255,255,255,0.02);
+ background: #1A2030;
  border-radius: 10px;
- border: 1px solid rgba(255,255,255,0.05);
+ border: 1px solid #2A3040;
 }
 
 .process-num {
@@ -915,8 +915,8 @@ footer {
 }
 
 .testimonial {
- background: rgba(255,255,255,0.02);
- border: 1px solid rgba(255,255,255,0.06);
+ background: #1A2030;
+ border: 1px solid #2A3040;
  border-radius: 12px;
  padding: 1.75rem;
  margin-top: 2rem;
@@ -958,7 +958,7 @@ footer {
 .legal-section {
  margin-bottom: 2.5rem;
  padding-bottom: 2rem;
- border-bottom: 1px solid rgba(255,255,255,0.06);
+ border-bottom: 1px solid #2A3040;
 }
 
 .legal-section:last-child { border-bottom: none; }
@@ -991,7 +991,7 @@ footer {
 
 .section-marker {
  display: inline-block;
- background: rgba(192,120,74,0.15);
+ background: rgba(216,182,106,0.15);
  color: var(--copper);
  font-size: 0.7rem;
  font-weight: 700;
@@ -1051,7 +1051,7 @@ footer {
  .process-list { grid-template-columns: repeat(4, 1fr); }
 }
 
-</style><base target="_blank">
+</style>
 </head>
 <body>
 
@@ -1202,13 +1202,13 @@ footer {
  <p style="color:var(--mist); font-size:0.9rem;">Direct line to discuss your audit, roadmap, or monthly engagement.</p>
 
  <div class="contact-grid">
- <a href="tel:+17887659232" class="contact-item">
+ <a href="tel:+17787659232" class="contact-item">
  <div class="label">Call</div>
- <div class="value">+1 788-765-9232</div>
+ <div class="value">+1 778-765-9232</div>
  </a>
- <a href="mailto:onlyonearpit@gmail.com" class="contact-item">
+ <a href="mailto:arpitt22@trilloka.com" class="contact-item">
  <div class="label">Email</div>
- <div class="value">onlyonearpit@gmail.com</div>
+ <div class="value">arpitt22@trilloka.com</div>
  </a>
  <a href="https://instagram.com/theonlyone.arpit" target="_blank" class="contact-item">
  <div class="label">Instagram</div>

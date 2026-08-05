@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
-<meta name="theme-color" content="#080808">
+<meta name="theme-color" content="#090B12">
 <title>Trilloka | Architectural Revenue Remediation</title>
 <meta name="description" content="Most websites look fine but hemorrhage conversions. We audit your architecture, identify the exact holes where money escapes, and hand you the blueprint to patch them.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -11,15 +11,20 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
-  --charcoal: #0F0F0F;
-  --matte: #080808;
-  --copper: #C0784A;
-  --copper-light: #D48A5E;
-  --sand: #E8D5C4;
-  --mist: #B8B0A8;
-  --white: #F5F2EF;
+  --charcoal: #121621;
+  --matte: #090B12;
+  --copper: #D8B66A;
+  --copper-light: #D8B66A;
+  --sand: #A9A7A0;
+  --mist: #A9A7A0;
+  --white: #F2F0E8;
   --red-leak: #C85A5A;
   --green-fix: #5A9E7A;
+  --metric-red: #EF4444;
+  --metric-red-glow: rgba(239,68,68,0.35);
+  --metric-green: #22C55E;
+  --metric-green-glow: rgba(34,197,94,0.35);
+  --modal-surface: #121621;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html { scroll-behavior: smooth; }
@@ -43,16 +48,16 @@ h1, h2, h3, h4 {
   line-height: 1.15;
   color: var(--white);
 }
-h1 { font-size: clamp(1.5rem, 4vw, 2.4rem); }
-h2 { font-size: clamp(1.4rem, 3.5vw, 2rem); }
-h3 { font-size: clamp(1.1rem, 2.5vw, 1.4rem); }
+h1 { font-size: clamp(2rem, 5vw, 3.2rem); }
+h2 { font-size: clamp(1.5rem, 3.5vw, 2.2rem); }
+h3 { font-size: clamp(1.15rem, 2.5vw, 1.5rem); }
 h4 { font-size: clamp(1rem, 2.5vw, 1.25rem); }
 p, li {
-  font-size: clamp(0.9rem, 2vw, 1rem);
+  font-size: clamp(0.95rem, 2vw, 1.05rem);
   color: var(--mist);
 }
 .subtitle {
-  font-size: clamp(0.65rem, 1.2vw, 0.75rem);
+  font-size: clamp(0.7rem, 1.2vw, 0.8rem);
   color: var(--copper);
   text-transform: uppercase;
   letter-spacing: 0.2em;
@@ -62,9 +67,9 @@ nav {
   position: fixed;
   top: 0; left: 0; right: 0;
   z-index: 1000;
-  background: rgba(8,8,8,0.92);
+  background: rgba(9,11,18,0.92);
   backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(192,120,74,0.15);
+  border-bottom: 1px solid rgba(216,182,106,0.15);
 }
 .nav-inner {
   display: flex;
@@ -127,7 +132,7 @@ nav {
 .mobile-menu {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(8,8,8,0.98);
+  background: rgba(9,11,18,0.98);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -145,7 +150,7 @@ nav {
 .mobile-menu a {
   font-family: 'Playfair Display', serif;
   font-size: 1.8rem;
-  color: var(--white);
+  color: #A9A7A0;
   text-decoration: none;
   transition: color 0.2s;
 }
@@ -156,7 +161,7 @@ nav {
   justify-content: center;
   gap: 0.5rem;
   padding: 0.875rem 1.75rem;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   font-weight: 600;
   text-decoration: none;
   border-radius: 6px;
@@ -180,16 +185,16 @@ nav {
   color: var(--copper);
   border: 1.5px solid var(--copper);
 }
-.btn-outline:hover { background: rgba(192,120,74,0.1); }
+.btn-outline:hover { background: rgba(216,182,106,0.1); }
 .card {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: #121621;
+  border: 1px solid #2A3040;
   border-radius: 12px;
   padding: 1.5rem;
   transition: transform 0.2s, border-color 0.2s;
 }
 .card:hover {
-  border-color: rgba(192,120,74,0.25);
+  border-color: rgba(216,182,106,0.25);
   transform: translateY(-2px);
 }
 section { padding: 4rem 0; }
@@ -201,7 +206,7 @@ section { padding: 4rem 0; }
 .section-header h2 { margin-bottom: 0.75rem; }
 footer {
   background: var(--charcoal);
-  border-top: 1px solid rgba(255,255,255,0.06);
+  border-top: 1px solid #2A3040;
   padding: 3rem 0 1.5rem;
 }
 .footer-grid {
@@ -227,7 +232,7 @@ footer {
 }
 .footer-col a:hover { color: var(--copper); }
 .footer-bottom {
-  border-top: 1px solid rgba(255,255,255,0.06);
+  border-top: 1px solid #2A3040;
   padding-top: 1.5rem;
   display: flex;
   flex-direction: column;
@@ -253,20 +258,21 @@ footer {
   align-items: center;
   justify-content: center;
   z-index: 2000;
-  padding: 1rem;
+  padding: 0.75rem;
   overflow-y: auto;
 }
 .modal-overlay.active { display: flex; }
 .modal {
-  background: var(--charcoal);
-  border: 1px solid rgba(192,120,74,0.2);
+  background: var(--modal-surface);
+  border: 1px solid #2A3040;
   border-radius: 16px;
   width: 100%;
-  max-width: 720px;
-  max-height: 90vh;
+  max-width: 900px;
+  max-height: 92vh;
   overflow-y: auto;
   position: relative;
   animation: modalSlide 0.3s ease;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.7);
 }
 @keyframes modalSlide {
   from { opacity: 0; transform: translateY(20px) scale(0.96); }
@@ -274,7 +280,7 @@ footer {
 }
 .modal-close {
   position: absolute;
-  top: 1rem; right: 1rem;
+  top: 0.75rem; right: 0.75rem;
   background: none;
   border: none;
   color: var(--mist);
@@ -289,7 +295,7 @@ footer {
   z-index: 10;
 }
 .modal-close:hover {
-  background: rgba(255,255,255,0.08);
+  background: rgba(242,240,232,0.08);
   color: var(--white);
 }
 .modal-body { padding: 1.5rem; }
@@ -302,8 +308,8 @@ footer {
   margin-bottom: 0.5rem;
 }
 .revenue-card {
-  background: rgba(200,90,90,0.08);
-  border: 1px solid rgba(200,90,90,0.25);
+  background: rgba(200,90,90,0.06);
+  border: 1px solid rgba(200,90,90,0.2);
   border-radius: 12px;
   padding: 1.5rem;
   text-align: center;
@@ -312,15 +318,15 @@ footer {
 .revenue-card .amount {
   font-family: 'Playfair Display', serif;
   font-size: clamp(1.8rem, 6vw, 2.5rem);
-  color: var(--red-leak);
+  color: #E57373;
   margin: 0.5rem 0;
 }
 .cms-badge {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  background: rgba(192,120,74,0.12);
-  border: 1px solid rgba(192,120,74,0.3);
+  background: rgba(216,182,106,0.12);
+  border: 1px solid rgba(216,182,106,0.3);
   color: var(--copper-light);
   padding: 0.5rem 1rem;
   border-radius: 100px;
@@ -330,8 +336,8 @@ footer {
   letter-spacing: 0.05em;
 }
 .scanner-box {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: #121621;
+  border: 1px solid #2A3040;
   border-radius: 16px;
   padding: 1.5rem;
   margin: 1.5rem 0;
@@ -344,23 +350,28 @@ footer {
 .scan-input-wrap input {
   width: 100%;
   padding: 1rem 1.25rem;
-  font-size: 1rem;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
+  font-size: 1.05rem;
+  background: #121621;
+  border: 1px solid #40546A;
   border-radius: 8px;
   color: var(--white);
   outline: none;
   transition: border-color 0.2s;
-  min-height: 48px;
+  min-height: 52px;
+  letter-spacing: 0.01em;
+}
+.scan-input-wrap input:focus {
+  border-color: var(--copper);
+  box-shadow: 0 0 0 3px rgba(216,182,106,0.12);
 }
 .scan-input-wrap input:focus { border-color: var(--copper); }
-.scan-input-wrap input::placeholder { color: rgba(184,176,168,0.5); }
+.scan-input-wrap input::placeholder { color: rgba(169,167,160,0.5); }
 .analysis-step {
   display: flex;
   align-items: center;
   gap: 0.875rem;
   padding: 0.875rem 0;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid #2A3040;
   opacity: 0.4;
   transition: opacity 0.3s;
 }
@@ -370,7 +381,7 @@ footer {
   width: 28px; height: 28px;
   min-width: 28px;
   border-radius: 50%;
-  border: 2px solid rgba(255,255,255,0.2);
+  border: 2px solid #2A3040;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -416,7 +427,7 @@ footer {
   margin-top: 0.25rem;
 }
 .leak-item {
-  background: rgba(255,255,255,0.02);
+  background: #1A2030;
   border-left: 3px solid var(--copper);
   border-radius: 0 8px 8px 0;
   padding: 1rem;
@@ -437,16 +448,16 @@ footer {
   margin-top: 1.5rem;
 }
 .pricing-card {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: #121621;
+  border: 1px solid #2A3040;
   border-radius: 12px;
   padding: 1.5rem;
   position: relative;
   transition: transform 0.2s, border-color 0.2s;
 }
 .pricing-card.featured {
-  border-color: rgba(192,120,74,0.4);
-  background: rgba(192,120,74,0.05);
+  border-color: rgba(216,182,106,0.4);
+  background: rgba(216,182,106,0.05);
 }
 .pricing-card .tier-name {
   font-family: 'Playfair Display', serif;
@@ -490,8 +501,8 @@ footer {
   margin-top: 1.5rem;
 }
 .contact-item {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: #121621;
+  border: 1px solid #2A3040;
   border-radius: 10px;
   padding: 1rem;
   text-align: center;
@@ -499,7 +510,7 @@ footer {
   color: inherit;
   transition: border-color 0.2s;
 }
-.contact-item:hover { border-color: rgba(192,120,74,0.3); }
+.contact-item:hover { border-color: rgba(216,182,106,0.3); }
 .contact-item .label {
   font-size: 0.7rem;
   text-transform: uppercase;
@@ -521,8 +532,8 @@ footer {
 }
 .guardrail-box {
   display: none;
-  background: rgba(192,120,74,0.06);
-  border: 1px solid rgba(192,120,74,0.25);
+  background: rgba(216,182,106,0.06);
+  border: 1px solid rgba(216,182,106,0.25);
   border-radius: 12px;
   padding: 1.5rem;
   margin-top: 1.25rem;
@@ -543,8 +554,8 @@ footer {
   margin: 0 auto;
 }
 .dev-handoff {
-  background: rgba(255,255,255,0.02);
-  border: 1px dashed rgba(192,120,74,0.3);
+  background: #1A2030;
+  border: 1px dashed rgba(216,182,106,0.3);
   border-radius: 10px;
   padding: 1.25rem;
   margin: 1rem 0;
@@ -565,13 +576,13 @@ footer {
 .terms-notice {
   text-align: center;
   font-size: 0.8rem;
-  color: rgba(184,176,168,0.6);
+  color: rgba(169,167,160,0.6);
   max-width: 480px;
   margin: 1rem auto 0;
   line-height: 1.5;
 }
 .terms-notice a {
-  color: var(--copper);
+  color: #8FA7B3;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -590,8 +601,8 @@ footer {
   letter-spacing: 0.08em;
 }
 .friction-box {
-  background: rgba(192,120,74,0.06);
-  border: 1px solid rgba(192,120,74,0.2);
+  background: #1A2030;
+  border: 1px solid #2A3040;
   border-radius: 10px;
   padding: 1.25rem;
   margin: 1rem 0;
@@ -614,13 +625,14 @@ footer {
 }
 .score-hero .big-score {
   font-family: 'Playfair Display', serif;
-  font-size: clamp(3rem, 10vw, 5rem);
-  color: var(--copper);
+  font-size: clamp(3.5rem, 10vw, 6rem);
+  color: var(--white);
   line-height: 1;
+  text-shadow: 0 0 40px rgba(242,240,232,0.08);
 }
 .score-hero .score-label {
   font-size: 0.9rem;
-  color: var(--mist);
+  color: var(--sand);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   margin-top: 0.5rem;
@@ -636,7 +648,7 @@ footer {
   display: none;
   margin-top: 1.5rem;
   padding-top: 1.5rem;
-  border-top: 1px solid rgba(255,255,255,0.06);
+  border-top: 1px solid #2A3040;
 }
 .analysis-panel.active { display: block; }
 .scan-btn { width: 100%; font-size: 1rem; letter-spacing: 0.02em; }
@@ -650,8 +662,8 @@ footer {
   margin: 0 auto 3rem;
 }
 .problem-box {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: #121621;
+  border: 1px solid #2A3040;
   border-radius: 12px;
   padding: 1.25rem 1.5rem;
   text-align: left;
@@ -735,10 +747,409 @@ footer {
   60% { transform: translateY(4px); }
 }
 
+/* ── Modal Constellation Metrics ── */
+.constellation-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1.5rem 0;
+  position: relative;
+}
+
+.constellation-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  width: 100%;
+  max-width: 520px;
+}
+
+.metric-orb {
+  position: relative;
+  width: 130px;
+  height: 130px;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.metric-orb .orb-circle {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.35s cubic-bezier(0.4,0,0.2,1);
+  position: relative;
+  overflow: hidden;
+}
+
+.metric-orb.bad .orb-circle {
+  background: rgba(239,68,68,0.08);
+  border: 2px solid var(--metric-red);
+  box-shadow: 0 0 24px var(--metric-red-glow);
+}
+.metric-orb.good .orb-circle {
+  background: rgba(34,197,94,0.08);
+  border: 2px solid var(--metric-green);
+  box-shadow: 0 0 24px var(--metric-green-glow);
+}
+
+.metric-orb:hover .orb-circle {
+  transform: scale(1.1);
+}
+.metric-orb.bad:hover .orb-circle {
+  box-shadow: 0 0 48px var(--metric-red-glow);
+}
+.metric-orb.good:hover .orb-circle {
+  box-shadow: 0 0 48px var(--metric-green-glow);
+}
+
+.orb-inner {
+  text-align: center;
+  z-index: 2;
+}
+
+.orb-inner .o-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-bottom: 0.3rem;
+  font-weight: 600;
+}
+.metric-orb.bad .o-label { color: #FCA5A5; }
+.metric-orb.good .o-label { color: #86EFAC; }
+
+.orb-inner .o-value {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.metric-orb.bad .o-value { color: #FEE2E2; }
+.metric-orb.good .o-value { color: #DCFCE7; }
+
+.orb-inner .o-sub {
+  font-size: 0.6rem;
+  margin-top: 0.25rem;
+  opacity: 0.8;
+}
+.metric-orb.bad .o-sub { color: #FCA5A5; }
+.metric-orb.good .o-sub { color: #86EFAC; }
+
+/* Ring inside orb */
+.orb-ring {
+  position: absolute;
+  inset: -8px;
+  pointer-events: none;
+}
+.orb-ring svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Center score orb */
+.score-orb {
+  position: relative;
+  width: 170px;
+  height: 170px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.score-orb .score-ring-svg {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+}
+
+.score-orb .score-inner {
+  position: absolute;
+  width: 135px;
+  height: 135px;
+  border-radius: 50%;
+  background: #1A2030;
+  border: 1px solid #2A3040;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.score-orb .score-inner .s-value {
+  font-family: 'Playfair Display', serif;
+  font-size: 3.4rem;
+  font-weight: 700;
+  color: var(--white);
+  line-height: 1;
+  text-shadow: 0 0 30px rgba(242,240,232,0.1);
+}
+
+.score-orb .score-inner .s-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--mist);
+  margin-top: 0.35rem;
+  text-align: center;
+}
+
+/* Hover tooltip / overlay */
+.metric-tooltip {
+  position: absolute;
+  bottom: calc(100% + 14px);
+  left: 50%;
+  transform: translateX(-50%) scale(0.92);
+  width: 260px;
+  background: rgba(18,18,18,0.98);
+  border: 1px solid #40546A;
+  border-radius: 12px;
+  padding: 0.875rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
+  z-index: 100;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+}
+.metric-orb:hover .metric-tooltip {
+  opacity: 1;
+  transform: translateX(-50%) scale(1);
+  pointer-events: auto;
+}
+
+.metric-tooltip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: rgba(18,18,18,0.98);
+}
+
+.tooltip-title {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.6rem;
+  text-align: center;
+  font-weight: 600;
+}
+.tooltip-title.red { color: #FCA5A5; }
+.tooltip-title.green { color: #86EFAC; }
+
+/* Comparison bars */
+.comp-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+.comp-bar .comp-label {
+  font-size: 0.65rem;
+  color: var(--mist);
+  width: 60px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.comp-bar .comp-track {
+  flex: 1;
+  height: 5px;
+  background: #1A2030;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.comp-bar .comp-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.8s ease;
+}
+.comp-fill.you { background: linear-gradient(90deg, var(--copper), var(--copper-light)); }
+.comp-fill.avg { background: rgba(169,167,160,0.4); }
+.comp-fill.top-green { background: rgba(34,197,94,0.6); }
+.comp-fill.top-red { background: rgba(239,68,68,0.6); }
+
+.comp-legend {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 0.5rem;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.comp-legend span { display: flex; align-items: center; gap: 0.35rem; }
+.comp-legend .dot { width: 6px; height: 6px; border-radius: 50%; }
+
+/* Visual Twin thumbnails */
+.twin-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+.twin-card {
+  background: #121621;
+  border: 1px solid #2A3040;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.twin-card .twin-header {
+  height: 6px;
+  background: #1A2030;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+}
+.twin-header .dot-r { width: 3px; height: 3px; border-radius: 50%; background: #C85A5A; }
+.twin-header .dot-y { width: 3px; height: 3px; border-radius: 50%; background: #D8B66A; }
+.twin-header .dot-g { width: 3px; height: 3px; border-radius: 50%; background: #5A9E7A; }
+.twin-card .twin-body {
+  height: 55px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  color: var(--mist);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.twin-card.yours { border-color: rgba(216,182,106,0.4); }
+.twin-card.match { border-color: rgba(239,68,68,0.4); }
+.twin-card.yours .twin-body { background: rgba(216,182,106,0.06); }
+.twin-card.match .twin-body { background: rgba(239,68,68,0.06); }
+
+.twin-label {
+  font-size: 0.55rem;
+  text-align: center;
+  padding: 0.3rem;
+  color: var(--sand);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Modal scrollbar */
+.modal::-webkit-scrollbar { width: 6px; }
+.modal::-webkit-scrollbar-track { background: transparent; }
+.modal::-webkit-scrollbar-thumb { background: rgba(242,240,232,0.1); border-radius: 3px; }
+
+/* ── Mobile Metrics (vertical cards) ── */
+.metrics-mobile {
+  display: none;
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+}
+.metric-card-mobile {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: #121621;
+  border: 1px solid #2A3040;
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  transition: border-color 0.2s;
+}
+.metric-card-mobile.good {
+  border-left: 3px solid var(--metric-green);
+}
+.metric-card-mobile.bad {
+  border-left: 3px solid var(--metric-red);
+}
+.metric-card-mobile .mc-ring {
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  position: relative;
+}
+.metric-card-mobile .mc-ring svg {
+  width: 100%;
+  height: 100%;
+}
+.metric-card-mobile .mc-info {
+  flex: 1;
+  min-width: 0;
+}
+.metric-card-mobile .mc-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  margin-bottom: 0.15rem;
+}
+.metric-card-mobile.good .mc-label { color: #86EFAC; }
+.metric-card-mobile.bad .mc-label { color: #FCA5A5; }
+.metric-card-mobile .mc-value {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.4rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.metric-card-mobile.good .mc-value { color: #DCFCE7; }
+.metric-card-mobile.bad .mc-value { color: #FEE2E2; }
+.metric-card-mobile .mc-sub {
+  font-size: 0.75rem;
+  color: var(--mist);
+  margin-top: 0.15rem;
+}
+
+/* Mobile center score */
+.mobile-score-bar {
+  display: none;
+  text-align: center;
+  padding: 1.5rem 0;
+}
+.mobile-score-bar .ms-ring-wrap {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  margin: 0 auto;
+}
+.mobile-score-bar .ms-ring-wrap svg {
+  width: 100%;
+  height: 100%;
+}
+.mobile-score-bar .ms-inner {
+  position: absolute;
+  inset: 12px;
+  border-radius: 50%;
+  background: #1A2030;
+  border: 1px solid #2A3040;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.mobile-score-bar .ms-inner .ms-value {
+  font-family: 'Playfair Display', serif;
+  font-size: 2.6rem;
+  font-weight: 700;
+  color: var(--white);
+  line-height: 1;
+}
+.mobile-score-bar .ms-inner .ms-label {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--mist);
+  margin-top: 0.25rem;
+}
+
+.fade-in { animation: fadeIn 0.5s ease forwards; }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Responsive ── */
 @media (min-width: 640px) {
   .container { padding: 0 2rem; }
-  .scan-input-wrap { flex-direction: row; }
-  .scan-input-wrap input { flex: 1; }
+  .scan-input-wrap { flex-direction: row; align-items: stretch; }
+  .scan-input-wrap input { flex: 2.5; min-width: 0; font-size: 1.05rem; }
+  .scan-input-wrap select { flex: 1; min-width: 0; }
   .rings-grid { grid-template-columns: repeat(4, 1fr); }
   .ring-svg { width: 100px; height: 100px; }
   .pricing-grid { grid-template-columns: repeat(3, 1fr); }
@@ -748,24 +1159,36 @@ footer {
   .contact-grid { grid-template-columns: repeat(3, 1fr); }
   .scan-btn { width: auto; }
   .copy-btn { width: auto; }
-  .problem-boxes { grid-template-columns: repeat(3, 1fr); }
+  .problem-boxes { grid-template-columns: repeat(3, 1fr); max-width: none; }
+  .modal { max-width: 900px; }
+  .modal-body { padding: 2.5rem; }
 }
+
 @media (min-width: 1024px) {
   .nav-links { display: flex; }
   .hamburger { display: none; }
   .footer-grid { grid-template-columns: 2fr 1fr 1fr 1fr; }
   .footer-bottom { flex-direction: row; justify-content: space-between; }
-  .modal { max-width: 800px; }
   .scanner-box { padding: 2rem; }
 }
-.fade-in { animation: fadeIn 0.5s ease forwards; }
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+
+/* Mobile: hide constellation, show cards */
+@media (max-width: 639px) {
+  .constellation-stage { display: none !important; }
+  .metrics-mobile { display: flex; flex-direction: column; }
+  .mobile-score-bar { display: block; }
+  .score-hero { padding-bottom: 0.5rem; }
+  .score-hero .big-score { font-size: clamp(3rem, 12vw, 4rem); }
+  .modal { max-width: 100%; border-radius: 12px; }
+  .modal-body { padding: 1.25rem; }
+  .metric-orb { width: 100px; height: 100px; }
+  .metric-orb .orb-inner .o-value { font-size: 1.2rem; }
+  .score-orb { width: 130px; height: 130px; }
+  .score-orb .score-inner { width: 105px; height: 105px; }
+  .score-orb .score-inner .s-value { font-size: 2.6rem; }
+  .constellation-row { gap: 0.75rem; }
 }
 </style>
-<base target="_blank">
-<base target="_blank">
 <base target="_blank">
 </head>
 <body>
@@ -798,7 +1221,7 @@ footer {
 <section class="page-hero">
   <div class="container">
     <p class="subtitle">Non CS AI Architect</p>
-    <h1>Your business doesn't need just a website,<br>but a structured vision that wins you the fight.</h1>
+    <h1>Your business doesn't need just a website.<br>It needs a structure that wins the fight.</h1>
     <div class="scroll-arrow">
       <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path fill-rule="evenodd" clip-rule="evenodd" d="M11.386 21.6387C11.7378 21.988 12.3059 21.987 12.6565 21.6364L18.1949 16.098C18.5464 15.7465 18.5464 15.1766 18.1949 14.8252C17.8434 14.4737 17.2736 14.4737 16.9221 14.8252L12.9201 18.8272V3.00002C12.9201 2.50297 12.5171 2.10003 12.0201 2.10003C11.523 2.10003 11.1201 2.50297 11.1201 3.00002V18.8383L7.07554 14.8229C6.7228 14.4727 6.15295 14.4747 5.80275 14.8275C5.45255 15.1802 5.45461 15.7501 5.80735 16.1003L11.386 21.6387Z" fill="currentColor"/>
@@ -841,6 +1264,15 @@ footer {
     <div class="scanner-box">
       <div class="scan-input-wrap">
         <input type="text" id="domainInput" placeholder="example.com" autocomplete="off">
+
+        <select id="businessTypeSelect" style="padding: 1rem 1.25rem; font-size: 1rem; background: #121621; border: 1px solid #40546A; border-radius: 8px; color: var(--white); outline: none; min-height: 48px; cursor: pointer;">
+          <option value="general" style="background: var(--charcoal); color: var(--white);">General Business</option>
+          <option value="medspa" style="background: var(--charcoal); color: var(--white);">MedSpa / Aesthetics</option>
+          <option value="legal" style="background: var(--charcoal); color: var(--white);">Legal / Law Firm</option>
+          <option value="ecommerce" style="background: var(--charcoal); color: var(--white);">E-Commerce / Store</option>
+          <option value="saas" style="background: var(--charcoal); color: var(--white);">SaaS / Software</option>
+        </select>
+
         <button class="btn btn-primary scan-btn" id="scanBtn" onclick="runScan()">
           <span id="btnText">Know Your Leaks</span>
         </button>
@@ -928,13 +1360,13 @@ footer {
       <h3 style="font-size:1.3rem;">Hire the Architect</h3>
       <p style="color:var(--mist); font-size:0.9rem;">Direct line to discuss your audit, roadmap, or monthly engagement.</p>
       <div class="contact-grid">
-        <a href="tel:+17876549232" class="contact-item" target="_self">
+        <a href="tel:+17787659232" class="contact-item">
           <div class="label">Call</div>
-          <div class="value">+1 787-654-9232</div>
+          <div class="value">+1 778-765-9232</div>
         </a>
-        <a href="mailto:onlyonearpit@gmail.com" class="contact-item" target="_self">
+        <a href="mailto:arpitt22@trilloka.com" class="contact-item">
           <div class="label">Email</div>
-          <div class="value">onlyonearpit@gmail.com</div>
+          <div class="value">arpitt22@trilloka.com</div>
         </a>
         <a href="https://instagram.com/theonlyone.arpit" target="_blank" class="contact-item">
           <div class="label">Instagram</div>
@@ -1021,10 +1453,12 @@ async function runScan() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 35000);
 
+    const bizType = document.getElementById('businessTypeSelect')?.value || "general";
+
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domain: domain, business_type: "general" }),
+      body: JSON.stringify({ domain: domain, business_type: bizType }),
       signal: controller.signal
     });
     clearTimeout(timeoutId);
@@ -1041,7 +1475,6 @@ async function runScan() {
     showResults(data);
   } catch (err) {
     clearInterval(stepInterval);
-    // Mark all remaining steps as done so spinner doesn't hang
     analysisMessages.forEach((_, i) => {
       const el = document.getElementById('step-' + i);
       if (el) { el.classList.remove('active'); el.classList.add('done'); el.querySelector('.step-icon').innerHTML = '&#10003;'; }
@@ -1079,71 +1512,265 @@ function showResults(data) {
   else if (overall < 85) reasonText = "Good structure with specific leak points.";
   else reasonText = "Strong architecture. Minor optimization available.";
 
+  // ── DYNAMIC COLOR LOGIC ──
+  // AI metrics: LOWER is BETTER (green when low)
+  // Presence/Funnel: HIGHER is BETTER (green when high)
+  const aiGood = aiPct <= 25;
+  const gapGood = gap <= 30;
+  const presGood = presence >= 50;
+  const convGood = conversion >= 50;
+
+  const aiCls = aiGood ? 'good' : 'bad';
+  const gapCls = gapGood ? 'good' : 'bad';
+  const presCls = presGood ? 'good' : 'bad';
+  const convCls = convGood ? 'good' : 'bad';
+
+  const aiTipCls = aiGood ? 'green' : 'red';
+  const gapTipCls = gapGood ? 'green' : 'red';
+  const presTipCls = presGood ? 'green' : 'red';
+  const convTipCls = convGood ? 'green' : 'red';
+
+  const aiStroke = aiGood ? '#22C55E' : '#EF4444';
+  const gapStroke = gapGood ? '#22C55E' : '#EF4444';
+  const presStroke = presGood ? '#22C55E' : '#EF4444';
+  const convStroke = convGood ? '#22C55E' : '#EF4444';
+
+  const aiRingBg = aiGood ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)';
+  const gapRingBg = gapGood ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)';
+  const presRingBg = presGood ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)';
+  const convRingBg = convGood ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)';
+
+  // Competitor comparison values
+  const avgAi = 35, topAi = 8;
+  const avgGap = 45, topGap = 12;
+  const avgConv = 52, topConv = 88;
+  const avgPres = 48, topPres = 82;
+
+  // ── SVG ring helpers ──
+  const circ = (r, pct, stroke, delay, bgStroke) => {
+    const c = 2 * Math.PI * r;
+    return '<svg viewBox="0 0 126 126"><circle cx="63" cy="63" r="' + r + '" fill="none" stroke="' + (bgStroke || stroke) + '" stroke-opacity="0.15" stroke-width="2.5"/>' +
+      '<circle cx="63" cy="63" r="' + r + '" fill="none" stroke="' + stroke + '" stroke-width="2.5" ' +
+      'stroke-dasharray="' + c.toFixed(2) + '" stroke-dashoffset="' + (c * (1 - pct/100)).toFixed(2) + '" ' +
+      'stroke-linecap="round" transform="rotate(-90 63 63)" style="transition:stroke-dashoffset 1.2s ease ' + delay + 's;"/></svg>';
+  };
+
+  const scoreCirc = (r, pct) => {
+    const c = 2 * Math.PI * r;
+    return '<circle cx="75" cy="75" r="' + r + '" fill="none" stroke="#2A3040" stroke-width="4"/>' +
+      '<circle cx="75" cy="75" r="' + r + '" fill="none" stroke="url(#scoreGrad)" stroke-width="4" ' +
+      'stroke-dasharray="' + c.toFixed(2) + '" stroke-dashoffset="' + (c * (1 - pct/100)).toFixed(2) + '" ' +
+      'stroke-linecap="round" transform="rotate(-90 75 75)" style="transition:stroke-dashoffset 1.5s ease 0.1s; filter:drop-shadow(0 0 8px rgba(216,182,106,0.4));"/>';
+  };
+
   const modalBody = document.getElementById('modalBody');
   modalBody.innerHTML = `
     <div class="score-hero">
-      <div style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.12em; color:var(--copper); margin-bottom:0.5rem;">Score assessed by the Architectural Revenue Remediator</div>
+      <div style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.12em; color:var(--sand); margin-bottom:0.5rem;">Score assessed by the Architectural Revenue Remediator</div>
       <div class="big-score">` + Math.round(overall) + `</div>
       <div class="score-label">Revenue Readiness Score</div>
       <p style="margin-top:0.75rem; color:var(--mist); font-size:0.9rem;">` + reasonText + `</p>
     </div>
 
+    ` + (cms ? '<div style="text-align:center; margin:1rem 0;"><span class="cms-badge">Detected Tech Stack: ' + cms + '</span></div>' : '') + `
+
+    <!-- Mobile Score Ring -->
+    <div class="mobile-score-bar">
+      <div class="ms-ring-wrap">
+        <svg viewBox="0 0 150 150">
+          <defs>
+            <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" style="stop-color:#D8B66A;stop-opacity:0.6" />
+              <stop offset="100%" style="stop-color:#D8B66A;stop-opacity:0.3" />
+            </linearGradient>
+          </defs>
+          ` + scoreCirc(70, overall) + `
+        </svg>
+        <div class="ms-inner">
+          <div class="ms-value">` + Math.round(overall) + `</div>
+          <div class="ms-label">Revenue<br>Readiness</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Desktop Constellation -->
+    <div class="constellation-stage">
+
+      <!-- TOP: AI Parrot -->
+      <div class="metric-orb ` + aiCls + `">
+        <div class="orb-circle">
+          <div class="orb-inner">
+            <div class="o-label">AI Parrot</div>
+            <div class="o-value">` + Math.round(aiPct) + `%</div>
+            <div class="o-sub">` + classification + `</div>
+          </div>
+          <div class="orb-ring">
+            ` + circ(56, aiPct, aiStroke, 0.2, aiStroke) + `
+          </div>
+        </div>
+        <div class="metric-tooltip">
+          <div class="tooltip-title ` + aiTipCls + `">AI Content Spectrum</div>
+          <div class="comp-bar"><div class="comp-label">Your Site</div><div class="comp-track"><div class="comp-fill you" style="width:` + Math.min(aiPct,100) + `%"></div></div></div>
+          <div class="comp-bar"><div class="comp-label">Industry Avg</div><div class="comp-track"><div class="comp-fill avg" style="width:` + avgAi + `%"></div></div></div>
+          <div class="comp-bar"><div class="comp-label">Top 10%</div><div class="comp-track"><div class="comp-fill ` + (aiGood ? 'top-green' : 'top-red') + `" style="width:` + topAi + `%"></div></div></div>
+          <div class="comp-legend">
+            <span><span class="dot" style="background:var(--copper)"></span> You</span>
+            <span><span class="dot" style="background:rgba(169,167,160,0.5)"></span> Avg</span>
+            <span><span class="dot" style="background:` + (aiGood ? 'rgba(34,197,94,0.6)' : 'rgba(239,68,68,0.6)') + `"></span> Top 10%</span>
+          </div>
+          <p style="font-size:0.65rem; color:var(--mist); margin-top:0.5rem; text-align:center;">` + (aiGood ? 'Low AI similarity. Strong brand voice.' : 'High AI similarity erodes trust.') + `</p>
+        </div>
+      </div>
+
+      <!-- MIDDLE ROW: Presence — Center — Visual Twin -->
+      <div class="constellation-row">
+
+        <!-- LEFT: Presence -->
+        <div class="metric-orb ` + presCls + `">
+          <div class="orb-circle">
+            <div class="orb-inner">
+              <div class="o-label">Presence</div>
+              <div class="o-value">` + Math.round(presence) + `%</div>
+              <div class="o-sub">Authority</div>
+            </div>
+            <div class="orb-ring">
+              ` + circ(56, presence, presStroke, 0.4, presStroke) + `
+            </div>
+          </div>
+          <div class="metric-tooltip">
+            <div class="tooltip-title ` + presTipCls + `">Online Presence Index</div>
+            <div class="comp-bar"><div class="comp-label">Your Site</div><div class="comp-track"><div class="comp-fill you" style="width:` + Math.min(presence,100) + `%"></div></div></div>
+            <div class="comp-bar"><div class="comp-label">Industry Avg</div><div class="comp-track"><div class="comp-fill avg" style="width:` + avgPres + `%"></div></div></div>
+            <div class="comp-bar"><div class="comp-label">Top 10%</div><div class="comp-track"><div class="comp-fill ` + (presGood ? 'top-green' : 'top-red') + `" style="width:` + topPres + `%"></div></div></div>
+            <div class="comp-legend">
+              <span><span class="dot" style="background:var(--copper)"></span> You</span>
+              <span><span class="dot" style="background:rgba(169,167,160,0.5)"></span> Avg</span>
+              <span><span class="dot" style="background:` + (presGood ? 'rgba(34,197,94,0.6)' : 'rgba(239,68,68,0.6)') + `"></span> Top 10%</span>
+            </div>
+            <p style="font-size:0.65rem; color:var(--mist); margin-top:0.5rem; text-align:center;">` + (presGood ? 'Strong authority signals.' : 'Build backlinks & mentions.') + `</p>
+          </div>
+        </div>
+
+        <!-- CENTER: Total Score -->
+        <div class="score-orb">
+          <svg class="score-ring-svg" viewBox="0 0 150 150">
+            <defs>
+              <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:#D8B66A;stop-opacity:0.6" />
+                <stop offset="100%" style="stop-color:#D8B66A;stop-opacity:0.3" />
+              </linearGradient>
+            </defs>
+            ` + scoreCirc(70, overall) + `
+          </svg>
+          <div class="score-inner">
+            <div class="s-value">` + Math.round(overall) + `</div>
+            <div class="s-label">Revenue<br>Readiness</div>
+          </div>
+        </div>
+
+        <!-- RIGHT: Visual Twin -->
+        <div class="metric-orb ` + gapCls + `">
+          <div class="orb-circle">
+            <div class="orb-inner">
+              <div class="o-label">Visual Twin</div>
+              <div class="o-value">` + Math.round(gap) + `%</div>
+              <div class="o-sub">Gap</div>
+            </div>
+            <div class="orb-ring">
+              ` + circ(56, gap, gapStroke, 0.3, gapStroke) + `
+            </div>
+          </div>
+          <div class="metric-tooltip">
+            <div class="tooltip-title ` + gapTipCls + `">Visual Twin Analysis</div>
+            <div class="twin-grid">
+              <div class="twin-card yours">
+                <div class="twin-header"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
+                <div class="twin-body">Your Site</div>
+                <div class="twin-label">Scanned</div>
+              </div>
+              <div class="twin-card match">
+                <div class="twin-header"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
+                <div class="twin-body">Closest Match</div>
+                <div class="twin-label">` + Math.round(gap) + `% Similar</div>
+              </div>
+            </div>
+            <p style="font-size:0.65rem; color:var(--mist); margin-top:0.5rem; text-align:center;">` + (gapGood ? 'Strong brand differentiation.' : 'Low similarity = stronger brand.') + `</p>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- BOTTOM: Funnel Score -->
+      <div class="metric-orb ` + convCls + `">
+        <div class="orb-circle">
+          <div class="orb-inner">
+            <div class="o-label">Funnel Score</div>
+            <div class="o-value">` + Math.round(conversion) + `</div>
+            <div class="o-sub">Conversion</div>
+          </div>
+          <div class="orb-ring">
+            ` + circ(56, conversion, convStroke, 0.5, convStroke) + `
+          </div>
+        </div>
+        <div class="metric-tooltip">
+          <div class="tooltip-title ` + convTipCls + `">Conversion Efficiency</div>
+          <div class="comp-bar"><div class="comp-label">Your Site</div><div class="comp-track"><div class="comp-fill you" style="width:` + Math.min(conversion,100) + `%"></div></div></div>
+          <div class="comp-bar"><div class="comp-label">Industry Avg</div><div class="comp-track"><div class="comp-fill avg" style="width:` + avgConv + `%"></div></div></div>
+          <div class="comp-bar"><div class="comp-label">Top 10%</div><div class="comp-track"><div class="comp-fill ` + (convGood ? 'top-green' : 'top-red') + `" style="width:` + topConv + `%"></div></div></div>
+          <div class="comp-legend">
+            <span><span class="dot" style="background:var(--copper)"></span> You</span>
+            <span><span class="dot" style="background:rgba(169,167,160,0.5)"></span> Avg</span>
+            <span><span class="dot" style="background:` + (convGood ? 'rgba(34,197,94,0.6)' : 'rgba(239,68,68,0.6)') + `"></span> Top 10%</span>
+          </div>
+          <p style="font-size:0.65rem; color:var(--mist); margin-top:0.5rem; text-align:center;">` + (convGood ? 'Strong checkout-to-visit ratio.' : 'Friction points hurting conversions.') + `</p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Mobile Metrics Cards -->
+    <div class="metrics-mobile">
+      <div class="metric-card-mobile ` + aiCls + `">
+        <div class="mc-ring">` + circ(24, aiPct, aiStroke, 0.2, aiStroke) + `</div>
+        <div class="mc-info">
+          <div class="mc-label">AI Parrot</div>
+          <div class="mc-value">` + Math.round(aiPct) + `%</div>
+          <div class="mc-sub">` + classification + `</div>
+        </div>
+      </div>
+      <div class="metric-card-mobile ` + presCls + `">
+        <div class="mc-ring">` + circ(24, presence, presStroke, 0.4, presStroke) + `</div>
+        <div class="mc-info">
+          <div class="mc-label">Presence</div>
+          <div class="mc-value">` + Math.round(presence) + `%</div>
+          <div class="mc-sub">Authority</div>
+        </div>
+      </div>
+      <div class="metric-card-mobile ` + gapCls + `">
+        <div class="mc-ring">` + circ(24, gap, gapStroke, 0.3, gapStroke) + `</div>
+        <div class="mc-info">
+          <div class="mc-label">Visual Twin</div>
+          <div class="mc-value">` + Math.round(gap) + `%</div>
+          <div class="mc-sub">Gap</div>
+        </div>
+      </div>
+      <div class="metric-card-mobile ` + convCls + `">
+        <div class="mc-ring">` + circ(24, conversion, convStroke, 0.5, convStroke) + `</div>
+        <div class="mc-info">
+          <div class="mc-label">Funnel Score</div>
+          <div class="mc-value">` + Math.round(conversion) + `</div>
+          <div class="mc-sub">Conversion</div>
+        </div>
+      </div>
+    </div>
+
     ` + (revenue.est_annual_revenue_leak ? `
-    <div class="revenue-card fade-in">
+    <div class="revenue-card fade-in" style="margin-top:1.5rem;">
       <div style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--red-leak);">Est. Annual Mobile Revenue Leak</div>
       <div class="amount">` + revenue.est_annual_revenue_leak + `</div>
       <p style="font-size:0.8rem; color:var(--mist); margin-top:0.5rem;">Based on mobile bounce rate, load friction, and conversion drop-off signals.</p>
     </div>
     ` : '') + `
-
-    ` + (cms ? '<div style="text-align:center; margin:1rem 0;"><span class="cms-badge">Detected Tech Stack: ' + cms + '</span></div>' : '') + `
-
-    <div class="rings-grid">
-      <div class="ring-item">
-        <svg class="ring-svg" viewBox="0 0 100 100">
-          <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="6"/>
-          <circle cx="50" cy="50" r="42" fill="none" stroke="var(--copper)" stroke-width="6" 
-            stroke-dasharray="` + (2 * Math.PI * 42).toFixed(2) + `" stroke-dashoffset="` + (2 * Math.PI * 42 * (1 - aiPct/100)).toFixed(2) + `" 
-            stroke-linecap="round" transform="rotate(-90 50 50)"/>
-        </svg>
-        <div class="ring-label">AI Parrot</div>
-        <div class="ring-value">` + Math.round(aiPct) + `%</div>
-        <div style="font-size:0.7rem; color:var(--mist);">` + classification + `</div>
-      </div>
-      <div class="ring-item">
-        <svg class="ring-svg" viewBox="0 0 100 100">
-          <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="6"/>
-          <circle cx="50" cy="50" r="42" fill="none" stroke="var(--copper)" stroke-width="6" 
-            stroke-dasharray="` + (2 * Math.PI * 42).toFixed(2) + `" stroke-dashoffset="` + (2 * Math.PI * 42 * (1 - gap/100)).toFixed(2) + `" 
-            stroke-linecap="round" transform="rotate(-90 50 50)"/>
-        </svg>
-        <div class="ring-label">Visual Twin</div>
-        <div class="ring-value">` + Math.round(gap) + `%</div>
-        <div style="font-size:0.7rem; color:var(--mist);">Gap vs competitors</div>
-      </div>
-      <div class="ring-item">
-        <svg class="ring-svg" viewBox="0 0 100 100">
-          <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="6"/>
-          <circle cx="50" cy="50" r="42" fill="none" stroke="var(--copper)" stroke-width="6" 
-            stroke-dasharray="` + (2 * Math.PI * 42).toFixed(2) + `" stroke-dashoffset="` + (2 * Math.PI * 42 * (1 - conversion/100)).toFixed(2) + `" 
-            stroke-linecap="round" transform="rotate(-90 50 50)"/>
-        </svg>
-        <div class="ring-label">Funnel Score</div>
-        <div class="ring-value">` + Math.round(conversion) + `</div>
-        <div style="font-size:0.7rem; color:var(--mist);">Conversion ready</div>
-      </div>
-      <div class="ring-item">
-        <svg class="ring-svg" viewBox="0 0 100 100">
-          <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="6"/>
-          <circle cx="50" cy="50" r="42" fill="none" stroke="var(--copper)" stroke-width="6" 
-            stroke-dasharray="` + (2 * Math.PI * 42).toFixed(2) + `" stroke-dashoffset="` + (2 * Math.PI * 42 * (1 - presence/100)).toFixed(2) + `" 
-            stroke-linecap="round" transform="rotate(-90 50 50)"/>
-        </svg>
-        <div class="ring-label">Presence</div>
-        <div class="ring-value">` + Math.round(presence) + `%</div>
-        <div style="font-size:0.7rem; color:var(--mist);">Online authority</div>
-      </div>
-    </div>
 
     ` + (friction.reason ? `
     <div class="friction-box fade-in">
@@ -1195,7 +1822,7 @@ function showResults(data) {
           <li>4-angle fix strategy</li>
           <li>5 scans included</li>
         </ul>
-        <a href="https://paypal.me/trilloka/350" class="btn btn-primary" style="width:100%;">Get Report</a>
+        <a href="https://paypal.me/trilloka/350" target="_blank" class="btn btn-primary" style="width:100%;">Get Report</a>
       </div>
       <div class="pricing-card featured">
         <div class="tier-name">Report + Roadmap</div>
@@ -1207,7 +1834,7 @@ function showResults(data) {
           <li>1&times; 30-min strategy call</li>
           <li>8 scans included</li>
         </ul>
-        <a href="https://paypal.me/trilloka/550" class="btn btn-primary" style="width:100%;">Get Roadmap</a>
+        <a href="https://paypal.me/trilloka/550" target="_blank" class="btn btn-primary" style="width:100%;">Get Roadmap</a>
       </div>
       <div class="pricing-card">
         <div class="tier-name">Hire the Architect</div>
@@ -1220,7 +1847,7 @@ function showResults(data) {
           <li>Email support (14hr reply)</li>
           <li>20 scans included</li>
         </ul>
-        <a href="https://paypal.me/trilloka/850" class="btn btn-primary" style="width:100%;">Hire Now</a>
+        <a href="https://paypal.me/trilloka/850" target="_blank" class="btn btn-primary" style="width:100%;">Hire Now</a>
       </div>
     </div>
 

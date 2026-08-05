@@ -1,0 +1,484 @@
+{
+  "rpt_5dc9f3701c1f": {
+    "report_id": "rpt_5dc9f3701c1f",
+    "created_at": "2026-08-04T13:27:26.365772",
+    "domain": "example.com",
+    "business_type": "local_services",
+    "overall_score": 57.0,
+    "cms_platform": "Unknown",
+    "revenue_leak": {},
+    "dev_handoff_kit": "",
+    "surface_metrics": {},
+    "total_checkpoints_evaluated": 35,
+    "checkpoints_summary": [
+      {
+        "id": "CHK_01",
+        "name": "Tap-to-Call Primary Link",
+        "passed": true,
+        "penalty_points": 12.0
+      },
+      {
+        "id": "CHK_02",
+        "name": "Retargeting Pixel Installed",
+        "passed": false,
+        "penalty_points": 10.0,
+        "financial_leak_score": 18.75
+      },
+      {
+        "id": "CHK_03",
+        "name": "Unique Hero Copy",
+        "passed": true,
+        "penalty_points": 8.0
+      },
+      {
+        "id": "CHK_04",
+        "name": "Custom Product/Brand Imagery",
+        "passed": false,
+        "penalty_points": 7.0,
+        "financial_leak_score": 13.12
+      },
+      {
+        "id": "CHK_05",
+        "name": "Mobile Form Accessibility",
+        "passed": true,
+        "penalty_points": 5.0
+      },
+      {
+        "id": "CHK_06",
+        "name": "SSL Security Certificate",
+        "passed": true,
+        "penalty_points": 15.0
+      },
+      {
+        "id": "CHK_07",
+        "name": "Favicon Presence",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_08",
+        "name": "Social Proof Testimonials",
+        "passed": true,
+        "penalty_points": 6.0
+      },
+      {
+        "id": "CHK_09",
+        "name": "Clear CTA Above the Fold",
+        "passed": true,
+        "penalty_points": 9.0
+      },
+      {
+        "id": "CHK_10",
+        "name": "Page Speed LCP < 2.5s",
+        "passed": true,
+        "penalty_points": 8.0
+      },
+      {
+        "id": "CHK_11",
+        "name": "Check Point Standard Rule #11",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_12",
+        "name": "Check Point Standard Rule #12",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_13",
+        "name": "Check Point Standard Rule #13",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_14",
+        "name": "Check Point Standard Rule #14",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_15",
+        "name": "Check Point Standard Rule #15",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_16",
+        "name": "Check Point Standard Rule #16",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_17",
+        "name": "Check Point Standard Rule #17",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_18",
+        "name": "Check Point Standard Rule #18",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_19",
+        "name": "Check Point Standard Rule #19",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_20",
+        "name": "Check Point Standard Rule #20",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_21",
+        "name": "Check Point Standard Rule #21",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_22",
+        "name": "Check Point Standard Rule #22",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_23",
+        "name": "Check Point Standard Rule #23",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_24",
+        "name": "Check Point Standard Rule #24",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_25",
+        "name": "Check Point Standard Rule #25",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_26",
+        "name": "Check Point Standard Rule #26",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_27",
+        "name": "Check Point Standard Rule #27",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_28",
+        "name": "Check Point Standard Rule #28",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_29",
+        "name": "Check Point Standard Rule #29",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_30",
+        "name": "Check Point Standard Rule #30",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_31",
+        "name": "Check Point Standard Rule #31",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_32",
+        "name": "Check Point Standard Rule #32",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_33",
+        "name": "Check Point Standard Rule #33",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_34",
+        "name": "Check Point Standard Rule #34",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_35",
+        "name": "Check Point Standard Rule #35",
+        "passed": true,
+        "penalty_points": 2.0
+      }
+    ],
+    "top_10_conversion_leaks": [
+      {
+        "leak_id": "CHK_02",
+        "title": "Missing Meta / Retargeting Pixel",
+        "impact": "Bleeding 98% of non-converting bounce traffic with zero retargeting.",
+        "remediation": "Inject Meta Pixel and Google Tag Manager code into the document header."
+      },
+      {
+        "leak_id": "CHK_04",
+        "title": "Conversion Friction Point (Custom Product/Brand Imagery)",
+        "impact": "Negative impact on total page conversions.",
+        "remediation": "Apply standard conversion optimization guidelines."
+      }
+    ],
+    "is_unlocked": false
+  },
+  "rpt_b953264daee1": {
+    "report_id": "rpt_b953264daee1",
+    "created_at": "2026-08-04T13:39:29.427945",
+    "domain": "example.com",
+    "business_type": "local_services",
+    "overall_score": 57.0,
+    "cms_platform": "Unknown",
+    "revenue_leak": {},
+    "dev_handoff_kit": "",
+    "surface_metrics": {},
+    "total_checkpoints_evaluated": 35,
+    "checkpoints_summary": [
+      {
+        "id": "CHK_01",
+        "name": "Tap-to-Call Primary Link",
+        "passed": true,
+        "penalty_points": 12.0
+      },
+      {
+        "id": "CHK_02",
+        "name": "Retargeting Pixel Installed",
+        "passed": false,
+        "penalty_points": 10.0,
+        "financial_leak_score": 18.75
+      },
+      {
+        "id": "CHK_03",
+        "name": "Unique Hero Copy",
+        "passed": true,
+        "penalty_points": 8.0
+      },
+      {
+        "id": "CHK_04",
+        "name": "Custom Product/Brand Imagery",
+        "passed": false,
+        "penalty_points": 7.0,
+        "financial_leak_score": 13.12
+      },
+      {
+        "id": "CHK_05",
+        "name": "Mobile Form Accessibility",
+        "passed": true,
+        "penalty_points": 5.0
+      },
+      {
+        "id": "CHK_06",
+        "name": "SSL Security Certificate",
+        "passed": true,
+        "penalty_points": 15.0
+      },
+      {
+        "id": "CHK_07",
+        "name": "Favicon Presence",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_08",
+        "name": "Social Proof Testimonials",
+        "passed": true,
+        "penalty_points": 6.0
+      },
+      {
+        "id": "CHK_09",
+        "name": "Clear CTA Above the Fold",
+        "passed": true,
+        "penalty_points": 9.0
+      },
+      {
+        "id": "CHK_10",
+        "name": "Page Speed LCP < 2.5s",
+        "passed": true,
+        "penalty_points": 8.0
+      },
+      {
+        "id": "CHK_11",
+        "name": "Check Point Standard Rule #11",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_12",
+        "name": "Check Point Standard Rule #12",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_13",
+        "name": "Check Point Standard Rule #13",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_14",
+        "name": "Check Point Standard Rule #14",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_15",
+        "name": "Check Point Standard Rule #15",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_16",
+        "name": "Check Point Standard Rule #16",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_17",
+        "name": "Check Point Standard Rule #17",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_18",
+        "name": "Check Point Standard Rule #18",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_19",
+        "name": "Check Point Standard Rule #19",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_20",
+        "name": "Check Point Standard Rule #20",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_21",
+        "name": "Check Point Standard Rule #21",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_22",
+        "name": "Check Point Standard Rule #22",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_23",
+        "name": "Check Point Standard Rule #23",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_24",
+        "name": "Check Point Standard Rule #24",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_25",
+        "name": "Check Point Standard Rule #25",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_26",
+        "name": "Check Point Standard Rule #26",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_27",
+        "name": "Check Point Standard Rule #27",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_28",
+        "name": "Check Point Standard Rule #28",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_29",
+        "name": "Check Point Standard Rule #29",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_30",
+        "name": "Check Point Standard Rule #30",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_31",
+        "name": "Check Point Standard Rule #31",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_32",
+        "name": "Check Point Standard Rule #32",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_33",
+        "name": "Check Point Standard Rule #33",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_34",
+        "name": "Check Point Standard Rule #34",
+        "passed": true,
+        "penalty_points": 2.0
+      },
+      {
+        "id": "CHK_35",
+        "name": "Check Point Standard Rule #35",
+        "passed": true,
+        "penalty_points": 2.0
+      }
+    ],
+    "top_10_conversion_leaks": [
+      {
+        "leak_id": "CHK_02",
+        "title": "Missing Meta / Retargeting Pixel",
+        "impact": "Bleeding 98% of non-converting bounce traffic with zero retargeting.",
+        "remediation": "Inject Meta Pixel and Google Tag Manager code into the document header."
+      },
+      {
+        "leak_id": "CHK_04",
+        "title": "Conversion Friction Point (Custom Product/Brand Imagery)",
+        "impact": "Negative impact on total page conversions.",
+        "remediation": "Apply standard conversion optimization guidelines."
+      }
+    ],
+    "is_unlocked": false
+  }
+}

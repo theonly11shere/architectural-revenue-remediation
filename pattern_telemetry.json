@@ -1,0 +1,38 @@
+{
+  "buckets": {
+    "local_services.general": [
+      {
+        "timestamp": "2026-08-04T13:27:26.360309",
+        "domain": "example.com",
+        "bucket": "local_services.general",
+        "primary_category": "local_services",
+        "sub_category": "general",
+        "score_given": 57.0,
+        "synthetic_index": 0.0,
+        "footprint_signatures": {
+          "shadcn_tailwind": false,
+          "lucide_icon_density": 0,
+          "unlinked_form": false,
+          "generic_llm_headline": false,
+          "missing_pixel": true
+        }
+      },
+      {
+        "timestamp": "2026-08-04T13:39:29.395150",
+        "domain": "example.com",
+        "bucket": "local_services.general",
+        "primary_category": "local_services",
+        "sub_category": "general",
+        "score_given": 57.0,
+        "synthetic_index": 0.0,
+        "footprint_signatures": {
+          "shadcn_tailwind": false,
+          "lucide_icon_density": 0,
+          "unlinked_form": false,
+          "generic_llm_headline": false,
+          "missing_pixel": true
+        }
+      }
+    ]
+  }
+}

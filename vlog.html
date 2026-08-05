@@ -118,7 +118,8 @@
             font-size: clamp(0.9rem, 2.2vw, 1.4rem);
             color: rgba(200, 185, 150, 0.7);
             font-style: italic;
-            letter-spacing: 3px;
+            letter-spacing: 2px;
+            word-spacing: 6px;
             text-shadow: 0 2px 15px rgba(0,0,0,0.9);
             white-space: nowrap;
         }
@@ -494,8 +495,9 @@
         .chilloka-footer p {
             font-family: 'Cinzel', serif;
             color: rgba(201, 162, 39, 0.3);
-            font-size: 0.8rem;
-            letter-spacing: 4px;
+            font-size: 0.85rem;
+            letter-spacing: 1px;
+            word-spacing: 8px;
             margin-bottom: 12px;
         }
         .chilloka-footer .footer-nav {
@@ -561,7 +563,6 @@
             .architect-bio { font-size: 0.95rem; line-height: 1.75; }
         }
     </style>
-<base target="_blank">
 </head>
 <body>
 
@@ -602,9 +603,7 @@
                     <li><a href="/vlog" class="active" target="_self">Vlog</a></li>
                 </ul>
             </div>
-            <div class="hero-quote" id="heroQuote">
-                <p>Where Silence Finds Its Form</p>
-            </div>
+
         </section>
 
         <section class="gallery-section">
@@ -698,7 +697,7 @@
         </section>
 
         <footer class="chilloka-footer">
-            <p>CHILLOKA — A DIMENSION APART</p>
+            <p>Chilloka — The Dimension To Chill Awaits</p>
             <ul class="footer-nav">
                 <li><a href="/" target="_self">Home</a></li>
                 <li><a href="/solutions" target="_self">Solutions</a></li>
@@ -711,7 +710,7 @@
 
     <script>
         const line1Text = "Chilloka";
-        const line2Text = "the dimension to chill awaits...";
+        const line2Text = "The Dimension To Chill Awaits...";
 
         const line1El = document.getElementById('line1');
         const line2El = document.getElementById('line2');
@@ -728,6 +727,7 @@
             const span = document.createElement('span');
             span.className = 'char';
             span.textContent = ch === ' ' ? ' ' : ch;
+            if (ch === ' ') span.style.width = '0.5em';
             span.style.transitionDelay = (0.3 + i * 0.02) + 's';
             line2El.appendChild(span);
         });
@@ -741,7 +741,7 @@
             overlay.classList.add('opened');
 
             setTimeout(() => { topBar.classList.add('show'); }, 500);
-            setTimeout(() => { heroQuote.classList.add('show'); }, 1000);
+            // Hero quote removed
 
             setTimeout(() => {
                 overlay.style.display = 'none';
