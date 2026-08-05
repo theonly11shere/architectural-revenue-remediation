@@ -51,6 +51,61 @@ def health_check() -> Dict[str, Any]:
     }
 
 
+@app.get("/diagnostic")
+def diagnostic() -> Dict[str, Any]:
+    """Tests each pipeline component and reports what works vs what crashes."""
+    results = {"status": "running", "checks": {}}
+
+    # Check env vars
+    results["checks"]["env_pagespeed_api_key"] = bool(os.environ.get("PAGESPEED_API_KEY"))
+
+    # Test scanner import & init
+    try:
+        from hybrid_scanner import HybridScanner
+        s = HybridScanner()
+        results["checks"]["scanner_init"] = "OK"
+    except Exception as e:
+        results["checks"]["scanner_init"] = f"FAIL: {str(e)}"
+
+    # Test HTTP preflight only (no playwright)
+    try:
+        test = s._fast_http_preflight("https://example.com")
+        results["checks"]["http_preflight"] = "OK" if test.get("is_reachable") else "OK (example.com blocked)"
+    except Exception as e:
+        results["checks"]["http_preflight"] = f"FAIL: {str(e)}"
+
+    # Test PageSpeed API
+    try:
+        ps = s._fetch_google_pagespeed("https://example.com")
+        results["checks"]["pagespeed_api"] = ps.get("pagespeed_api_status", "unknown")
+    except Exception as e:
+        results["checks"]["pagespeed_api"] = f"FAIL: {str(e)}"
+
+    # Test Playwright (this is the one that usually crashes on Railway)
+    try:
+        dom = s._run_targeted_playwright("https://example.com", {})
+        results["checks"]["playwright"] = "OK"
+    except Exception as e:
+        results["checks"]["playwright"] = f"FAIL: {str(e)}"
+
+    # Test scorer
+    try:
+        from scorer import RevenueScorer
+        sc = RevenueScorer()
+        results["checks"]["scorer_init"] = "OK"
+    except Exception as e:
+        results["checks"]["scorer_init"] = f"FAIL: {str(e)}"
+
+    # Test report engine
+    try:
+        from report_engine import ReportGenerator
+        r = ReportGenerator()
+        results["checks"]["report_engine_init"] = "OK"
+    except Exception as e:
+        results["checks"]["report_engine_init"] = f"FAIL: {str(e)}"
+
+    return results
+
 @app.post("/api/audit")
 async def run_audit(request: AuditRequest, background_tasks: BackgroundTasks) -> Dict[str, Any]:
     """
