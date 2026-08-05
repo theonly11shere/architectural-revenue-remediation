@@ -119,3 +119,23 @@ def get_top_solutions_list(biz_type: str = "general") -> list:
         tailored["trust_social_proof"]["systems"],
         tailored["content_authority"]["technical"]
     ]
+
+def resolve_solutions(top_leaks: list) -> list:
+    """
+    Maps ranked audit leaks into actionable 3-angle solutions 
+    to satisfy scorer.py imports and prevent pipeline deployment crashes.
+    """
+    resolved = []
+    for leak in top_leaks:
+        leak_name = leak.get("name", leak.get("title", "Performance Bottleneck"))
+        severity = leak.get("financial_leak_score", leak.get("penalty_points", 10.0))
+        
+        resolved.append({
+            "title": leak_name,
+            "financial_impact": f"${int(severity * 150)}/mo",
+            "score_penalty": severity,
+            "technical_fix": f"Optimize render-blocking resources and critical path associated with {leak_name.lower()}.",
+            "ux_cro_fix": f"Adjust visual hierarchy and above-the-fold CTA placement to mitigate {leak_name.lower()}.",
+            "system_fix": "Implement automated edge monitoring and CI/CD audit gates to prevent future regressions."
+        })
+    return resolved

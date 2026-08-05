@@ -105,7 +105,6 @@ def run_full_audit_pipeline(audit_data: dict) -> dict:
 
     log_telemetry_async(domain, biz_type, audit_data, final_score, synthetic_index)
 
-    # --- UPDATED: Pass report_vault_id to keep vault ID synced ---
     save_private_audit_report(
         domain=domain,
         biz_type=biz_type,
@@ -119,7 +118,15 @@ def run_full_audit_pipeline(audit_data: dict) -> dict:
     est_annual_leak_num = round((100.0 - final_score) * 250 * 12)
     formatted_annual_leak = f"${est_annual_leak_num:,}"
 
-    send_audit_email_to_admin(domain, biz_type, final_score, report_vault_id, formatted_annual_leak, mapped_solutions)
+    # FIX: Explicit Keyword Arguments to prevent positional argument swapping
+    send_audit_email_to_admin(
+        domain=domain, 
+        biz_type=biz_type, 
+        overall_score=final_score, 
+        vault_id=report_vault_id, 
+        annual_leak=formatted_annual_leak, 
+        solutions=mapped_solutions
+    )
 
     second_leak = top_10_leaks[1] if len(top_10_leaks) > 1 else (top_10_leaks[0] if top_10_leaks else {})
     second_leak_reason = second_leak.get("description", second_leak.get("name", "Suboptimal mobile conversion path."))
@@ -235,7 +242,12 @@ def send_audit_email_to_admin(domain: str, biz_type: str, overall_score: float, 
     # Fetch industry-tailored solution matrix
     matrix = get_tailored_solutions(biz_type)
 
-    primary_tech_fix = solutions[0] if (solutions and len(solutions) > 0) else matrix["mobile_speed"]["technical"]
+    # FIX: Extract technical_fix string if solutions is a list of dicts from resolve_solutions
+    if solutions and len(solutions) > 0:
+        first = solutions[0]
+        primary_tech_fix = first.get("technical_fix", matrix["mobile_speed"]["technical"]) if isinstance(first, dict) else first
+    else:
+        primary_tech_fix = matrix["mobile_speed"]["technical"]
 
     subject = f"📊 Executive Audit Report: {domain} (Score: {overall_score}/100)"
     
