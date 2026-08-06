@@ -135,21 +135,29 @@ async def run_audit(request: AuditRequest, background_tasks: BackgroundTasks) ->
                 "tiered_remediation_packages": {"tier_10_arch10": []}
             }
 
-        # Step 3: Generate & Archive Admin Report (background, optional)
+        # Step 3: Generate Admin Report & Send Lead Alert Email
         if REPORT_ENGINE_AVAILABLE:
             try:
                 admin_master_report = reporter.generate_admin_master_report(
                     audit_data=audit_results,
                     scan_data=scan_data
                 )
+                # Archive to vault in background
                 background_tasks.add_task(
                     reporter.archive_to_vault,
                     target_domain=request.domain,
                     admin_report=admin_master_report,
                     raw_scan_data=scan_data
                 )
+                # Send admin alert email in background
+                background_tasks.add_task(
+                    reporter.send_admin_alert_email,
+                    admin_report=admin_master_report
+                )
             except Exception as report_err:
                 print(f"[Report Engine] Skipped — {report_err}")
+                import traceback
+                traceback.print_exc()
 
         # Step 4: Return Frontend-Compatible Payload with REAL data
         all_leaks = audit_results.get("tiered_remediation_packages", {}).get("tier_10_arch10", [])
