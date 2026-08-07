@@ -107,14 +107,29 @@ class RevenueScorer:
 
         # Step 3: Calculate Dynamic AI Spectrum Penalty based on Business Type
         ai_spectrum_pct = scan_data.get("ai_spectrum_pct", 0.0)
+
+        # HARSH FIX: If the scraper returned 0 but also found no meaningful text,
+        # we penalize them as a generic/thin-content template (assumes 65% AI equivalent).
+        raw_page_text = scan_data.get("page_text") or scan_data.get("raw_text", "")
+        if ai_spectrum_pct == 0.0 and len(str(raw_page_text).strip()) < 50:
+            ai_spectrum_pct = 65.0 
+            
         ai_severity_mult = 1.5 if biz_type in ["medspa", "legal"] else 1.0
-        ai_penalty = min(20.0, (ai_spectrum_pct / 100.0) * 15.0 * ai_severity_mult) if ai_spectrum_pct > 50.0 else 0.0
+
+        # INCREASED PENALTY: Lowered threshold to 40.0% and increased max penalty impact
+        ai_penalty = min(25.0, (ai_spectrum_pct / 100.0) * 20.0 * ai_severity_mult) if ai_spectrum_pct > 40.0 else 0.0
 
         # Step 4: Calculate Harsh Overall Health Score
         total_severity_loss = sum(leak["final_severity_score"] for leak in detected_leaks)
         
         raw_score = 100.0 - (total_severity_loss * 1.15) - ai_penalty
-        harsh_overall_score = max(12.0, min(96.0, round(raw_score, 1)))
+        
+        # HARSH CLAMPING LOGIC: If a business has 3 or more financial leaks,
+        # they lose the privilege of a "passing" score. Force clamp into 35-50% range.
+        if len(detected_leaks) >= 3:
+            harsh_overall_score = max(35.0, min(49.5, round(raw_score, 1)))
+        else:
+            harsh_overall_score = max(12.0, min(96.0, round(raw_score, 1)))
 
         # Step 5: Calculate Surface Metrics
         perf_score = scan_data.get("performance_score", 65.0)
