@@ -100,8 +100,7 @@ class RevenueScorer:
         biz_type = self._normalize_business_type(business_type)
 
         # Step 1: Execute Behavioral Engine Diagnostics
-        # Step 1: Execute Behavioral Engine Diagnostics
- behavioral_insights = self.behavioral_engine.analyze_behavioral_friction(scan_data, biz_type)
+        behavioral_insights = self.behavioral_engine.analyze_behavioral_friction(scan_data, biz_type)
 
         # Step 2: Evaluate Failed Checkpoints & Generate Contextual Weighted Severity Scores
         detected_leaks = self._evaluate_checkpoints(scan_data, biz_type, competitor_data_present)
