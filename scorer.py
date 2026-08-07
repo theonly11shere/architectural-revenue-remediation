@@ -105,13 +105,22 @@ class RevenueScorer:
         # Step 2: Evaluate Failed Checkpoints & Generate Contextual Weighted Severity Scores
         detected_leaks = self._evaluate_checkpoints(scan_data, biz_type, competitor_data_present)
 
-        # Step 3: Calculate Dynamic AI Spectrum Penalty based on Business Type
+       # Step 3: Calculate Dynamic AI Spectrum Penalty based on Business Type
         ai_spectrum_pct = scan_data.get("ai_spectrum_pct", 0.0)
 
-        # HARSH FIX: If the scraper returned 0 but also found no meaningful text,
-        # we penalize them as a generic/thin-content template (assumes 65% AI equivalent).
-        raw_page_text = scan_data.get("page_text") or scan_data.get("raw_text", "")
-        if ai_spectrum_pct == 0.0 and len(str(raw_page_text).strip()) < 50:
+        # Check ALL common text keys your scraper might be using
+        raw_page_text = str(
+            scan_data.get("page_text") or 
+            scan_data.get("raw_text") or 
+            scan_data.get("text_content") or 
+            scan_data.get("content") or 
+            ""
+        ).strip()
+
+        # HARSH FIX: Only apply the 65% penalty if the scraper completely failed 
+        # to extract text (meaning heavy JS/blocked site hiding a generic template).
+        # If there IS text (len > 50) and it genuinely scored 0%, we leave it at 0.
+        if ai_spectrum_pct == 0.0 and len(raw_page_text) < 50:
             ai_spectrum_pct = 65.0 
             
         ai_severity_mult = 1.5 if biz_type in ["medspa", "legal"] else 1.0
