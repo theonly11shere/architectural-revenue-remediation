@@ -8,9 +8,10 @@ from typing import Dict, Any, List
 class ReportGenerator:
     """
     Trilloka Architect Engine (Report Generator):
-    - Generates Admin Lead Alert Email (Top 6 Leaks with 3-Angle Solutions, Graded Severity Factors, 50-Point Basis).
+    - Generates Admin Lead Alert Email (Top Leaks with 3-Angle Solutions, Graded Severity Factors, 50-Point Basis).
     - Features transparent Scoring Methodology & Reasonability Breakdown.
     - Maps Score Level Ratings (ARCHITECT, OPTIMAL, REMEDIATION, CRITICAL) to business risk.
+    - Includes Architect guidance, 'Why We Recommend This', and Implementation Cadences.
     - Archives snapshot to Vault.
     - Sends rich HTML emails via Resend API.
     """
@@ -28,11 +29,19 @@ class ReportGenerator:
 
         remediation_pkgs = audit_data.get("tiered_remediation_packages") or {}
         leaks = remediation_pkgs.get("tier_10_arch10") or []
-        top_6_leaks = leaks[:6]
 
-        # Build rich 3-angle solutions for each dynamic leak
+        # Sort all leaks by highest severity score
+        sorted_leaks = sorted(
+            [l for l in leaks if isinstance(l, dict)],
+            key=lambda x: (x.get("severity_score") or 0, x.get("severity_factor") or 0.0),
+            reverse=True
+        )
+
+        top_leaks = sorted_leaks[:6] if len(sorted_leaks) >= 6 else sorted_leaks
+
+        # Build rich 3-angle solutions + rationale & cadence for each dynamic leak
         enriched_leaks = []
-        for leak in top_6_leaks:
+        for leak in top_leaks:
             if not isinstance(leak, dict):
                 continue
             leak_name = leak.get("leak_name") or ""
@@ -97,9 +106,9 @@ class ReportGenerator:
         
         return {
             "core_philosophy": "Unlike generic pass/fail tools, Trilloka employs a Graded Severity Continuum. Scores reflect quality of implementation, vertical revenue risk, and foundational hygiene.",
-            "graded_continuum": "Checks do not drop arbitrary points. Partial implementations (e.g., alt text on some images or support without sticky CTAs) receive a scaled penalty (0.3x - 0.75x) rather than full failure.",
+            "graded_continuum": "Checks do not drop arbitrary points. Partial implementations receive a scaled penalty (0.3x - 0.75x) rather than full failure.",
             "vertical_weighting": f"Weighted specifically for the {biz_type} model. High-value conversion friction carries double the weight of generic technical notices.",
-            "hygiene_gatekeeping": "Basic table-stakes failures (SSL, Favicon, Language tags, Alt tags) trigger strict compliance caps (68, 78, or 88 max score) to enforce technical baseline security."
+            "hygiene_gatekeeping": "Basic table-stakes failures (SSL, Favicon, Language tags, Alt tags) trigger strict compliance caps to enforce technical baseline security."
         }
 
     def _build_score_level_impact_explanation(self, score: float) -> Dict[str, str]:
@@ -120,84 +129,85 @@ class ReportGenerator:
         elif val >= 50.0:
             return {
                 "level": "NEEDS REMEDIATION (50–74)",
-                "impact_summary": "Structural bottlenecks actively suppressing revenue. Mobile experience, speed, or pre-purchase query friction is causing direct cart/lead abandonment.",
+                "impact_summary": "Structural bottlenecks actively suppressing revenue. Mobile experience, speed, or pre-purchase query friction is causing direct lead abandonment.",
                 "severity_behavior": "Compounding severity factors. Multiple checks exceed 0.50 impact, triggering hygiene compliance penalties."
             }
         else:
             return {
                 "level": "CRITICAL RISK (< 50)",
                 "impact_summary": "Catastrophic conversion barrier. The site suffers from compound failures across trust, speed, and CTA architecture.",
-                "severity_behavior": "Strict harsh clamping applied (forced between 35.0–49.5 due to 3+ major financial leaks). Immediate architectural intervention required."
+                "severity_behavior": "Strict harsh clamping applied due to major financial leaks. Immediate architectural intervention required."
             }
 
     def _build_3_angle_solutions(self, leak_name: str, category: str, scan_data: Dict[str, Any]) -> Dict[str, str]:
-        """Builds rich, contextual 3-angle remediation plans matching both exact and dynamic leak titles."""
+        """Builds rich, contextual 3-angle remediation plans with Why We Recommend This and Cadence protocols."""
 
         lname_lower = (leak_name or "").lower()
 
-        if "ssl" in lname_lower or "https" in lname_lower:
+        if "latency" in lname_lower or "core web vitals" in lname_lower or "performance" in lname_lower or "speed" in lname_lower:
+            return {
+                "technical": "Optimize critical rendering path assets, convert legacy JPEGs to WebP/AVIF, and defer render-blocking JavaScript.",
+                "cro_ux": "Ensure primary value propositions and direct CTAs appear in the first 300px of mobile viewport space.",
+                "systems": "Set up automated image pipeline compression on all server uploads.",
+                "why_recommend": "Over 60% of high-intent traffic hits your platform on mobile devices. Fixing speed from technical, UX, and pipeline angles ensures immediate retention and prevents future speed degradation.",
+                "cadence_title": "Week 1",
+                "cadence_text": "Execute technical script deferral and image compression immediately. Test mobile rendering performance every 3 days during initial rollout."
+            }
+        elif "proof" in lname_lower or "social proof" in lname_lower or "trust" in lname_lower or "review" in lname_lower or "testimonial" in lname_lower:
+            return {
+                "technical": "Load third-party review widgets using lazy-loading protocols to preserve page interactive timing.",
+                "cro_ux": "Place real customer quotes and trust seals within arm's reach of your main lead collection forms.",
+                "systems": "Establish a process to collect and publish 3 to 5 new customer feedback highlights every week.",
+                "why_recommend": "Cold or warm traffic validates trust within 3 seconds. Approaching proof from technical, placement, and system angles keeps your sales funnel constantly refreshed with social proof.",
+                "cadence_title": "Weeks 1–3",
+                "cadence_text": "Launch review collection triggers. Aim to feature 3 to 5 new customer reviews or highlight updates every week or every 3 days. Do not dump static reviews once a year."
+            }
+        elif "organic" in lname_lower or "content" in lname_lower or "h1" in lname_lower or "heading" in lname_lower or "seo" in lname_lower:
+            return {
+                "technical": "Add structured organization schema, optimize DOM header tag hierarchy, and clean up broken internal redirects.",
+                "cro_ux": "Diversify content formats into digestible micro-content (infographics, short text, bulleted guides).",
+                "systems": "Publish content on a disciplined schedule: 3 updates every 3 days, varying topics between technical value, proof, and updates.",
+                "why_recommend": "Algorithms penalize irregular posting spikes and reward steady output. Tackling content from schema, format, and scheduling angles builds compound traffic growth.",
+                "cadence_title": "Weeks 2–8",
+                "cadence_text": "Maintain a disciplined distribution rhythm by publishing 3 times every 3 days. Diversify your content mix—do not over-saturate a single topic or pitch constantly; alternate between technical value, customer case studies, and brand updates."
+            }
+        elif "ssl" in lname_lower or "https" in lname_lower:
             return {
                 "technical": "Install a valid SSL certificate (Let's Encrypt / Cloudflare Origin CA). Force server-level HTTPS redirects (Nginx/Apache) and enable HSTS headers.",
                 "cro_ux": "Display a visible SSL security badge near checkout and lead forms. Update tab title with 'Secure Connection' messaging.",
-                "systems": "Automate certificate renewals via Certbot cron jobs. Set up UptimeRobot monitoring for SSL expiration alerts."
+                "systems": "Automate certificate renewals via Certbot cron jobs. Set up UptimeRobot monitoring for SSL expiration alerts.",
+                "why_recommend": "Security warnings instantly destroy conversion rates by triggering browser blockades and killing visitor trust before the page even renders.",
+                "cadence_title": "Week 1",
+                "cadence_text": "Execute SSL installation and force 301 HTTPS redirects across all domain routes immediately."
             }
-        elif "call" in lname_lower or "tap target" in lname_lower:
+        elif "call" in lname_lower or "tap target" in lname_lower or "phone" in lname_lower:
             return {
                 "technical": "Wrap phone numbers in explicit tel: and wa.me links. Ensure touch targets meet WCAG standards (minimum 48x48px bounding box).",
                 "cro_ux": "Implement a high-contrast sticky bottom tap bar for mobile devices. Test direct copy ('Tap to Call' vs 'Free Consultation').",
-                "systems": "Route calls to dedicated tracking numbers (CallRail). Train intake team on sub-5-minute lead response protocols."
+                "systems": "Route calls to dedicated tracking numbers (CallRail). Train intake team on sub-5-minute lead response protocols.",
+                "why_recommend": "Mobile users demand instant tap functionality. Removing friction from direct calls reclaims high-intent local conversion traffic.",
+                "cadence_title": "Week 1",
+                "cadence_text": "Implement tel: markup and mobile sticky tap bar immediately. Audit call routing protocols within 7 days."
             }
-        elif "cta" in lname_lower or "cart" in lname_lower or "support" in lname_lower:
+        elif "cta" in lname_lower or "cart" in lname_lower or "form" in lname_lower or "support" in lname_lower:
             return {
-                "technical": "Implement CSS position: fixed bottom sticky bar with safe-area-inset padding. Deactivate when footer overlaps via IntersectionObserver.",
-                "cro_ux": "Combine sticky Add-to-Cart with an instant pre-purchase query channel (WhatsApp / Live Chat) to clear buyer doubts immediately.",
-                "systems": "Track sticky CTA interactions as GA4 conversion events. A/B test sticky CTA copy monthly."
-            }
-        elif "latency" in lname_lower or "core web vitals" in lname_lower or "performance" in lname_lower:
-            return {
-                "technical": "Defer render-blocking JS, inline critical CSS, convert images to WebP/AVIF, and serve assets via CDN (Cloudflare).",
-                "cro_ux": "Ensure primary value proposition and buy action render within the top 300px of mobile viewport space within 1.5 seconds.",
-                "systems": "Automate image optimization build steps (Sharp/Cloudinary). Set up automated PageSpeed regression alerts in CI/CD."
-            }
-        elif "h1" in lname_lower or "heading" in lname_lower:
-            return {
-                "technical": "Refactor DOM hierarchy so exactly one H1 exists per page containing target vertical keywords and schema markup.",
-                "cro_ux": "Rewrite hero H1 to state a clear value promise: '[Service] in [Location] — [Quantifiable Result]'.",
-                "systems": "Establish a monthly headline testing protocol in GA4 to measure bounce rate improvements."
-            }
-        elif "alt" in lname_lower or "accessibility" in lname_lower:
-            return {
-                "technical": "Add descriptive, keyword-rich alt attributes to missing image nodes (max 125 chars). Use proper file naming conventions.",
-                "cro_ux": "Add trust captions below key service/product images to reinforce expertise and real-world results.",
-                "systems": "Incorporate image accessibility validation into CMS publishing workflows before articles go live."
-            }
-        elif "ai" in lname_lower or "template" in lname_lower:
-            return {
-                "technical": "Remove generic boilerplate CSS frameworks and AI site-builder footers. Self-host brand typography.",
-                "cro_ux": "Inject genuine proof points: custom photography, local case studies, and exact client review quotes to replace generic copy.",
-                "systems": "Run content through AI detection tools before publication. Enforce strict brand voice and tone guidelines."
+                "technical": "Implement CSS position: fixed bottom sticky bar with safe-area-inset padding. Repair unlinked form action attributes.",
+                "cro_ux": "Combine sticky CTA with an instant pre-purchase query channel (WhatsApp / Live Chat) to clear buyer doubts immediately.",
+                "systems": "Track sticky CTA interactions as GA4 conversion events. A/B test sticky CTA copy monthly.",
+                "why_recommend": "Form drop-offs and invisible mobile CTAs account for over 40% of abandoned buyer intent across lead generation funnels.",
+                "cadence_title": "Weeks 1–2",
+                "cadence_text": "Repair form action targets and push sticky CTA elements to production. Monitor conversion lift over 14 days."
             }
 
-        # Fallback based on category
-        cat_str = category or ""
-        if cat_str == "trust_conversion":
-            return {
-                "technical": f"Audit infrastructure associated with {leak_name}. Fix server response headers, SSL tunnels, and mobile DOM events.",
-                "cro_ux": f"Redesign conversion flow impacted by {leak_name}. Add visual trust badges, simplify form steps, and emphasize guarantees.",
-                "systems": f"Establish automated telemetry monitoring for {leak_name}. Review lead loss metrics in monthly team meetings."
-            }
-        elif cat_str == "seo_technical":
-            return {
-                "technical": f"Resolve technical SEO deficit for {leak_name}. Optimize asset compression, clean DOM structure, and verify indexing.",
-                "cro_ux": f"Restructure visual content hierarchy surrounding {leak_name} to keep mobile users engaged above the fold.",
-                "systems": f"Integrate automated technical audits into development pipelines to prevent re-occurrence of {leak_name}."
-            }
-        else:
-            return {
-                "technical": f"Address underlying code and content structure issues causing {leak_name}.",
-                "cro_ux": f"Improve visual messaging and user intent alignment around {leak_name}.",
-                "systems": f"Document operational protocols to audit and maintain standards regarding {leak_name}."
-            }
+        # Contextual Fallback
+        return {
+            "technical": f"Audit infrastructure associated with {leak_name}. Fix server response headers, DOM execution, and mobile event handlers.",
+            "cro_ux": f"Redesign conversion flow impacted by {leak_name}. Add visual trust elements and clear directional hierarchy.",
+            "systems": f"Establish automated telemetry monitoring for {leak_name}. Review lead loss metrics in recurring optimization cycles.",
+            "why_recommend": f"Resolving {leak_name} across code, design, and system operations eliminates systemic conversion friction and stabilizes customer acquisition.",
+            "cadence_title": "Weeks 1–3",
+            "cadence_text": f"Deploy core technical fixes for {leak_name} in Week 1. Refine messaging and monitor system metrics through Weeks 2–3."
+        }
 
     def _build_50_checkpoints(self, scan_data: Dict[str, Any], audit_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Builds the full 50-checkpoint assessment from real scan data with null-safe accessors."""
@@ -308,7 +318,7 @@ class ReportGenerator:
             return False
 
     def _build_email_html(self, report: Dict[str, Any]) -> str:
-        """Builds executive HTML email with Reasonability & Score Level Impact cards."""
+        """Builds executive HTML email matching exact screenshot layout, Architect note, and disclaimers."""
 
         report = report or {}
         domain = report.get("target_domain") or "Unknown"
@@ -326,7 +336,7 @@ class ReportGenerator:
         # Color code the score
         score_color = "#22C55E" if score >= 75 else "#D8B66A" if score >= 50 else "#EF4444"
 
-        # Build leaks HTML with severity badges
+        # Build leaks HTML with precise screenshot styling
         leaks_html = ""
         top_leaks = report.get("top_6_financial_leaks") or []
         for i, leak in enumerate(top_leaks, 1):
@@ -338,22 +348,32 @@ class ReportGenerator:
             
             leaks_html += f"""
             <div style="margin-bottom:32px; border-left:4px solid #D8B66A; padding-left:16px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                    <h3 style="font-family:Georgia,serif; font-size:18px; color:#090B12; margin:0;">
-                        {i}. {leak.get("leak_name", "")}
-                    </h3>
-                </div>
-                <p style="font-family:Inter,sans-serif; font-size:11px; color:#C85A5A; margin:4px 0 8px 0; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">
-                    {sev_label} &nbsp;|&nbsp; Severity Scale: {sev_factor} &nbsp;|&nbsp; Score Loss: -{leak.get("severity_score", 0)} pts
-                </p>
-                <p style="font-family:Inter,sans-serif; font-size:13px; color:#555; margin:0 0 12px 0; line-height:1.5;">
+                <h3 style="font-family:Georgia,serif; font-size:18px; color:#090B12; margin:0 0 6px 0; font-weight:700;">
+                    {i}. {leak.get("leak_name", "")}
+                </h3>
+                <p style="font-family:Inter,sans-serif; font-size:13px; color:#555; margin:0 0 8px 0; line-height:1.5;">
                     {leak.get("impact_summary", "")}
                 </p>
-                <div style="background:#f8f8f8; border-radius:8px; padding:14px; margin-top:10px;">
-                    <p style="font-family:Inter,sans-serif; font-size:11px; color:#888; text-transform:uppercase; letter-spacing:1px; margin:0 0 10px 0; font-weight:700;">The 3-Angle Remediation Plan:</p>
-                    <p style="font-family:Inter,sans-serif; font-size:13px; color:#333; margin:0 0 8px 0; line-height:1.6;"><strong>Technical Angle:</strong> {angles.get("technical", "")}</p>
-                    <p style="font-family:Inter,sans-serif; font-size:13px; color:#333; margin:0 0 8px 0; line-height:1.6;"><strong>UX / CRO Angle:</strong> {angles.get("cro_ux", "")}</p>
-                    <p style="font-family:Inter,sans-serif; font-size:13px; color:#333; margin:0 0 8px 0; line-height:1.6;"><strong>Systems Angle:</strong> {angles.get("systems", "")}</p>
+                <p style="font-family:Inter,sans-serif; font-size:11px; color:#C85A5A; margin:0 0 12px 0; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">
+                    {sev_label} &nbsp;|&nbsp; Severity Scale: {sev_factor} &nbsp;|&nbsp; Score Loss: -{leak.get("severity_score", 0)} pts
+                </p>
+                <div style="background:#fdfdfd; border:1px solid #f0f0f0; border-radius:8px; padding:16px; margin-top:10px;">
+                    <p style="font-family:Inter,sans-serif; font-size:12px; color:#111; font-weight:700; margin:0 0 10px 0; text-transform:uppercase; letter-spacing:0.5px;">The 3-Angle Remediation Plan:</p>
+                    <p style="font-family:Inter,sans-serif; font-size:13px; color:#222; margin:0 0 8px 0; line-height:1.6;">
+                        <strong>Technical Angle:</strong> {angles.get("technical", "")}
+                    </p>
+                    <p style="font-family:Inter,sans-serif; font-size:13px; color:#222; margin:0 0 8px 0; line-height:1.6;">
+                        <strong>UX / CRO Angle:</strong> {angles.get("cro_ux", "")}
+                    </p>
+                    <p style="font-family:Inter,sans-serif; font-size:13px; color:#222; margin:0 0 12px 0; line-height:1.6;">
+                        <strong>Systems Angle:</strong> {angles.get("systems", "")}
+                    </p>
+                    <p style="font-family:Inter,sans-serif; font-size:13px; color:#111; margin:0 0 8px 0; line-height:1.6;">
+                        <strong>Why We Recommend This:</strong> {angles.get("why_recommend", "")}
+                    </p>
+                    <p style="font-family:Inter,sans-serif; font-size:13px; color:#111; margin:0; line-height:1.6;">
+                        <strong>Implementation Cadence ({angles.get("cadence_title", "Week 1")}):</strong> {angles.get("cadence_text", "")}
+                    </p>
                 </div>
             </div>
             """
@@ -390,9 +410,16 @@ class ReportGenerator:
     </div>
 
     <!-- Revenue Leak Banner -->
-    <div style="background:rgba(200,90,90,0.08); border:1px solid rgba(200,90,90,0.25); border-radius:12px; padding:16px; margin:16px 0; text-align:center;">
-        <p style="font-family:Inter,sans-serif; font-size:11px; color:#C85A5A; text-transform:uppercase; letter-spacing:1px; margin:0 0 4px 0;">Estimated Annual Revenue Leak</p>
-        <p style="font-family:Georgia,serif; font-size:28px; color:#C85A5A; margin:0;">{revenue_leak}</p>
+    <div style="background:rgba(200,90,90,0.08); border:1px solid rgba(200,90,90,0.25); border-radius:12px; padding:20px; margin:16px 0; text-align:center;">
+        <p style="font-family:Inter,sans-serif; font-size:11px; color:#C85A5A; text-transform:uppercase; letter-spacing:1.5px; margin:0 0 6px 0; font-weight:700;">ESTIMATED ANNUAL REVENUE LEAK</p>
+        <p style="font-family:Georgia,serif; font-size:32px; color:#C85A5A; margin:0; font-weight:700;">{revenue_leak}</p>
+    </div>
+
+    <!-- Architect Introductory Note -->
+    <div style="margin:24px 0 28px 0; padding:0 4px;">
+        <p style="font-family:Georgia,serif; font-size:14px; font-style:italic; color:#333333; margin:0; line-height:1.6;">
+            According to the Architect, these are the best ways to fix the issues you have from all angles. If you do not think so, try your or any other way—however, these multi-angle strategies are structured specifically to eliminate immediate conversion bottlenecks and build long-term dominance.
+        </p>
     </div>
 
     <!-- Score Level Impact Breakdown -->
@@ -422,7 +449,11 @@ class ReportGenerator:
         </p>
     </div>
 
-    <h2 style="font-family:Georgia,serif; font-size:20px; color:#090B12; margin:32px 0 16px 0;">🎯 Top 6 Financial Leaks & 3-Angle Solutions</h2>
+    <!-- Section Heading -->
+    <h2 style="font-family:Georgia,serif; font-size:22px; color:#090B12; margin:32px 0 20px 0; font-weight:700;">
+        🎯 Top 6 Financial Leaks & 3-Angle Solutions
+    </h2>
+
     {leaks_html}
 
     <!-- 50 Checkpoint Basis -->
@@ -432,8 +463,16 @@ class ReportGenerator:
         <p style="font-family:Inter,sans-serif; font-size:12px; color:#A9A7A0; margin:0;">Trust & Conversion: 15 checks | SEO & Technical: 20 checks | Content & E-E-A-T: 15 checks</p>
     </div>
 
-    <div style="border-top:1px solid #ddd; margin-top:32px; padding-top:20px;">
-        <p style="font-family:Inter,sans-serif; font-size:11px; color:#888; line-height:1.6; margin:0;">
+    <!-- Raw Vault Access Link -->
+    <div style="text-align:center; margin:28px 0 20px 0;">
+        <a href="#" style="font-family:Inter,sans-serif; font-size:13px; color:#2563EB; text-decoration:none; font-weight:600;">
+            Access Complete Raw Vault Telemetry Entry
+        </a>
+    </div>
+
+    <!-- Disclaimer & Terms of Sale -->
+    <div style="border-top:1px solid #e0e0e0; margin-top:24px; padding-top:20px;">
+        <p style="font-family:Inter,sans-serif; font-size:11px; color:#555555; line-height:1.6; margin:0;">
             <strong>DISCLAIMER & TERMS OF SALE:</strong> This custom diagnostic report and its associated strategic findings are non-refundable under any circumstances. The fee paid covers the automated technical telemetry execution, deep-layer diagnostic scan, revenue leak calculation, and the proprietary strategic remediation blueprint. Results and performance improvements depend entirely on proper implementation by your development and marketing teams. Trilloka guarantees the identification of existing performance leaks, but failure to execute recommendations or changes made by external platform providers do not qualify for refunds.
         </p>
     </div>
