@@ -23,6 +23,7 @@ BUSINESS_MODEL_MATRIX = {
 }
 
 # 3. Dynamic Check Base Weights Matrix by Business Type (1 to 10 Scale)
+# Tier 2 Table-Stakes items are weighted lower to prevent average distortion
 RULE_BASE_WEIGHTS = {
     "unsecured_ssl": {
         "general": 9, "medspa": 10, "legal": 10, "ecommerce": 10, "saas": 10
@@ -40,11 +41,25 @@ RULE_BASE_WEIGHTS = {
         "general": 6, "medspa": 7, "legal": 8, "ecommerce": 6, "saas": 9
     },
     "missing_alt_images": {
-        "general": 5, "medspa": 6, "legal": 4, "ecommerce": 8, "saas": 4
+        "general": 2, "medspa": 2, "legal": 2, "ecommerce": 3, "saas": 2
+    },
+    "favicon_present": {
+        "general": 1, "medspa": 1, "legal": 1, "ecommerce": 2, "saas": 1
+    },
+    "html_lang_attribute": {
+        "general": 1, "medspa": 1, "legal": 1, "ecommerce": 1, "saas": 1
     },
     "ai_template_similarity": {
         "general": 5, "medspa": 8, "legal": 9, "ecommerce": 5, "saas": 7
     }
+}
+
+# Table-stakes items flagged for strict hygiene gatekeeping caps
+HYGIENE_CHECK_IDS = {
+    "missing_alt_images",
+    "favicon_present",
+    "html_lang_attribute",
+    "diluted_h1"
 }
 
 # 4. Vertical Financial Leak Multipliers (Est. Annual Value lost per score gap point)
@@ -69,7 +84,7 @@ class RevenueScorer:
     """
     Trilloka Harsh Revenue Diagnostic Scorer:
     Combines hybrid scan data, behavioral engine heuristics, weighted severity index,
-    and business vertical matrices to calculate financial leaks.
+    business vertical matrices, and strict hygiene gatekeeping to calculate financial leaks.
     """
 
     def __init__(self):
@@ -96,7 +111,7 @@ class RevenueScorer:
         return f"{prefix}-{rand_str}"
 
     def audit_and_score(self, scan_data: Dict[str, Any], business_type: str = "general", competitor_data_present: bool = True) -> Dict[str, Any]:
-        """Runs the complete harsh scoring pipeline with vertical-aware formulas."""
+        """Runs the complete harsh scoring pipeline with vertical-aware formulas and hygiene gates."""
         biz_type = self._normalize_business_type(business_type)
 
         # Step 1: Execute Behavioral Engine Diagnostics
@@ -108,7 +123,6 @@ class RevenueScorer:
         # Step 3: Calculate Dynamic AI Spectrum Penalty based on Business Type
         ai_spectrum_pct = scan_data.get("ai_spectrum_pct", 0.0)
 
-        # Check ALL common text keys your scraper might be using
         raw_page_text = str(
             scan_data.get("page_text") or 
             scan_data.get("raw_text") or 
@@ -117,26 +131,38 @@ class RevenueScorer:
             ""
         ).strip()
 
-        # ADJUSTED FALLBACK: If the scraper completely failed to extract text, 
-        # cap the fallback profile default at 45.0% instead of 65.0%.
         if ai_spectrum_pct == 0.0 and len(raw_page_text) < 50:
             ai_spectrum_pct = 45.0 
             
         ai_severity_mult = 1.5 if biz_type in ["medspa", "legal"] else 1.0
-
         ai_penalty = min(25.0, (ai_spectrum_pct / 100.0) * 20.0 * ai_severity_mult) if ai_spectrum_pct > 40.0 else 0.0
 
-        # Step 4: Calculate Harsh Overall Health Score
+        # Step 4: Calculate Harsh Overall Health Score with Hygiene Gatekeeping
         total_severity_loss = sum(leak["final_severity_score"] for leak in detected_leaks)
         
         raw_score = 100.0 - (total_severity_loss * 1.15) - ai_penalty
         
-        # HARSH CLAMPING LOGIC: If a business has 3 or more financial leaks,
-        # they lose the privilege of a "passing" score. Force clamp into 35-50% range.
+        # Count failed table-stakes hygiene items
+        failed_hygiene_count = sum(1 for leak in detected_leaks if leak.get("rule_key") in HYGIENE_CHECK_IDS)
+        compliance_tax = failed_hygiene_count * 2.0
+
+        # Apply strict score ceilings if basic foundational checks fail
+        if failed_hygiene_count >= 3:
+            raw_score = min(raw_score, 68.0)
+        elif failed_hygiene_count == 2:
+            raw_score = min(raw_score, 78.0)
+        elif failed_hygiene_count == 1:
+            raw_score = min(raw_score, 88.0)
+
+        # Apply compliance tax subtraction
+        adjusted_score = raw_score - compliance_tax
+
+        # Harsh clamping logic: If a business has 3 or more total financial leaks, 
+        # force clamp into the strict failing range.
         if len(detected_leaks) >= 3:
-            harsh_overall_score = max(35.0, min(49.5, round(raw_score, 1)))
+            harsh_overall_score = max(35.0, min(49.5, round(adjusted_score, 1)))
         else:
-            harsh_overall_score = max(12.0, min(96.0, round(raw_score, 1)))
+            harsh_overall_score = max(12.0, min(96.0, round(adjusted_score, 1)))
 
         # Step 5: Calculate Surface Metrics
         perf_score = scan_data.get("performance_score", 65.0)
@@ -225,6 +251,7 @@ class RevenueScorer:
         if not data.get("has_ssl", False):
             base_w = self._get_base_weight("unsecured_ssl", biz_type)
             leaks.append(self._build_leak(
+                rule_key="unsecured_ssl",
                 title="Unsecured HTTPS/SSL Tunnel",
                 base_weight=base_w,
                 category="seo_technical",
@@ -246,6 +273,7 @@ class RevenueScorer:
                 desc += "Triggers search ranking penalties and bounce rate spikes."
 
             leaks.append(self._build_leak(
+                rule_key="core_web_vitals",
                 title="Severe Mobile Core Web Vitals Latency",
                 base_weight=base_w,
                 category="seo_technical",
@@ -266,6 +294,7 @@ class RevenueScorer:
                 desc += "causing direct conversion drop-offs."
 
             leaks.append(self._build_leak(
+                rule_key="click_to_call",
                 title="Missing Mobile Click-to-Call / Instant Action",
                 base_weight=base_w,
                 category="trust_conversion",
@@ -280,6 +309,7 @@ class RevenueScorer:
         if not data.get("mobile_cta_visible", False):
             base_w = self._get_base_weight("mobile_sticky_cta", biz_type)
             leaks.append(self._build_leak(
+                rule_key="mobile_sticky_cta",
                 title="Absence of Mobile Sticky Call-to-Action (CTA)",
                 base_weight=base_w,
                 category="trust_conversion",
@@ -295,6 +325,7 @@ class RevenueScorer:
         if len(h1_tags) != 1:
             base_w = self._get_base_weight("diluted_h1", biz_type)
             leaks.append(self._build_leak(
+                rule_key="diluted_h1",
                 title="Diluted Hero Heading (H1) Value Proposition",
                 base_weight=base_w,
                 category="content_eeat",
@@ -310,17 +341,48 @@ class RevenueScorer:
         if missing_alt > 0:
             base_w = self._get_base_weight("missing_alt_images", biz_type)
             leaks.append(self._build_leak(
+                rule_key="missing_alt_images",
                 title="Missing Alt Accessibility & E-E-A-T Anchors",
                 base_weight=base_w,
                 category="content_eeat",
                 category_mult=cat_weights["content_eeat"],
                 biz_mult=biz_matrix["seo"],
-                competitor_bonus=2 if competitor_has_feature else 0,
-                relevance_bonus=2,
+                competitor_bonus=1 if competitor_has_feature else 0,
+                relevance_bonus=1,
                 description=f"{missing_alt} images are missing alternative text attributes."
             ))
 
-        # Rule 7: High AI Spectrum
+        # Rule 7: Missing Favicon Hygiene Check
+        if not data.get("favicon_present", True):
+            base_w = self._get_base_weight("favicon_present", biz_type)
+            leaks.append(self._build_leak(
+                rule_key="favicon_present",
+                title="Missing Website Favicon",
+                base_weight=base_w,
+                category="seo_technical",
+                category_mult=cat_weights["seo_technical"],
+                biz_mult=biz_matrix["trust"],
+                competitor_bonus=0,
+                relevance_bonus=1,
+                description="Browser tab lacks a branded favicon, lowering professional credibility."
+            ))
+
+        # Rule 8: Missing HTML Language Attribute
+        if not data.get("html_lang_present", True):
+            base_w = self._get_base_weight("html_lang_attribute", biz_type)
+            leaks.append(self._build_leak(
+                rule_key="html_lang_attribute",
+                title="Missing HTML Language Attribute",
+                base_weight=base_w,
+                category="seo_technical",
+                category_mult=cat_weights["seo_technical"],
+                biz_mult=biz_matrix["seo"],
+                competitor_bonus=0,
+                relevance_bonus=1,
+                description="Root HTML element is missing a lang attribute, impacting screen readers and indexers."
+            ))
+
+        # Rule 9: High AI Spectrum
         ai_pct = data.get("ai_spectrum_pct", 0.0)
         if ai_pct > 50.0:
             base_w = self._get_base_weight("ai_template_similarity", biz_type)
@@ -331,6 +393,7 @@ class RevenueScorer:
                 desc += "Erodes brand trust and differentiation."
 
             leaks.append(self._build_leak(
+                rule_key="ai_template_similarity",
                 title="High AI Template & Generic Content Match",
                 base_weight=base_w,
                 category="content_eeat",
@@ -343,11 +406,12 @@ class RevenueScorer:
 
         return leaks
 
-    def _build_leak(self, title: str, base_weight: int, category: str, category_mult: float, biz_mult: float, competitor_bonus: int, relevance_bonus: int, description: str) -> Dict[str, Any]:
+    def _build_leak(self, rule_key: str, title: str, base_weight: int, category: str, category_mult: float, biz_mult: float, competitor_bonus: int, relevance_bonus: int, description: str) -> Dict[str, Any]:
         """Calculates final severity score using exact formulas."""
         raw_weighted_base = base_weight * category_mult * biz_mult
         final_severity = raw_weighted_base + competitor_bonus + relevance_bonus
         return {
+            "rule_key": rule_key,
             "title": title,
             "base_impact_weight": base_weight,
             "category": category,
