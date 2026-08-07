@@ -84,7 +84,7 @@ class RevenueScorer:
     """
     Trilloka Harsh Revenue Diagnostic Scorer:
     Combines hybrid scan data, behavioral engine heuristics, weighted severity index,
-    business vertical matrices, and strict hygiene gatekeeping to calculate financial leaks.
+    business vertical matrices, conditional severity scaling, and strict hygiene gatekeeping.
     """
 
     def __init__(self):
@@ -111,7 +111,7 @@ class RevenueScorer:
         return f"{prefix}-{rand_str}"
 
     def audit_and_score(self, scan_data: Dict[str, Any], business_type: str = "general", competitor_data_present: bool = True) -> Dict[str, Any]:
-        """Runs the complete harsh scoring pipeline with vertical-aware formulas and hygiene gates."""
+        """Runs the complete harsh scoring pipeline with vertical-aware formulas, graded severity, and hygiene gates."""
         biz_type = self._normalize_business_type(business_type)
 
         # Step 1: Execute Behavioral Engine Diagnostics
@@ -142,8 +142,11 @@ class RevenueScorer:
         
         raw_score = 100.0 - (total_severity_loss * 1.15) - ai_penalty
         
-        # Count failed table-stakes hygiene items
-        failed_hygiene_count = sum(1 for leak in detected_leaks if leak.get("rule_key") in HYGIENE_CHECK_IDS)
+        # Count failed table-stakes hygiene items (severity factor >= 0.5 triggers hygiene failure)
+        failed_hygiene_count = sum(
+            1 for leak in detected_leaks 
+            if leak.get("rule_key") in HYGIENE_CHECK_IDS and leak.get("severity_factor", 1.0) >= 0.5
+        )
         compliance_tax = failed_hygiene_count * 2.0
 
         # Apply strict score ceilings if basic foundational checks fail
@@ -242,12 +245,12 @@ class RevenueScorer:
         return rule_weights.get(biz_type, 5)
 
     def _evaluate_checkpoints(self, data: Dict[str, Any], biz_type: str, competitor_has_feature: bool) -> List[Dict[str, Any]]:
-        """Evaluates compliance rules dynamically weighted by business model and category weights."""
+        """Evaluates compliance rules dynamically weighted by business model, category weights, and conditional severity factors."""
         biz_matrix = BUSINESS_MODEL_MATRIX[biz_type]
         cat_weights = CATEGORY_WEIGHTS_BY_BIZ[biz_type]
         leaks = []
 
-        # Rule 1: Missing SSL Security Anchor
+        # Rule 1: Missing SSL Security Anchor (Binary Failure)
         if not data.get("has_ssl", False):
             base_w = self._get_base_weight("unsecured_ssl", biz_type)
             leaks.append(self._build_leak(
@@ -259,40 +262,46 @@ class RevenueScorer:
                 biz_mult=biz_matrix["trust"],
                 competitor_bonus=3 if competitor_has_feature else 0,
                 relevance_bonus=3,
-                description="Browsers mark site as Unsecure, severely degrading customer conversion trust."
+                description="Browsers mark site as Unsecure, severely degrading customer conversion trust.",
+                severity_factor=1.0
             ))
 
-        # Rule 2: Critical Latency Core Web Vitals Failure
+        # Rule 2: Mobile Core Web Vitals Latency (Graded Continuum)
         perf_score = data.get("performance_score", 100.0)
         if perf_score < 60.0:
+            # Factor ranges smoothly from 0.3 (score ~59) to 1.0 (score <= 15)
+            sev_factor = round(max(0.3, (60.0 - perf_score) / 45.0), 2)
             base_w = self._get_base_weight("core_web_vitals", biz_type)
+            
+            title = "Severe Mobile Core Web Vitals Latency" if sev_factor >= 0.75 else "Sub-optimal Mobile Performance Latency"
             desc = f"Performance rating dropped to {perf_score}/100. "
             if biz_type == "ecommerce":
-                desc += "High mobile checkout latency causes immediate cart abandonment."
+                desc += "Mobile checkout latency spikes cart abandonment."
             else:
                 desc += "Triggers search ranking penalties and bounce rate spikes."
 
             leaks.append(self._build_leak(
                 rule_key="core_web_vitals",
-                title="Severe Mobile Core Web Vitals Latency",
+                title=title,
                 base_weight=base_w,
                 category="seo_technical",
                 category_mult=cat_weights["seo_technical"],
                 biz_mult=biz_matrix["seo"],
                 competitor_bonus=3 if competitor_has_feature else 0,
                 relevance_bonus=3,
-                description=desc
+                description=desc,
+                severity_factor=sev_factor
             ))
 
-        # Rule 3: Missing Mobile Click-to-Call
-        if not data.get("click_to_call_present", False):
+        # Rule 3: Mobile Click-to-Call / Action Target (Graded Scale)
+        has_call = data.get("click_to_call_present", False)
+        tap_targets_flagged = data.get("tap_targets_flagged", False)
+        
+        if not has_call:
             base_w = self._get_base_weight("click_to_call", biz_type)
             desc = "Mobile users cannot tap-to-dial, "
-            if biz_type in ["medspa", "legal"]:
-                desc += "causing prospective high-value clients to abandon consultation requests."
-            else:
-                desc += "causing direct conversion drop-offs."
-
+            desc += "causing prospective high-value clients to abandon consultation requests." if biz_type in ["medspa", "legal"] else "causing direct conversion drop-offs."
+            
             leaks.append(self._build_leak(
                 rule_key="click_to_call",
                 title="Missing Mobile Click-to-Call / Instant Action",
@@ -302,27 +311,91 @@ class RevenueScorer:
                 biz_mult=biz_matrix["conversion"],
                 competitor_bonus=2 if competitor_has_feature else 0,
                 relevance_bonus=3 if biz_type in ["medspa", "legal"] else 1,
-                description=desc
+                description=desc,
+                severity_factor=1.0
             ))
-
-        # Rule 4: Mobile Sticky CTA Absence
-        if not data.get("mobile_cta_visible", False):
-            base_w = self._get_base_weight("mobile_sticky_cta", biz_type)
+        elif tap_targets_flagged:
+            # Present but poorly implemented / too small
+            base_w = self._get_base_weight("click_to_call", biz_type)
             leaks.append(self._build_leak(
-                rule_key="mobile_sticky_cta",
-                title="Absence of Mobile Sticky Call-to-Action (CTA)",
+                rule_key="click_to_call",
+                title="Sub-optimal Mobile Tap Targets for Direct Action",
                 base_weight=base_w,
                 category="trust_conversion",
                 category_mult=cat_weights["trust_conversion"],
                 biz_mult=biz_matrix["conversion"],
-                competitor_bonus=2 if competitor_has_feature else 0,
-                relevance_bonus=2,
-                description="Visitors scrolling on mobile lose access to primary booking/buy actions."
+                competitor_bonus=1 if competitor_has_feature else 0,
+                relevance_bonus=1,
+                description="Click-to-call link is active but undersized or overcrowded, frustrating mobile tap attempts.",
+                severity_factor=0.5
             ))
 
-        # Rule 5: Unstructured Heading / Diluted Hero Messaging
+        # Rule 4: Mobile Sticky CTA & Pre-Purchase Support Check (Vertical Dual Check)
+        is_ecommerce = (biz_type == "ecommerce")
+        if is_ecommerce:
+            has_cart = data.get("add_to_cart_visible", False) or data.get("mobile_cta_visible", False)
+            has_support = data.get("click_to_call_present", False) or data.get("live_chat_present", False) or data.get("whatsapp_present", False)
+            
+            if not has_cart and not has_support:
+                cta_title = "Absence of Mobile Sticky Add-to-Cart & Pre-Purchase Support"
+                cta_desc = "Mobile shoppers lack both a sticky checkout action and instant query channels (Chat/WhatsApp), causing catastrophic cart abandonment."
+                sev_factor = 1.0
+            elif not has_cart:
+                cta_title = "Missing Mobile Sticky 'Add to Cart' Action"
+                cta_desc = "Support elements exist, but mobile shoppers scrolling product pages lose immediate access to the primary purchase button."
+                sev_factor = 0.75
+            elif not has_support:
+                cta_title = "E-Commerce Pre-Purchase Query Friction (No Instant Support)"
+                cta_desc = "Product pages feature a cart button but lack instant query access (Live Chat/WhatsApp), leaving customer sizing/shipping doubts unresolved."
+                sev_factor = 0.50
+            else:
+                sev_factor = 0.0
+
+            if sev_factor > 0.0:
+                base_w = self._get_base_weight("mobile_sticky_cta", biz_type)
+                leaks.append(self._build_leak(
+                    rule_key="mobile_sticky_cta",
+                    title=cta_title,
+                    base_weight=base_w,
+                    category="trust_conversion",
+                    category_mult=cat_weights["trust_conversion"],
+                    biz_mult=biz_matrix["conversion"],
+                    competitor_bonus=2 if competitor_has_feature else 0,
+                    relevance_bonus=2,
+                    description=cta_desc,
+                    severity_factor=sev_factor
+                ))
+        else:
+            if not data.get("mobile_cta_visible", False):
+                base_w = self._get_base_weight("mobile_sticky_cta", biz_type)
+                leaks.append(self._build_leak(
+                    rule_key="mobile_sticky_cta",
+                    title="Absence of Mobile Sticky Call-to-Action (CTA)",
+                    base_weight=base_w,
+                    category="trust_conversion",
+                    category_mult=cat_weights["trust_conversion"],
+                    biz_mult=biz_matrix["conversion"],
+                    competitor_bonus=2 if competitor_has_feature else 0,
+                    relevance_bonus=2,
+                    description="Visitors scrolling on mobile lose access to primary booking/buy actions.",
+                    severity_factor=1.0
+                ))
+
+        # Rule 5: Hero Heading (H1) Positioning (Graded Implementation)
         h1_tags = data.get("h1_tags", [])
-        if len(h1_tags) != 1:
+        if len(h1_tags) == 0:
+            sev_factor = 1.0
+            desc = "Zero H1 tags found, completely stripping clear positioning and hero visual hierarchy."
+        elif len(h1_tags) > 1:
+            sev_factor = 0.6
+            desc = f"Found {len(h1_tags)} H1 tags, diluting primary keyword focus and hero messaging structure."
+        elif data.get("ai_flags", {}).get("generic_headline", False):
+            sev_factor = 0.4
+            desc = "Single H1 tag detected, but uses generic low-converting headline phrasing."
+        else:
+            sev_factor = 0.0
+
+        if sev_factor > 0.0:
             base_w = self._get_base_weight("diluted_h1", biz_type)
             leaks.append(self._build_leak(
                 rule_key="diluted_h1",
@@ -333,26 +406,34 @@ class RevenueScorer:
                 biz_mult=biz_matrix["conversion"],
                 competitor_bonus=2 if competitor_has_feature else 0,
                 relevance_bonus=2,
-                description=f"Found {len(h1_tags)} H1 tags, weakening clear positioning and visual structure."
+                description=desc,
+                severity_factor=sev_factor
             ))
 
-        # Rule 6: Missing Image Accessibility Anchors
+        # Rule 6: Image Accessibility & Alt Text (Ratio-Based Scale)
         missing_alt = data.get("missing_alt_images", 0)
         if missing_alt > 0:
+            total_img = data.get("total_images", max(1, missing_alt + data.get("images_with_alt", 0)))
+            missing_ratio = min(1.0, missing_alt / max(1, total_img))
+            
+            sev_factor = 1.0 if missing_ratio >= 0.75 else (0.6 if missing_ratio >= 0.3 else 0.3)
+            title = "Missing Alt Accessibility & E-E-A-T Anchors" if sev_factor >= 0.8 else "Partial Image Accessibility & Alt Text Deficit"
+            
             base_w = self._get_base_weight("missing_alt_images", biz_type)
             leaks.append(self._build_leak(
                 rule_key="missing_alt_images",
-                title="Missing Alt Accessibility & E-E-A-T Anchors",
+                title=title,
                 base_weight=base_w,
                 category="content_eeat",
                 category_mult=cat_weights["content_eeat"],
                 biz_mult=biz_matrix["seo"],
                 competitor_bonus=1 if competitor_has_feature else 0,
                 relevance_bonus=1,
-                description=f"{missing_alt} images are missing alternative text attributes."
+                description=f"{missing_alt} out of {total_img} images lack alternative text attributes.",
+                severity_factor=sev_factor
             ))
 
-        # Rule 7: Missing Favicon Hygiene Check
+        # Rule 7: Missing Favicon Hygiene Check (Binary)
         if not data.get("favicon_present", True):
             base_w = self._get_base_weight("favicon_present", biz_type)
             leaks.append(self._build_leak(
@@ -364,10 +445,11 @@ class RevenueScorer:
                 biz_mult=biz_matrix["trust"],
                 competitor_bonus=0,
                 relevance_bonus=1,
-                description="Browser tab lacks a branded favicon, lowering professional credibility."
+                description="Browser tab lacks a branded favicon, lowering professional credibility.",
+                severity_factor=1.0
             ))
 
-        # Rule 8: Missing HTML Language Attribute
+        # Rule 8: Missing HTML Language Attribute (Binary)
         if not data.get("html_lang_present", True):
             base_w = self._get_base_weight("html_lang_attribute", biz_type)
             leaks.append(self._build_leak(
@@ -379,13 +461,17 @@ class RevenueScorer:
                 biz_mult=biz_matrix["seo"],
                 competitor_bonus=0,
                 relevance_bonus=1,
-                description="Root HTML element is missing a lang attribute, impacting screen readers and indexers."
+                description="Root HTML element is missing a lang attribute, impacting screen readers and indexers.",
+                severity_factor=1.0
             ))
 
-        # Rule 9: High AI Spectrum
+        # Rule 9: AI Template & Content Match (Graded Continuum)
         ai_pct = data.get("ai_spectrum_pct", 0.0)
-        if ai_pct > 50.0:
+        if ai_pct > 35.0:
+            sev_factor = round(min(1.0, (ai_pct - 35.0) / 40.0), 2)
             base_w = self._get_base_weight("ai_template_similarity", biz_type)
+            
+            title = "High AI Template & Generic Content Match" if sev_factor >= 0.7 else "Moderate AI Content Over-reliance"
             desc = f"{ai_pct}% AI similarity detected. "
             if biz_type in ["medspa", "legal"]:
                 desc += "Generic template content severely weakens clinical/legal authority and trust."
@@ -394,22 +480,26 @@ class RevenueScorer:
 
             leaks.append(self._build_leak(
                 rule_key="ai_template_similarity",
-                title="High AI Template & Generic Content Match",
+                title=title,
                 base_weight=base_w,
                 category="content_eeat",
                 category_mult=cat_weights["content_eeat"],
                 biz_mult=biz_matrix["trust"],
                 competitor_bonus=2 if competitor_has_feature else 0,
                 relevance_bonus=3 if biz_type in ["medspa", "legal"] else 1,
-                description=desc
+                description=desc,
+                severity_factor=sev_factor
             ))
 
         return leaks
 
-    def _build_leak(self, rule_key: str, title: str, base_weight: int, category: str, category_mult: float, biz_mult: float, competitor_bonus: int, relevance_bonus: int, description: str) -> Dict[str, Any]:
-        """Calculates final severity score using exact formulas."""
+    def _build_leak(self, rule_key: str, title: str, base_weight: int, category: str, category_mult: float, biz_mult: float, competitor_bonus: int, relevance_bonus: int, description: str, severity_factor: float = 1.0) -> Dict[str, Any]:
+        """Calculates final severity score using exact formulas scaled by a conditional severity factor (0.0 to 1.0)."""
+        sev_factor = max(0.0, min(1.0, severity_factor))
         raw_weighted_base = base_weight * category_mult * biz_mult
-        final_severity = raw_weighted_base + competitor_bonus + relevance_bonus
+        scaled_base = raw_weighted_base * sev_factor
+        final_severity = scaled_base + (competitor_bonus * sev_factor) + (relevance_bonus * sev_factor)
+        
         return {
             "rule_key": rule_key,
             "title": title,
@@ -419,6 +509,7 @@ class RevenueScorer:
             "business_multiplier": biz_mult,
             "competitor_advantage_bonus": competitor_bonus,
             "vertical_relevance_bonus": relevance_bonus,
+            "severity_factor": round(sev_factor, 2),
             "final_severity_score": round(final_severity, 2),
             "description": description
         }
