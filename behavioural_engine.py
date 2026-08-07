@@ -9,8 +9,8 @@ class BehaviouralEngine:
     and estimated visitor bounce risk probability from telemetry.
     """
 
-    def analyze_behavioral_friction(self, scraped_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Runs behavioral heuristics analysis on scraped page telemetry."""
+    def analyze_behavioral_friction(self, scraped_data: Dict[str, Any], business_type: str = "general") -> Dict[str, Any]:
+        """Runs behavioral heuristics analysis on scraped page telemetry, tailored by business vertical."""
         title = scraped_data.get("title", "")
         meta_desc = scraped_data.get("meta_description", "")
         h1_tags = scraped_data.get("h1_tags", [])
@@ -30,7 +30,7 @@ class BehaviouralEngine:
         trust_anchor_score = self._calc_trust_anchors(has_ssl, missing_alt, img_count)
 
         # 4. Behavioral Bounce Risk Probability (0% - 100%)
-        bounce_risk_percentage = self._estimate_bounce_risk(perf_score, cognitive_load_score)
+        bounce_risk_percentage = self._estimate_bounce_risk(perf_score, cognitive_load_score, business_type)
 
         # 5. Aggregate Behavioral Score
         behavioral_score = round(
@@ -49,7 +49,7 @@ class BehaviouralEngine:
                 "trust_anchor_score": trust_anchor_score
             },
             "behavioral_friction_leaks": self._extract_behavioral_leaks(
-                value_prop_score, trust_anchor_score, cognitive_load_score, bounce_risk_percentage
+                value_prop_score, trust_anchor_score, cognitive_load_score, bounce_risk_percentage, business_type
             )
         }
 
@@ -85,20 +85,34 @@ class BehaviouralEngine:
             score += 25.0
         return round(score, 1)
 
-    def _estimate_bounce_risk(self, perf_score: float, cognitive_load: float) -> float:
+    def _estimate_bounce_risk(self, perf_score: float, cognitive_load: float, business_type: str) -> float:
         base_bounce = max(10.0, (100.0 - perf_score) * 0.75)
         if cognitive_load < 50.0:
             base_bounce += 15.0
+        # High-ticket service verticals (Legal, MedSpa) suffer higher bounce sensitivity to latency
+        if business_type in ["medspa", "legal"]:
+            base_bounce *= 1.1
         return round(min(89.0, base_bounce), 1)
 
-    def _extract_behavioral_leaks(self, value_prop: float, trust: float, cog_load: float, bounce_risk: float) -> List[str]:
+    def _extract_behavioral_leaks(self, value_prop: float, trust: float, cog_load: float, bounce_risk: float, business_type: str) -> List[str]:
         leaks = []
         if value_prop < 70.0:
-            leaks.append("Weak Above-the-Fold Hero Clarity: Missing a single focused H1 heading or primary offer tag.")
+            if business_type == "legal":
+                leaks.append("Weak Practice Area Value Proposition: H1 heading fails to instantly communicate firm jurisdiction or core legal specialty.")
+            elif business_type == "medspa":
+                leaks.append("Weak Treatment Value Proposition: Hero area lacks clear patient transformation or primary aesthetic offer.")
+            else:
+                leaks.append("Weak Above-the-Fold Hero Clarity: Missing a single focused H1 heading or primary offer tag.")
+
         if trust < 70.0:
-            leaks.append("Psychological Trust Friction: Unsecured connection or missing image accessibility attributes.")
+            if business_type in ["legal", "medspa"]:
+                leaks.append("High Credibility Friction: Missing SSL or visual elements required to establish professional/clinical trust.")
+            else:
+                leaks.append("Psychological Trust Friction: Unsecured connection or missing image accessibility attributes.")
+
         if cog_load < 60.0:
             leaks.append("High Cognitive Clutter: Layout complexity increases user scanning friction.")
+
         if bounce_risk > 40.0:
             leaks.append(f"Critical Latency Bounce Risk: Estimated {bounce_risk}% visitor abandonment before taking action.")
         return leaks

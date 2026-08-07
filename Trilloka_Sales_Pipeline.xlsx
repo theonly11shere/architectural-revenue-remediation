@@ -1,0 +1,1146 @@
+import openpyxl
+from openpyxl.chart import BarChart, Reference
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.worksheet.datavalidation import DataValidation
+
+# Initialize Workbook
+wb = openpyxl.Workbook()
+
+# Setup worksheets
+ws_dash = wb.active
+ws_dash.title = "Dashboard & Analytics"
+ws_pipe = wb.create_sheet(title="Active Pipeline")
+ws_vault = wb.create_sheet(title="Outreach Script Vault")
+
+# Color Palette
+NAVY_DARK = "0F172A"
+NAVY_HEADER = "1E293B"
+GOLD_ACCENT = "D4AF37"
+ZEBRA_FILL = "F8FAFC"
+WHITE = "FFFFFF"
+GRAY_TEXT = "64748B"
+BORDER_COLOR = "CBD5E1"
+
+# Fonts
+font_title = Font(name="Segoe UI", size=16, bold=True, color=GOLD_ACCENT)
+font_subtitle = Font(name="Segoe UI", size=10, italic=True, color=WHITE)
+font_section = Font(name="Segoe UI", size=13, bold=True, color=NAVY_DARK)
+font_header = Font(name="Segoe UI", size=10, bold=True, color=WHITE)
+font_body = Font(name="Segoe UI", size=9.5, color="1E293B")
+font_body_bold = Font(name="Segoe UI", size=9.5, bold=True, color="1E293B")
+font_kpi_num = Font(name="Segoe UI", size=18, bold=True, color=NAVY_DARK)
+font_kpi_label = Font(name="Segoe UI", size=8.5, bold=True, color=GRAY_TEXT)
+
+# Fills
+fill_navy_dark = PatternFill(
+    start_color=NAVY_DARK, end_color=NAVY_DARK, fill_type="solid"
+)
+fill_header = PatternFill(
+    start_color=NAVY_HEADER, end_color=NAVY_HEADER, fill_type="solid"
+)
+fill_zebra = PatternFill(
+    start_color=ZEBRA_FILL, end_color=ZEBRA_FILL, fill_type="solid"
+)
+fill_kpi_bg = PatternFill(
+    start_color="F1F5F9", end_color="F1F5F9", fill_type="solid"
+)
+
+fill_converted = PatternFill(
+    start_color="DCFCE7", end_color="DCFCE7", fill_type="solid"
+)
+font_converted = Font(name="Segoe UI", size=9.5, bold=True, color="15803D")
+
+fill_in_progress = PatternFill(
+    start_color="FEF9C3", end_color="FEF9C3", fill_type="solid"
+)
+font_in_progress = Font(name="Segoe UI", size=9.5, bold=True, color="A16207")
+
+fill_nurture = PatternFill(
+    start_color="F3E8FF", end_color="F3E8FF", fill_type="solid"
+)
+font_nurture = Font(name="Segoe UI", size=9.5, bold=True, color="6B21A8")
+
+fill_new = PatternFill(
+    start_color="E0F2FE", end_color="E0F2FE", fill_type="solid"
+)
+font_new = Font(name="Segoe UI", size=9.5, bold=True, color="0369A1")
+
+# Borders & Alignment
+thin_side = Side(border_style="thin", color=BORDER_COLOR)
+border_all = Border(
+    left=thin_side, right=thin_side, top=thin_side, bottom=thin_side
+)
+
+align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+align_left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+align_right = Alignment(horizontal="right", vertical="center")
+
+# ==========================================
+# TAB 1: DASHBOARD & ANALYTICS
+# ==========================================
+ws_dash.views.sheetView[0].showGridLines = True
+
+ws_dash.merge_cells("A1:I1")
+ws_dash.merge_cells("A2:I2")
+
+for r in range(1, 3):
+  for c in range(1, 10):
+    ws_dash.cell(row=r, column=c).fill = fill_navy_dark
+
+ws_dash["A1"] = "TRILLOKA | Lead Acquisition & Nurture Dashboard"
+ws_dash["A1"].font = font_title
+ws_dash["A1"].alignment = Alignment(
+    horizontal="left", vertical="center", indent=1
+)
+
+ws_dash["A2"] = (
+    "Real-Time Sales Tracker • Continuous Outreach Pipeline • Conversion"
+    " Analytics"
+)
+ws_dash["A2"].font = font_subtitle
+ws_dash["A2"].alignment = Alignment(
+    horizontal="left", vertical="center", indent=1
+)
+
+ws_dash.row_dimensions[1].height = 24
+ws_dash.row_dimensions[2].height = 18
+
+kpis = [
+    ("Total Leads Tracked", "=COUNTA('Active Pipeline'!A6:A20)", "B4:C4", "B5:C5"),
+    (
+        "Warm Texts Sent",
+        '=COUNTIF(\'Active Pipeline\'!K6:K20, "Yes")',
+        "D4:E4",
+        "D5:E5",
+    ),
+    ("Looms Sent", '=COUNTIF(\'Active Pipeline\'!M6:M20, "Yes")', "F4:G4", "F5:G5"),
+    (
+        "Responses Received",
+        '=COUNTIF(\'Active Pipeline\'!N6:N20, "Yes")',
+        "H4:I4",
+        "H5:I5",
+    ),
+    (
+        "Clients Converted",
+        '=COUNTIF(\'Active Pipeline\'!T6:T20, "Converted Client")',
+        "B7:C7",
+        "B8:C8",
+    ),
+    (
+        "Total Revenue Closed",
+        "=SUM('Active Pipeline'!S6:S20)",
+        "D7:E7",
+        "D8:E8",
+    ),
+    ("Response Rate", "=I5/C5", "F7:G7", "F8:G8"),
+    ("Close Rate", "=C8/C5", "H7:I7", "H8:I8"),
+]
+
+for label, formula, range_lbl, range_val in kpis:
+  ws_dash.merge_cells(range_lbl)
+  ws_dash.merge_cells(range_val)
+
+  lbl_cell = ws_dash[range_lbl.split(":")[0]]
+  lbl_cell.value = label
+  lbl_cell.font = font_kpi_label
+  lbl_cell.alignment = align_center
+
+  val_cell = ws_dash[range_val.split(":")[0]]
+  val_cell.value = formula
+  val_cell.font = font_kpi_num
+  val_cell.alignment = align_center
+
+  if "Revenue" in label:
+    val_cell.number_format = "$#,##0"
+  elif "Rate" in label:
+    val_cell.number_format = "0.0%"
+  else:
+    val_cell.number_format = "#,##0"
+
+  for rng in [range_lbl, range_val]:
+    cols = [
+        openpyxl.utils.column_index_from_string(s[0]) for s in rng.split(":")
+    ]
+    row = int(rng.split(":")[0][1:])
+    for c in range(cols[0], cols[1] + 1):
+      cell = ws_dash.cell(row=row, column=c)
+      cell.fill = fill_kpi_bg
+      cell.border = border_all
+
+ws_dash.row_dimensions[4].height = 18
+ws_dash.row_dimensions[5].height = 28
+ws_dash.row_dimensions[7].height = 18
+ws_dash.row_dimensions[8].height = 28
+
+ws_dash["B10"] = "Outreach Pipeline Breakdown"
+ws_dash["B10"].font = font_section
+
+headers_summary = [
+    "Lead Stage / Status",
+    "Lead Count",
+    "Est. Revenue Potential",
+    "Action Required",
+]
+for col_idx, h in enumerate(headers_summary, start=2):
+  cell = ws_dash.cell(row=11, column=col_idx)
+  cell.value = h
+  cell.font = font_header
+  cell.fill = fill_header
+  cell.alignment = align_center
+
+summary_rows = [
+    (
+        "1. New Lead - Uncontacted",
+        '=COUNTIF(\'Active Pipeline\'!T6:T20, "New Lead - Uncontacted")',
+        (
+            "=SUMIF('Active Pipeline'!T6:T20, \"New Lead - Uncontacted\","
+            " 'Active Pipeline'!S6:S20)"
+        ),
+        "Send Initial Warm Text Hook",
+    ),
+    (
+        "2. Warm Text Sent",
+        '=COUNTIF(\'Active Pipeline\'!T6:T20, "Warm Text Sent")',
+        (
+            "=SUMIF('Active Pipeline'!T6:T20, \"Warm Text Sent\", 'Active"
+            " Pipeline'!S6:S20)"
+        ),
+        "Record & Send 45s Loom Video",
+    ),
+    (
+        "3. Loom Video Sent",
+        '=COUNTIF(\'Active Pipeline\'!T6:T20, "Loom Video Sent")',
+        (
+            "=SUMIF('Active Pipeline'!T6:T20, \"Loom Video Sent\", 'Active"
+            " Pipeline'!S6:S20)"
+        ),
+        "Wait 24h then Send Follow-Up 1",
+    ),
+    (
+        "4. Responded / Negotiating",
+        '=COUNTIF(\'Active Pipeline\'!T6:T20, "Responded / Negotiating")',
+        (
+            "=SUMIF('Active Pipeline'!T6:T20, \"Responded / Negotiating\","
+            " 'Active Pipeline'!S6:S20)"
+        ),
+        "Send Audit Proposal & Close Deal",
+    ),
+    (
+        "5. Converted Client",
+        '=COUNTIF(\'Active Pipeline\'!T6:T20, "Converted Client")',
+        (
+            "=SUMIF('Active Pipeline'!T6:T20, \"Converted Client\", 'Active"
+            " Pipeline'!S6:S20)"
+        ),
+        "Deliver Full Remediation Report",
+    ),
+    (
+        "6. Perpetual Nurture",
+        '=COUNTIF(\'Active Pipeline\'!T6:T20, "Perpetual Nurture")',
+        (
+            "=SUMIF('Active Pipeline'!T6:T20, \"Perpetual Nurture\", 'Active"
+            " Pipeline'!S6:S20)"
+        ),
+        "Send Weekly Site Micro-Glitches",
+    ),
+]
+
+for row_idx, data in enumerate(summary_rows, start=12):
+  ws_dash.row_dimensions[row_idx].height = 22
+  for col_idx, val in enumerate(data, start=2):
+    cell = ws_dash.cell(row=row_idx, column=col_idx)
+    cell.value = val
+    cell.font = font_body
+    cell.border = border_all
+    if col_idx == 2:
+      cell.alignment = align_left
+    elif col_idx == 3:
+      cell.alignment = align_center
+      cell.number_format = "#,##0"
+    elif col_idx == 4:
+      cell.alignment = align_right
+      cell.number_format = "$#,##0"
+    else:
+      cell.alignment = align_left
+
+ws_dash.row_dimensions[18].height = 24
+ws_dash["B18"] = "Total Pipeline"
+ws_dash["B18"].font = font_body_bold
+ws_dash["C18"] = "=SUM(C12:C17)"
+ws_dash["C18"].font = font_body_bold
+ws_dash["C18"].number_format = "#,##0"
+ws_dash["D18"] = "=SUM(D12:D17)"
+ws_dash["D18"].font = font_body_bold
+ws_dash["D18"].number_format = "$#,##0"
+ws_dash["E18"] = "Never Stop Nurturing Leads"
+ws_dash["E18"].font = Font(
+    name="Segoe UI", size=9.5, italic=True, color=GRAY_TEXT
+)
+
+for c in range(2, 6):
+  cell = ws_dash.cell(row=18, column=c)
+  cell.border = border_all
+  cell.fill = fill_kpi_bg
+
+# Chart Setup
+chart = BarChart()
+chart.type = "col"
+chart.style = 10
+chart.title = "Leads by Pipeline Stage"
+chart.y_axis.title = "Number of Leads"
+chart.x_axis.title = "Stage"
+
+data_ref = Reference(ws_dash, min_col=3, min_row=11, max_row=17)
+cats_ref = Reference(ws_dash, min_col=2, min_row=12, max_row=17)
+chart.add_data(data_ref, titles_from_data=True)
+chart.set_categories(cats_ref)
+chart.width = 15
+chart.height = 9
+ws_dash.add_chart(chart, "F10")
+
+# ==========================================
+# TAB 2: ACTIVE PIPELINE
+# ==========================================
+ws_pipe.views.sheetView[0].showGridLines = True
+
+ws_pipe.merge_cells("A1:U1")
+ws_pipe.merge_cells("A2:U2")
+
+for r in range(1, 3):
+  for c in range(1, 22):
+    ws_pipe.cell(row=r, column=c).fill = fill_navy_dark
+
+ws_pipe["A1"] = (
+    "TRILLOKA | Master Lead Outreach & High-Risk Conversion Tracker"
+)
+ws_pipe["A1"].font = font_title
+ws_pipe["A1"].alignment = Alignment(
+    horizontal="left", vertical="center", indent=1
+)
+
+ws_pipe["A2"] = (
+    "Log every lead • Track texts, Looms & follow-ups • Perpetual outreach"
+    " machine"
+)
+ws_pipe["A2"].font = font_subtitle
+ws_pipe["A2"].alignment = Alignment(
+    horizontal="left", vertical="center", indent=1
+)
+
+ws_pipe.row_dimensions[1].height = 24
+ws_pipe.row_dimensions[2].height = 18
+
+headers_pipeline = [
+    "Lead ID",
+    "Business Name",
+    "Industry / Category",
+    "Target Decision Maker",
+    "Primary Channel",
+    "Direct Contact (Phone/DM)",
+    "Website URL",
+    "Trilloka Audit Finding (What Site Lacks)",
+    "Why Approach Works (Revenue Leak)",
+    "Initial Outreach Hook (Warm Text/DM)",
+    "First Text Sent?",
+    "Loom Video Status / Link",
+    "Loom Sent?",
+    "Heard Back?",
+    "Follow-Up 1 Approach (Touchpoint 2)",
+    "Follow-Up 1 Sent?",
+    "Follow-Up 2 Approach (Perpetual Nurture)",
+    "Follow-Up 2 Sent?",
+    "Deal Value ($)",
+    "Lead Status",
+    "Actionable Notes & Next Steps",
+]
+
+ws_pipe.row_dimensions[4].height = 28
+for col_idx, text in enumerate(headers_pipeline, start=1):
+  cell = ws_pipe.cell(row=4, column=col_idx)
+  cell.value = text
+  cell.font = font_header
+  cell.fill = fill_header
+  cell.alignment = align_center
+  cell.border = border_all
+
+lead_data = [
+    (
+        "TL-101",
+        "Glow Aesthetics MedSpa",
+        "High-Ticket Medical / MedSpa",
+        "Dr. Elena Rostova (Owner)",
+        "SMS / Text",
+        "+1 (555) 234-8901",
+        "glowaestheticsmedspa.com",
+        (
+            "Mobile booking calendar widget freezes on iOS viewports during"
+            " checkout."
+        ),
+        (
+            "Meta ad traffic drops off during 3.4s calendar render lag; burning"
+            " $150/day ad spend."
+        ),
+        (
+            "Hey Dr. Rostova! Saw your IG ad for laser packages. Tried booking"
+            " on mobile and calendar pop-up freezes halfway. Shot 10s video"
+            " showing the script delay if you want it!"
+        ),
+        "Yes",
+        "loom.com/share/glow-medspa-audit",
+        "Yes",
+        "Yes",
+        (
+            "Sent Loom showing line 42 script block. Offered 1-day Trilloka"
+            " remediation for $299."
+        ),
+        "Yes",
+        "Send competitor comparison showing smooth booking flow.",
+        "No",
+        299,
+        "Responded / Negotiating",
+        "Client asked for invoice; follow up tomorrow at 10 AM to confirm"
+        " payment.",
+    ),
+    (
+        "TL-102",
+        "Vanguard Personal Injury Law",
+        "Legal / High CPC PPC",
+        "Marcus Vance (Managing Partner)",
+        "SMS / Text",
+        "+1 (555) 892-1144",
+        "vanceinjuryattorneys.com",
+        (
+            "Click-to-Call sticky header button overlaps text on mobile"
+            " screens."
+        ),
+        (
+            "Paying $120/click on Google Ads; mobile visitors cannot tap call"
+            " button."
+        ),
+        (
+            "Heads up Marcus—clicked your PPC search ad on mobile and main"
+            " call button misaligns over header text so you can't tap it."
+            " Texting direct so you don't burn ad spend!"
+        ),
+        "Yes",
+        "loom.com/share/vance-law-call-bug",
+        "Yes",
+        "No",
+        (
+            "Send text: 'Hey Marcus, left a 30s screen recording showing why"
+            " mobile clicks aren't calling through. Let me know if you want the"
+            " quick code fix!'"
+        ),
+        "Yes",
+        (
+            "Weekly Nurture: Send screenshot of mobile header bug on new iPhone"
+            " viewport."
+        ),
+        "No",
+        499,
+        "Warm Text Sent",
+        "No response to text 1; follow up via SMS on Friday morning.",
+    ),
+    (
+        "TL-103",
+        "Apex Orthodontics & Implants",
+        "Cosmetic Dental / Medical",
+        "Office Manager / Dr. Chen",
+        "WhatsApp",
+        "+1 (555) 431-7788",
+        "apexsmiledental.com",
+        (
+            "Uncompressed 12MB video hero banner causes 4.8s mobile LCP"
+            " delay."
+        ),
+        (
+            "Google Core Web Vitals penalty drops mobile organic rank; high"
+            " mobile bounce rate."
+        ),
+        (
+            "Hey doc! Saw your implant ad—your landing page takes 4.8s to load"
+            " on mobile 4G because of an uncompressed clip. Happy to send speed"
+            " trace over!"
+        ),
+        "Yes",
+        "loom.com/share/apex-dental-lcp",
+        "Yes",
+        "Yes",
+        "Sent speed trace report. Offered flat $199 speed remediation package.",
+        "Yes",
+        "Nurture with 1-page PDF showing Core Web Vitals pass score benefits.",
+        "No",
+        199,
+        "Converted Client",
+        "CLOSED! Payment received $199. Delivered remediation code files.",
+    ),
+    (
+        "TL-104",
+        "Solstice Custom Remodeling",
+        "Luxury Home Builders",
+        "David Miller (Founder)",
+        "IG DM",
+        "+1 (555) 762-3300",
+        "solsticeremodel.com",
+        (
+            "Heavy portfolio image gallery causes severe layout shifts (CLS"
+            " failure)."
+        ),
+        (
+            "High-ticket leads ($75k+ jobs) abandon slow mobile gallery before"
+            " requesting quotes."
+        ),
+        (
+            "Hey David, gorgeous portfolio! Just a heads up—your portfolio"
+            " gallery takes 6+ seconds to load on mobile. Took a screenshot of"
+            " image files blocking page if you want it!"
+        ),
+        "Yes",
+        "loom.com/share/solstice-gallery-cls",
+        "Yes",
+        "No",
+        (
+            "DM: 'Hey David, dropped a 45s Loom in your inbox showing why"
+            " images freeze on phones. Want me to unlock full audit report?'"
+        ),
+        "Yes",
+        (
+            "Nurture: Share case study of remodeler who doubled mobile leads"
+            " after image compression."
+        ),
+        "No",
+        350,
+        "Loom Video Sent",
+        "Loom viewed 2x (tracked via Loom analytics). Send follow-up 1 tomorrow.",
+    ),
+    (
+        "TL-105",
+        "PureVerde Botanicals",
+        "DTC Skincare / Shopify",
+        "Sarah Jenkins (E-Com Lead)",
+        "IG DM",
+        "+1 (555) 619-2244",
+        "pureverdebotanicals.com",
+        (
+            "Sticky 'Add to Cart' mobile button covers product drop-down"
+            " options."
+        ),
+        (
+            "TikTok ad traffic cannot select product variant (size/scent) on"
+            " mobile devices."
+        ),
+        (
+            "Congrats on launch Sarah! Saw your TikTok ad & tried adding serum"
+            " to cart on phone—sticky bar blocks option selector. Shot 10s clip"
+            " showing bug if you want to fix it!"
+        ),
+        "Yes",
+        "loom.com/share/pureverde-cart-bug",
+        "Yes",
+        "Yes",
+        (
+            "Sent video. Sarah asked: 'How much to fix this today?' Quoted $250"
+            " for full remediation."
+        ),
+        "Yes",
+        (
+            "Send reminder: 'Can have checkout fixed in 2 hours before your"
+            " evening ad push!'"
+        ),
+        "No",
+        250,
+        "Responded / Negotiating",
+        "Awaiting final sign-off on $250 quote.",
+    ),
+    (
+        "TL-106",
+        "Aura Fine Jewelry & Co.",
+        "DTC Luxury E-Com",
+        "Liam Sterling (Co-Founder)",
+        "IG DM",
+        "@aurafinejewelry",
+        "aurafinejewelry.io",
+        "Mobile pinch-to-zoom locks viewport scrolling on product pages.",
+        (
+            "High-margin buyers ($800 average order value) get stuck and leave"
+            " without purchasing."
+        ),
+        (
+            "Hey team! Loving the watch collection. Just noticed on mobile that"
+            " zooming in on product shots locks up page scroll. Have a quick"
+            " 1-page breakdown if you want it!"
+        ),
+        "Yes",
+        "loom.com/share/aura-zoom-glitch",
+        "No",
+        "No",
+        (
+            "Follow up on IG DM: 'Hey Liam, shot a quick video of the zoom lock"
+            " bug on mobile. Want me to send link over?'"
+        ),
+        "No",
+        "Perpetual Nurture: Send updated mobile audit snippet every 2 weeks.",
+        "No",
+        300,
+        "Warm Text Sent",
+        "Need to build Loom video and send link.",
+    ),
+    (
+        "TL-107",
+        "Urban Fit Club Franchises",
+        "Multi-Location Fitness",
+        "Regional Marketing Director",
+        "Phone / Call",
+        "+1 (555) 901-5532",
+        "urbanfitclub.com",
+        (
+            "Mobile location selector dropdown truncates bottom 4 gym"
+            " locations."
+        ),
+        (
+            "Ad traffic for pass claims cannot select target gym location on"
+            " mobile."
+        ),
+        (
+            "Hey team! Saw your pass offer ad. On mobile, location selector"
+            " dropdown cuts off bottom 4 locations so users can't select them."
+            " Dropped screenshot in DMs!"
+        ),
+        "Yes",
+        "Pending Loom",
+        "No",
+        "No",
+        "Call front office to get direct mobile phone of Marketing Lead.",
+        "No",
+        "Nurture with mobile dropdown fix code snippet.",
+        "No",
+        400,
+        "New Lead - Uncontacted",
+        "Identified bug; ready to send initial text hook.",
+    ),
+    (
+        "TL-108",
+        "Kinetix B2B SaaS Platform",
+        "B2B SaaS / Tech",
+        "Alex Vance (VP Growth)",
+        "LinkedIn DM",
+        "linkedin.com/in/alexvance-growth",
+        "kinetixapp.io",
+        (
+            "Hero copy is full of generic 'AI sameness' buzzwords; no clear"
+            " value prop."
+        ),
+        (
+            "High paid LinkedIn ad cost ($15/click) wasted on confusing,"
+            " robotic headline."
+        ),
+        (
+            "Hey Alex, saw your LinkedIn ad! Hero section uses generic AI"
+            " phrasing that doesn't state your clear differentiator. Wrote a"
+            " quick 2-line human rewrite if you want to test!"
+        ),
+        "Yes",
+        "loom.com/share/kinetix-copy-rewrite",
+        "Yes",
+        "Yes",
+        (
+            "Sent copy teardown + human rewrite alternatives. Offered full"
+            " audit for $450."
+        ),
+        "Yes",
+        "Nurture: Share teardown of SaaS landing page conversions.",
+        "No",
+        450,
+        "Responded / Negotiating",
+        "Alex replied: 'Love the rewrites. Let's talk tomorrow.' Scheduled call.",
+    ),
+    (
+        "TL-109",
+        "Summit Executive Coaching",
+        "High-Ticket Coaching",
+        "Michael Thorne (Head Coach)",
+        "WhatsApp",
+        "+1 (555) 342-9900",
+        "thorneaspirations.com",
+        (
+            "Calendly embed squeezed to 50% width on mobile viewports; dates"
+            " unclickable."
+        ),
+        (
+            "High-ticket prospects ($5k package) fail to book discovery calls"
+            " on mobile."
+        ),
+        (
+            "Hey Michael! Tried booking through your IG bio link—Calendly embed"
+            " is squeezed on mobile, making it hard to select times. Shot"
+            " screenshot over if you want to fix it!"
+        ),
+        "Yes",
+        "loom.com/share/thorne-calendly-fix",
+        "Yes",
+        "Yes",
+        (
+            "Sent video. Offered complete mobile booking page optimization for"
+            " $200."
+        ),
+        "Yes",
+        "Nurture: Send mobile booking conversion checklist.",
+        "No",
+        200,
+        "Converted Client",
+        "CLOSED! Client paid $200 via Stripe. Fixed Calendly embed.",
+    ),
+    (
+        "TL-110",
+        "Nova Creative Web Agency",
+        "Digital Agency",
+        "Jason Reed (Agency Founder)",
+        "LinkedIn DM",
+        "linkedin.com/in/jasonreed-nova",
+        "novacreative.design",
+        "Agency portfolio suffers from 35% layout shift (CLS penalty).",
+        (
+            "Irony of web agency having Google CLS page speed warnings lowers"
+            " pitch conversion."
+        ),
+        (
+            "Hey Jason—fellow builder here! Ran your site through my audit"
+            " scanner and noticed layout shift on your case studies page that"
+            " Google penalties flag. Sent screenshot over!"
+        ),
+        "Yes",
+        "loom.com/share/nova-agency-cls",
+        "Yes",
+        "Yes",
+        (
+            "Pitch Trilloka as a white-label audit tool for Nova Agency's"
+            " client pitches ($500/mo)."
+        ),
+        "Yes",
+        "Nurture: Send sample white-label client audit report.",
+        "No",
+        500,
+        "Responded / Negotiating",
+        "Jason interested in white-label partnership. Demo scheduled.",
+    ),
+    (
+        "TL-111",
+        "Titan Solar Solutions",
+        "Renewable Energy",
+        "Sales Director / Mark",
+        "SMS / Text",
+        "+1 (555) 880-3344",
+        "titansolarinstallers.com",
+        (
+            "Step 3 on multi-step estimate lead form cuts off on iPhone"
+            " viewports."
+        ),
+        "PPC leads drop off at final step without submitting phone numbers.",
+        (
+            "Hey Mark! Tested your solar estimate funnel on mobile—line 3 on"
+            " form cuts off on iPhone viewports. Thought I’d drop quick note"
+            " so your dev can patch it!"
+        ),
+        "Yes",
+        "loom.com/share/titan-solar-form-bug",
+        "Yes",
+        "No",
+        (
+            "SMS: 'Hey Mark, left a 20s video showing form cutoff. Don't want"
+            " you losing solar leads on mobile traffic!'"
+        ),
+        "Yes",
+        (
+            "Perpetual Nurture: Send monthly mobile UX breakdown for local"
+            " solar competitors."
+        ),
+        "No",
+        350,
+        "Loom Video Sent",
+        "Text sent; waiting for reply.",
+    ),
+    (
+        "TL-112",
+        "The Grand Riviera Resort",
+        "Boutique Hospitality",
+        "General Manager / Reservations",
+        "WhatsApp",
+        "+1 (555) 210-9988",
+        "grandrivierahotel.com",
+        "Direct mobile booking engine takes 5.2 seconds to respond.",
+        (
+            "Guests switch to Expedia/Booking.com (losing 20% commission per"
+            " booking)."
+        ),
+        (
+            "Hey team—tried booking suite directly on mobile site. Calendar"
+            " widget takes 5s to respond, driving guests to OTAs. Shot quick"
+            " teardown clip if you want to check it out!"
+        ),
+        "Yes",
+        "loom.com/share/grand-riviera-booking",
+        "Yes",
+        "No",
+        (
+            "Follow up via WhatsApp with 1-page report showing lost direct"
+            " booking revenue."
+        ),
+        "No",
+        "Nurture: Send direct booking engine optimization case study.",
+        "No",
+        600,
+        "Warm Text Sent",
+        "Preparing WhatsApp follow-up with executive summary.",
+    ),
+    (
+        "TL-113",
+        "Ironclad Cybersecurity",
+        "B2B Tech / Security",
+        "CTO / David Vance",
+        "LinkedIn DM",
+        "linkedin.com/in/davidvance-cyber",
+        "ironcladcyber.io",
+        (
+            "Missing modern OpenGraph schema markup; mobile shared links look"
+            " unverified."
+        ),
+        "Lack of verified metadata undermines technical authority claim.",
+        (
+            "Hey David—was looking over your service stack. Noticed site schema"
+            " is missing modern open-graph tags, causing mobile links to look"
+            " unverified. Happy to send audit log!"
+        ),
+        "Yes",
+        "Pending Loom",
+        "No",
+        "No",
+        (
+            "LinkedIn DM: 'Hey David, generated complete schema validation log"
+            " for Ironclad. Want me to drop PDF over?'"
+        ),
+        "No",
+        "Nurture: Send technical SEO schema checklist.",
+        "No",
+        450,
+        "New Lead - Uncontacted",
+        "Audited via Trilloka; ready for outreach.",
+    ),
+    (
+        "TL-114",
+        "Velocity E-Com Accelerator",
+        "E-Com Coaching / Mastermind",
+        "Founder / Chris Cole",
+        "WhatsApp",
+        "+1 (555) 443-1122",
+        "velocityecom.co",
+        (
+            "Checkout landing page video embeds block main CTA button click on"
+            " mobile."
+        ),
+        (
+            "High ad spend ($500/day) driving to landing page where mobile CTA"
+            " is unclickable."
+        ),
+        (
+            "Hey Chris! Saw your ad for the mastermind. Clicked on mobile and"
+            " video embed blocks buy button on iOS. Shot 15s clip showing code"
+            " overlay if you want to patch it!"
+        ),
+        "Yes",
+        "loom.com/share/velocity-cta-block",
+        "Yes",
+        "Yes",
+        (
+            "Sent video clip. Chris replied: 'Damn, thank you! Can you fix"
+            " it?' Quoted $300."
+        ),
+        "Yes",
+        "Nurture: Send weekly conversion optimization tips.",
+        "No",
+        300,
+        "Converted Client",
+        "CLOSED! $300 paid. CTA overlay bug fixed in 45 minutes.",
+    ),
+    (
+        "TL-115",
+        "NextGen SaaS Summit",
+        "Event Ticketing / Tech",
+        "Events Director",
+        "LinkedIn DM",
+        "+1 (555) 771-0022",
+        "nextgensaassummit.com",
+        "Mobile ticket purchase widget freezes under 4G network throttling.",
+        "High conversion drop-off during peak ticket sales promotional pushes.",
+        (
+            "Hey team—was buying ticket for Summit on my phone. Mobile ticket"
+            " selector script has heavy render block causing 3s delays at"
+            " checkout. Sent diagnostic screenshot over!"
+        ),
+        "Yes",
+        "loom.com/share/nextgen-summit-ticket-lag",
+        "Yes",
+        "No",
+        (
+            "LinkedIn DM to Event Director: 'Left diagnostic report on ticket"
+            " checkout lag. Let me know if you'd like the remediation code!'"
+        ),
+        "Yes",
+        "Perpetual Nurture: Send event mobile checkout UX report.",
+        "No",
+        500,
+        "Loom Video Sent",
+        "Followed up on LinkedIn. Waiting for event manager response.",
+    ),
+]
+
+for row_idx, row_data in enumerate(lead_data, start=6):
+  ws_pipe.row_dimensions[row_idx].height = 36
+  is_zebra = row_idx % 2 == 1
+
+  for col_idx, val in enumerate(row_data, start=1):
+    cell = ws_pipe.cell(row=row_idx, column=col_idx)
+    cell.value = val
+    cell.font = font_body
+    cell.border = border_all
+
+    if is_zebra:
+      cell.fill = fill_zebra
+
+    if col_idx in [1, 5, 11, 13, 14, 16, 18]:
+      cell.alignment = align_center
+    elif col_idx in [19]:
+      cell.alignment = align_right
+      cell.number_format = "$#,##0"
+    else:
+      cell.alignment = align_left
+
+    if col_idx == 20:
+      status_str = str(val)
+      if "Converted Client" in status_str:
+        cell.fill = fill_converted
+        cell.font = font_converted
+      elif "Responded" in status_str or "Negotiating" in status_str:
+        cell.fill = fill_in_progress
+        cell.font = font_in_progress
+      elif "Nurture" in status_str:
+        cell.fill = fill_nurture
+        cell.font = font_nurture
+      elif "New Lead" in status_str:
+        cell.fill = fill_new
+        cell.font = font_new
+      cell.alignment = align_center
+
+# Total Row
+total_row_idx = len(lead_data) + 7
+ws_pipe.row_dimensions[total_row_idx].height = 25
+ws_pipe.cell(row=total_row_idx, column=1).value = "TOTAL"
+ws_pipe.cell(row=total_row_idx, column=1).font = font_body_bold
+ws_pipe.cell(row=total_row_idx, column=1).alignment = align_center
+
+ws_pipe.cell(
+    row=total_row_idx, column=19
+).value = f"=SUM(S6:S{total_row_idx-2})"
+ws_pipe.cell(row=total_row_idx, column=19).font = font_body_bold
+ws_pipe.cell(row=total_row_idx, column=19).number_format = "$#,##0"
+ws_pipe.cell(row=total_row_idx, column=19).alignment = align_right
+
+ws_pipe.cell(row=total_row_idx, column=20).value = "Pipeline Potential"
+ws_pipe.cell(row=total_row_idx, column=20).font = font_body_bold
+ws_pipe.cell(row=total_row_idx, column=20).alignment = align_center
+
+for c in range(1, 22):
+  cell = ws_pipe.cell(row=total_row_idx, column=c)
+  cell.fill = fill_kpi_bg
+  cell.border = border_all
+
+# Data Validation
+dv_status = DataValidation(
+    type="list",
+    formula1=(
+        '"New Lead - Uncontacted,Warm Text Sent,Loom Video Sent,Responded /'
+        ' Negotiating,Converted Client,Perpetual Nurture"'
+    ),
+    allow_blank=True,
+)
+dv_channel = DataValidation(
+    type="list",
+    formula1='"SMS / Text,WhatsApp,IG DM,Phone / Call,LinkedIn DM"',
+    allow_blank=True,
+)
+dv_yesno = DataValidation(
+    type="list", formula1='"Yes,No,Pending"', allow_blank=True
+)
+
+ws_pipe.add_data_validation(dv_status)
+ws_pipe.add_data_validation(dv_channel)
+ws_pipe.add_data_validation(dv_yesno)
+
+dv_status.add("T6:T100")
+dv_channel.add("E6:E100")
+dv_yesno.add("K6:K100")
+dv_yesno.add("M6:M100")
+dv_yesno.add("N6:N100")
+dv_yesno.add("P6:P100")
+dv_yesno.add("R6:R100")
+
+
+# ==========================================
+# TAB 3: OUTREACH SCRIPT VAULT
+# ==========================================
+ws_vault.views.sheetView[0].showGridLines = True
+
+ws_vault.merge_cells("A1:C1")
+ws_vault.merge_cells("A2:C2")
+
+for r in range(1, 3):
+  for c in range(1, 4):
+    ws_vault.cell(row=r, column=c).fill = fill_navy_dark
+
+ws_vault["A1"] = "TRILLOKA | Warm Wow Scripts & Nurture Playbook"
+ws_vault["A1"].font = font_title
+ws_vault["A1"].alignment = Alignment(
+    horizontal="left", vertical="center", indent=1
+)
+
+ws_vault["A2"] = (
+    "Copy & paste battle-tested templates • High-converting outreach sequences"
+)
+ws_vault["A2"].font = font_subtitle
+ws_vault["A2"].alignment = Alignment(
+    horizontal="left", vertical="center", indent=1
+)
+
+ws_vault.row_dimensions[1].height = 24
+ws_vault.row_dimensions[2].height = 18
+
+scripts = [
+    (
+        "Touchpoint 1: Initial Warm Wow Hook (Text / SMS / DM)",
+        (
+            "Hey [Name]! Saw your recent [ad / post] for [Brand Name] and"
+            " checked out your site on my phone.\n\nNotice a quick bug: when"
+            " you tap '[CTA Button Name, e.g. Book Now / Cart]', there's a"
+            " [3.2-second script delay] where the mobile view freezes on iOS"
+            " viewports.\n\nSince you're actively driving traffic right now,"
+            " that delay causes users to drop off before converting. Shot a"
+            " quick 10s video showing the script delay if you want it!"
+        ),
+        (
+            "Goal: Drop their guard with a helpful observation, not a standard"
+            " pitch. Never send links in text #1 to avoid spam filters."
+        ),
+    ),
+    (
+        "Touchpoint 2: The 45-Second Loom Video Teardown Script",
+        (
+            "[0:00-0:10] Hook: 'Hey [Name]! No sales pitch here—was on your"
+            " mobile site after seeing your ad and noticed a small rendering"
+            " issue on your checkout button.'\n[0:10-0:25] The Reveal: 'Right"
+            " here on line 42, your font files are blocking the main button"
+            " from rendering for over 3s on 4G. On mobile, that layout shift"
+            " pushes your buy button off-screen.'\n[0:25-0:45] Revenue Impact"
+            " & Soft CTA: 'If you're driving paid traffic here, that single"
+            " delay is burning ad spend. I generated the full Trilloka audit"
+            " showing line-by-line code fixes—let me know if you want me to drop"
+            " the report link over!'"
+        ),
+        (
+            "Goal: Visually prove the logic in real time. Keep video under 60"
+            " seconds."
+        ),
+    ),
+    (
+        "Touchpoint 3: Follow-Up 1 (24 Hours After Loom)",
+        (
+            "Hey [Name]—left a 45s Loom video showing that mobile checkout"
+            " rendering block. Want to make sure your dev gets the exact line"
+            " of code so you aren't burning ad clicks on mobile"
+            " traffic!\n\nI can also fix this for you today directly for a flat"
+            " $[199 - $350] if you want it patched without bothering your team."
+            " Want me to unlock the full remediation plan?"
+        ),
+        "Goal: Pivot from diagnostic proof to a quick turnkey fix price.",
+    ),
+    (
+        "Touchpoint 4: Follow-Up 2 (Perpetual Nurture - Never Stop Trying)",
+        (
+            "Hey [Name]! Checked back on [Website URL] on mobile today—noticed"
+            " your site still has that [3.4-second LCP script lag] on mobile"
+            " 4G.\n\nEvery day paid ads run to this page, roughly 12% to 18% of"
+            " mobile visitors abandon before loading.\n\nHere’s a 1-page PDF"
+            " summary showing the exact code snippet to fix it. Still happy to"
+            " patch this for you today whenever you're ready!"
+        ),
+        (
+            "Goal: Value-add follow-up that keeps reminding them of the revenue"
+            " leak. Never stop reaching out."
+        ),
+    ),
+    (
+        "Objection Handler: 'We already have a web developer / agency'",
+        (
+            "That's great [Name]! Most developers focus on overall design and"
+            " functionality rather than deep mobile script block analysis or"
+            " Core Web Vitals penalties.\n\nYou can actually hand my Trilloka"
+            " audit report directly to your current developer—it gives them"
+            " the exact line-by-line code fixes so they don't have to waste"
+            " hours diagnosing it. Want me to send the full PDF report over?"
+        ),
+        (
+            "Goal: Treat their existing dev as an ally, positioning your audit"
+            " as a time-saving tool for their team."
+        ),
+    ),
+    (
+        "Trilloka Diagnostic Pricing Strategy",
+        (
+            "• Fast Mobile Friction Patch: $199 - $299 (Single critical fix +"
+            " code delivery)\n• Full Trilloka Site Audit & Remediation Plan:"
+            " $499 - $750 (Complete Core Web Vitals, Mobile, Copy & Funnel"
+            " Teardown)\n• Agency / SaaS White-Label Partnership: $500 -"
+            " $1,000/month (Ongoing audit scans for agency client rosters)"
+        ),
+        (
+            "Position Trilloka as a high-ROI micro-investment that pays for"
+            " itself by saving wasted ad spend."
+        ),
+    ),
+]
+
+ws_vault.row_dimensions[4].height = 25
+headers_vault = [
+    "Sequence / Template Name",
+    "Copy-and-Paste Script Content",
+    "Strategic Purpose & Best Practices",
+]
+
+for col_idx, h in enumerate(headers_vault, start=1):
+  cell = ws_vault.cell(row=4, column=col_idx)
+  cell.value = h
+  cell.font = font_header
+  cell.fill = fill_header
+  cell.alignment = align_center
+  cell.border = border_all
+
+for row_idx, (title, script, purpose) in enumerate(scripts, start=5):
+  ws_vault.row_dimensions[row_idx].height = 70
+  ws_vault.cell(row=row_idx, column=1, value=title).font = font_body_bold
+  ws_vault.cell(row=row_idx, column=1).alignment = align_left
+  ws_vault.cell(row=row_idx, column=1).border = border_all
+
+  ws_vault.cell(row=row_idx, column=2, value=script).font = font_body
+  ws_vault.cell(row=row_idx, column=2).alignment = align_left
+  ws_vault.cell(row=row_idx, column=2).border = border_all
+
+  ws_vault.cell(row=row_idx, column=3, value=purpose).font = font_body
+  ws_vault.cell(row=row_idx, column=3).alignment = align_left
+  ws_vault.cell(row=row_idx, column=3).border = border_all
+
+# Set column widths
+ws_vault.column_dimensions["A"].width = 32
+ws_vault.column_dimensions["B"].width = 65
+ws_vault.column_dimensions["C"].width = 40
+
+# Save output spreadsheet
+wb.save("Trilloka_Sales_Pipeline.xlsx")
+print("Successfully generated Trilloka_Sales_Pipeline.xlsx!")
