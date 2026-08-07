@@ -1,6 +1,7 @@
 import os
 import urllib.parse
 import requests
+import re
 from typing import Dict, Any, List
 from playwright.async_api import async_playwright
 
@@ -135,6 +136,39 @@ class HybridScanner:
             "pagespeed_api_status": "fallback",
             "psi_raw": {}
         }
+
+    def _analyze_text_ai_patterns(self, text: str) -> float:
+        """Lightweight NLP heuristics to detect robotic AI copywriting patterns."""
+        if not text or len(text.strip()) < 100:
+            return 0.0
+
+        score = 0.0
+        lower_text = text.lower()
+        
+        # 1. AI Cliché Density Checks
+        ai_buzzwords = [
+            "in today's digital", "landscape", "testament to", "delve into", 
+            "seamless integration", "elevate your", "unlock your potential",
+            "beacon of", "moreover", "crucial to understand", "cutting-edge",
+            "fostering", "paramount", "transformative", "revolutionary"
+        ]
+        
+        buzzword_hits = sum(1 for word in ai_buzzwords if word in lower_text)
+        if buzzword_hits >= 3:
+            score += (buzzword_hits * 4.0)
+
+        # 2. Basic Burstiness (Sentence Length Variance) Check
+        sentences = [s.strip() for s in re.split(r'[.!?]+', text) if len(s.strip()) > 5]
+        if len(sentences) >= 5:
+            lengths = [len(s.split()) for s in sentences]
+            avg_length = sum(lengths) / len(lengths)
+            variance = sum((l - avg_length) ** 2 for l in lengths) / len(lengths)
+            
+            # Low variance (< 20.0) indicates robotic uniform sentence lengths typical of LLMs
+            if variance < 20.0:
+                score += 15.0
+                
+        return min(35.0, score)
 
     async def _run_targeted_playwright(self, url: str, psi_data: Dict[str, Any]) -> Dict[str, Any]:
         """Phase 3: Renders mobile DOM and executes behavioral CRO, AI detection, & conversion testing."""
@@ -272,7 +306,7 @@ class HybridScanner:
 
                 results["ai_flags"] = ai_flags
 
-                # Calculate AI Spectrum % (0 = fully custom, 100 = raw AI template)
+                # Calculate AI Spectrum % Base (DOM Footprints)
                 ai_score = 0.0
                 if ai_flags.get("tailwind_classes", 0) > 20:
                     ai_score += 25.0
@@ -288,6 +322,11 @@ class HybridScanner:
                     ai_score -= 15.0
                 if ai_flags.get("has_retargeting_pixel"):
                     ai_score -= 10.0
+
+                # Integrate Text-Level NLP Burstiness & Cliché Penalty
+                visible_text = await page.evaluate("document.body.innerText")
+                text_ai_penalty = self._analyze_text_ai_patterns(visible_text)
+                ai_score += text_ai_penalty
 
                 results["ai_spectrum_pct"] = max(0.0, min(100.0, round(ai_score, 1)))
 
