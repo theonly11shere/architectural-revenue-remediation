@@ -105,7 +105,7 @@ class RevenueScorer:
         # Step 2: Evaluate Failed Checkpoints & Generate Contextual Weighted Severity Scores
         detected_leaks = self._evaluate_checkpoints(scan_data, biz_type, competitor_data_present)
 
-       # Step 3: Calculate Dynamic AI Spectrum Penalty based on Business Type
+        # Step 3: Calculate Dynamic AI Spectrum Penalty based on Business Type
         ai_spectrum_pct = scan_data.get("ai_spectrum_pct", 0.0)
 
         # Check ALL common text keys your scraper might be using
@@ -117,15 +117,13 @@ class RevenueScorer:
             ""
         ).strip()
 
-        # HARSH FIX: Only apply the 65% penalty if the scraper completely failed 
-        # to extract text (meaning heavy JS/blocked site hiding a generic template).
-        # If there IS text (len > 50) and it genuinely scored 0%, we leave it at 0.
+        # ADJUSTED FALLBACK: If the scraper completely failed to extract text, 
+        # cap the fallback profile default at 45.0% instead of 65.0%.
         if ai_spectrum_pct == 0.0 and len(raw_page_text) < 50:
-            ai_spectrum_pct = 65.0 
+            ai_spectrum_pct = 45.0 
             
         ai_severity_mult = 1.5 if biz_type in ["medspa", "legal"] else 1.0
 
-        # INCREASED PENALTY: Lowered threshold to 40.0% and increased max penalty impact
         ai_penalty = min(25.0, (ai_spectrum_pct / 100.0) * 20.0 * ai_severity_mult) if ai_spectrum_pct > 40.0 else 0.0
 
         # Step 4: Calculate Harsh Overall Health Score

@@ -211,7 +211,14 @@ class HybridScanner:
             page.on("request", lambda req: network_posts.append(req.url) if req.method == "POST" else None)
 
             try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+        # Brief pause to let client-side redirects or JS hydration settle,
+        # preventing context destruction
+        try:
+            await page.wait_for_load_state("load", timeout=5000)
+        except Exception:
+            await page.wait_for_timeout(1500)
 
                 # Standard DOM & SEO Metadata
                 results["title"] = await page.title()
