@@ -1,6 +1,7 @@
 """
 scraper.py - Complete Hybrid Scanned & Backward Compatibility Layer
 Includes robust click-to-call detection, AI pattern checks, Playwright mobile emulation, and API integrations.
+Patched for SPA forms, GTM containers, expanded sticky elements, and WAI-ARIA image attributes.
 """
 import asyncio
 import os
@@ -311,7 +312,12 @@ class HybridScanner:
                 missing_alt = 0
                 for img in images:
                     alt = await img.get_attribute("alt")
-                    if not alt:
+                    aria_label = await img.get_attribute("aria-label")
+                    aria_labelledby = await img.get_attribute("aria-labelledby")
+                    role = await img.get_attribute("role")
+                    
+                    # Modern check: Pass if alt is present OR if WAI-ARIA labels/decorative roles are used
+                    if not alt and not aria_label and not aria_labelledby and role not in ["presentation", "none"]:
                         missing_alt += 1
                 results["missing_alt_images"] = missing_alt
 
@@ -325,10 +331,21 @@ class HybridScanner:
                 results["has_clarity"] = "clarity.ms" in content_lower
                 results["has_hotjar"] = "hotjar.com" in content_lower or "static.hotjar.com" in content_lower
                 results["has_qualitative_analytics"] = results["has_clarity"] or results["has_hotjar"]
-                results["has_ga4"] = "googletagmanager.com/gtag/js" in content_lower or "gtag(" in content_lower
-                results["has_meta_pixel"] = "connect.facebook.net" in content_lower or "fbevents.js" in content_lower
+                
+                # Expanded Analytics Check (Supports direct tags and Google Tag Manager containers / CDPs)
+                results["has_ga4"] = (
+                    "googletagmanager.com/gtag/js" in content_lower or 
+                    "gtag(" in content_lower or 
+                    "gtm.js" in content_lower or 
+                    "gtm-" in content_lower
+                )
+                results["has_meta_pixel"] = (
+                    "connect.facebook.net" in content_lower or 
+                    "fbevents.js" in content_lower or 
+                    "fbq(" in content_lower
+                )
 
-                # Robust Click-to-Call / Call Button Detection (Catches tel:, wa.me, buttons with call/phone keywords)
+                # Robust Click-to-Call / Call Button Detection
                 has_call_element = await page.evaluate("""() => {
                     const links = Array.from(document.querySelectorAll('a, button, [role="button"]'));
                     return links.some(el => {
@@ -392,7 +409,12 @@ class HybridScanner:
                     let unlinked = 0;
                     document.querySelectorAll("form").forEach(f => {
                         const action = f.getAttribute("action") || "";
-                        if (!action || action === "#") unlinked++;
+                        const hasSubmitBtn = f.querySelector('button[type="submit"], input[type="submit"], button:not([type])') !== null;
+                        const hasInputs = f.querySelectorAll('input, textarea, select').length > 0;
+                        // Smart SPA Check: Ignore forms lacking actions if they have interactive inputs and submission buttons (handled via JS)
+                        if (!action && (!hasSubmitBtn || !hasInputs)) {
+                            unlinked++;
+                        }
                     });
                     flags.unlinked_forms = unlinked;
 
@@ -426,11 +448,13 @@ class HybridScanner:
                 results["cms_platform"] = cms
 
                 await page.evaluate("window.scrollBy(0, 500)")
+                
+                # Expanded Sticky Mobile CTA Detection (Covers floating bars, bottom navs, fixed classes, and custom naming conventions)
                 results["mobile_cta_visible"] = await page.evaluate("""() => {
-                    const elements = Array.from(document.querySelectorAll('button, a.cta, .sticky-cta, [class*="cta"]'));
+                    const elements = Array.from(document.querySelectorAll('button, a.cta, .sticky-cta, [class*="cta"], [class*="sticky"], [class*="fixed"], .floating-bar, .bottom-nav, .mobile-header-bar, .bar-fixed'));
                     return elements.some(el => {
                         const style = window.getComputedStyle(el);
-                        return style.position === 'fixed' || style.position === 'sticky';
+                        return style.position === 'fixed' || style.position === 'sticky' || style.bottom === '0px';
                     });
                 }""")
 
