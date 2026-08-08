@@ -37,6 +37,9 @@ CHECKPOINT_CATALOG: Dict[str, Dict[str, Any]] = {
     "PRF-09": {"category": "Performance", "name": "Asset Compression (Gzip/Brotli)", "weight": 4.0, "desc": "Text-based assets compressed in flight."},
     "PRF-10": {"category": "Performance", "name": "Cache Control Headers", "weight": 4.0, "desc": "Static asset caching policies set."},
 
+    # NEW TELEMETRY & DATA INTEGRATION
+    "PRF-11": {"category": "Performance", "name": "Google CrUX Real-User Field Data", "weight": 8.0, "desc": "Passed Google 28-day real-user Core Web Vitals thresholds."},
+
     # CONTENT & UX
     "UX-01": {"category": "UX & Content", "name": "Image Alt Attribute Coverage", "weight": 10.0, "desc": "All img tags possess non-empty alt text."},
     "UX-02": {"category": "UX & Content", "name": "Accessibility Compliance Rate >= 80%", "weight": 6.0, "desc": "Majority of media contains fallback text."},
@@ -59,5 +62,9 @@ CHECKPOINT_CATALOG: Dict[str, Dict[str, Any]] = {
     "CONV-07": {"category": "Conversion", "name": "Clear Value Proposition", "weight": 4.0, "desc": "H1/Hero text contains descriptive offer."},
     "CONV-08": {"category": "Conversion", "name": "Contact Information Access", "weight": 3.0, "desc": "Phone, email, or contact link in header/footer."},
     "CONV-09": {"category": "Conversion", "name": "Page Speed Bounce Risk", "weight": 5.0, "desc": "Estimated bounce risk from load latency below 15%."},
-    "CONV-10": {"category": "Conversion", "name": "Niche Flow Optimization", "weight": 4.0, "desc": "Layout matches business model best practices."}
+    "CONV-10": {"category": "Conversion", "name": "Niche Flow Optimization", "weight": 4.0, "desc": "Layout matches business model best practices."},
+    
+    # NEW ADVANCED CRO
+    "CONV-11": {"category": "Conversion", "name": "Qualitative Session Telemetry", "weight": 6.0, "desc": "Heatmap or session recording scripts (Clarity/Hotjar) detected."},
+    "CONV-12": {"category": "Conversion", "name": "Google Business Visual Proof", "weight": 5.0, "desc": "Google Business Profile reviews feature verified visual proof."}
 }

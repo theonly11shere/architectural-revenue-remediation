@@ -1,6 +1,5 @@
 import secrets
 import string
-import math
 from typing import Dict, Any, List
 from behavioural_engine import BehaviouralEngine
 
@@ -23,7 +22,6 @@ BUSINESS_MODEL_MATRIX = {
 }
 
 # 3. Dynamic Check Base Weights Matrix by Business Type (1 to 10 Scale)
-# Tier 2 Table-Stakes items are weighted lower to prevent average distortion
 RULE_BASE_WEIGHTS = {
     "unsecured_ssl": {
         "general": 9, "medspa": 10, "legal": 10, "ecommerce": 10, "saas": 10
@@ -160,8 +158,7 @@ class RevenueScorer:
         # Apply compliance tax subtraction
         adjusted_score = raw_score - compliance_tax
 
-        # Harsh clamping logic: If a business has 3 or more total financial leaks, 
-        # force clamp into the strict failing range.
+        # Harsh clamping logic: If a business has 3 or more total financial leaks, force clamp into the strict failing range.
         if len(detected_leaks) >= 3:
             harsh_overall_score = max(35.0, min(49.5, round(adjusted_score, 1)))
         else:
@@ -269,7 +266,6 @@ class RevenueScorer:
         # Rule 2: Mobile Core Web Vitals Latency (Graded Continuum)
         perf_score = data.get("performance_score", 100.0)
         if perf_score < 60.0:
-            # Factor ranges smoothly from 0.3 (score ~59) to 1.0 (score <= 15)
             sev_factor = round(max(0.3, (60.0 - perf_score) / 45.0), 2)
             base_w = self._get_base_weight("core_web_vitals", biz_type)
             
@@ -315,7 +311,6 @@ class RevenueScorer:
                 severity_factor=1.0
             ))
         elif tap_targets_flagged:
-            # Present but poorly implemented / too small
             base_w = self._get_base_weight("click_to_call", biz_type)
             leaks.append(self._build_leak(
                 rule_key="click_to_call",

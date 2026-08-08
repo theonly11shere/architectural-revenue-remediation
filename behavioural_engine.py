@@ -1,7 +1,6 @@
 import math
 from typing import Dict, Any, List
 
-
 class BehaviouralEngine:
     """
     Trilloka Behavioural Engine:
@@ -48,8 +47,9 @@ class BehaviouralEngine:
                 "value_prop_prominence": value_prop_score,
                 "trust_anchor_score": trust_anchor_score
             },
+            # Pass scraped_data down into the extraction logic
             "behavioral_friction_leaks": self._extract_behavioral_leaks(
-                value_prop_score, trust_anchor_score, cognitive_load_score, bounce_risk_percentage, business_type
+                value_prop_score, trust_anchor_score, cognitive_load_score, bounce_risk_percentage, business_type, scraped_data
             )
         }
 
@@ -57,9 +57,9 @@ class BehaviouralEngine:
         if page_len == 0:
             return 20.0
         if page_len < 2000:
-            return 60.0  # Thin content friction
+            return 60.0
         if page_len > 150000:
-            return 55.0  # Overly bloated DOM causes scanning friction
+            return 55.0
         return 88.0
 
     def _calc_value_prop_prominence(self, title: str, meta_desc: str, h1_tags: List[str]) -> float:
@@ -69,9 +69,9 @@ class BehaviouralEngine:
         if len(meta_desc) >= 30:
             score += 30.0
         if len(h1_tags) == 1:
-            score += 40.0  # Clear single focused primary heading
+            score += 40.0
         elif len(h1_tags) > 1:
-            score += 20.0  # Multiple H1s dilute hero messaging focus
+            score += 20.0
         return min(100.0, score)
 
     def _calc_trust_anchors(self, has_ssl: bool, missing_alt: int, total_img: int) -> float:
@@ -89,13 +89,26 @@ class BehaviouralEngine:
         base_bounce = max(10.0, (100.0 - perf_score) * 0.75)
         if cognitive_load < 50.0:
             base_bounce += 15.0
-        # High-ticket service verticals (Legal, MedSpa) suffer higher bounce sensitivity to latency
         if business_type in ["medspa", "legal"]:
             base_bounce *= 1.1
         return round(min(89.0, base_bounce), 1)
 
-    def _extract_behavioral_leaks(self, value_prop: float, trust: float, cog_load: float, bounce_risk: float, business_type: str) -> List[str]:
+    def _extract_behavioral_leaks(self, value_prop: float, trust: float, cog_load: float, bounce_risk: float, business_type: str, scraped_data: Dict[str, Any] = None) -> List[str]:
         leaks = []
+        sd = scraped_data or {}
+        
+        # --- NEW SCRIPT & TELEMETRY LEAK RULES ---
+        if sd.get("is_reachable", True) and not sd.get("has_qualitative_analytics", True):
+            leaks.append("Blind User Telemetry: Missing qualitative session recording (Hotjar/Clarity). Operating without visual cursor/heatmap drop-off data.")
+
+        if sd.get("real_user_speed_grade") == "POOR":
+            lcp = sd.get('crux_lcp_ms', 'Unknown')
+            leaks.append(f"CrUX Real-User Speed Warning: Google 28-day field data flags severe mobile latency ({lcp}ms LCP).")
+
+        if sd.get("places_found") and not sd.get("has_visual_review_proof"):
+            leaks.append("Weak Social Proof Integrity: Top Google Business reviews lack attached customer photos/visual job proof.")
+
+        # --- STANDARD HEURISTIC RULES ---
         if value_prop < 70.0:
             if business_type == "legal":
                 leaks.append("Weak Practice Area Value Proposition: H1 heading fails to instantly communicate firm jurisdiction or core legal specialty.")
@@ -115,4 +128,5 @@ class BehaviouralEngine:
 
         if bounce_risk > 40.0:
             leaks.append(f"Critical Latency Bounce Risk: Estimated {bounce_risk}% visitor abandonment before taking action.")
+            
         return leaks

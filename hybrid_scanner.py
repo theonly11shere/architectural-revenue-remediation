@@ -10,14 +10,19 @@ class HybridScanner:
     """
     Ultimate Hybrid Scanning Engine:
     - Phase 1: Fast HTTP Pre-flight (SSL, Status Codes, Server Headers)
-    - Phase 2: Google PageSpeed Insights API (Mobile Core Web Vitals)
+    - Phase 2: Google PageSpeed Insights, CrUX Telemetry, Google Places Data
     - Phase 3: Mobile Playwright Headless Browser (DOM + AI Pattern Detection + CRO Diagnostics)
     """
 
     def __init__(self, google_api_key: str = None):
-        self.google_api_key = google_api_key or os.environ.get("PAGESPEED_API_KEY", "")
+        # Gracefully supports Railway's PAGESPEED_API_KEY or GOOGLE_API_KEY fallback
+        self.google_api_key = (
+            google_api_key 
+            or os.environ.get("PAGESPEED_API_KEY", "") 
+            or os.environ.get("GOOGLE_API_KEY", "")
+        )
 
-    async def execute_hybrid_scan(self, target_domain: str) -> Dict[str, Any]:
+    async def execute_hybrid_scan(self, target_domain: str, business_name: str = "") -> Dict[str, Any]:
         """Runs the complete 3-phase hybrid telemetry sequence."""
         url = target_domain if target_domain.startswith(("http://", "https://")) else f"https://{target_domain}"
 
@@ -47,11 +52,22 @@ class HybridScanner:
                 "psi_raw": {},
                 "ai_spectrum_pct": 0.0,
                 "ai_flags": {},
-                "cms_platform": ""
+                "cms_platform": "",
+                # New Default Flags to prevent downstream KeyError
+                "crux_available": False,
+                "places_found": False,
+                "has_clarity": False,
+                "has_hotjar": False,
+                "has_qualitative_analytics": False,
+                "has_ga4": False,
+                "has_meta_pixel": False
             }
 
-        # 2. Fetch Google PageSpeed Insights (PSI) API Data
+        # 2. Fetch Google Telemetry (PageSpeed, CrUX, Places)
         pagespeed_meta = self._fetch_google_pagespeed(url)
+        crux_meta = self._fetch_crux_telemetry(url)
+        places_meta = self._fetch_google_places(target_domain, business_name)
+        
         psi_raw = pagespeed_meta.get("psi_raw", {})
 
         # 3. Targeted Mobile Playwright Execution
@@ -72,7 +88,12 @@ class HybridScanner:
                 "tap_targets_flagged": [],
                 "ai_spectrum_pct": 0.0,
                 "ai_flags": {},
-                "cms_platform": ""
+                "cms_platform": "",
+                "has_clarity": False,
+                "has_hotjar": False,
+                "has_qualitative_analytics": False,
+                "has_ga4": False,
+                "has_meta_pixel": False
             }
 
         return {
@@ -80,11 +101,12 @@ class HybridScanner:
             "url": url,
             **http_meta,
             **pagespeed_meta,
+            **crux_meta,
+            **places_meta,
             **dom_meta
         }
 
     def _fast_http_preflight(self, url: str) -> Dict[str, Any]:
-        """Phase 1: Rapid HTTP status and security header verification."""
         preflight = {
             "is_reachable": False,
             "has_ssl": url.startswith("https://"),
@@ -92,11 +114,7 @@ class HybridScanner:
             "headers": {}
         }
         try:
-            response = requests.get(
-                url,
-                timeout=10,
-                headers={"User-Agent": "TrillokaBot/1.0 Web Auditor"}
-            )
+            response = requests.get(url, timeout=10, headers={"User-Agent": "TrillokaBot/1.0 Web Auditor"})
             preflight["is_reachable"] = True
             preflight["status_code"] = response.status_code
             preflight["headers"] = dict(response.headers)
@@ -105,7 +123,6 @@ class HybridScanner:
         return preflight
 
     def _fetch_google_pagespeed(self, url: str) -> Dict[str, Any]:
-        """Phase 2: Fetches Core Web Vitals and Lighthouse metrics from Google API."""
         encoded_url = urllib.parse.quote(url, safe="")
         endpoint = (
             f"https://pagespeedonline.googleapis.com/pagespeedonline/v5/runPagespeed"
@@ -137,15 +154,83 @@ class HybridScanner:
             "psi_raw": {}
         }
 
+    def _fetch_crux_telemetry(self, url: str) -> Dict[str, Any]:
+        """Queries Google CrUX API for 28-day real user field data."""
+        if not self.google_api_key:
+            return {"crux_available": False, "crux_reason": "No API Key configured"}
+
+        endpoint = f"https://chromeuxreport.googleapis.com/v1/records:queryRecord?key={self.google_api_key}"
+        
+        # CrUX aggregates best by origin for smaller sites
+        try:
+            parsed = urllib.parse.urlparse(url)
+            origin = f"{parsed.scheme}://{parsed.netloc}"
+        except Exception:
+            origin = url
+
+        try:
+            res = requests.post(endpoint, json={"origin": origin}, timeout=10)
+            if res.status_code == 200:
+                metrics = res.json().get("record", {}).get("metrics", {})
+                lcp = metrics.get("largest_contentful_paint", {}).get("percentiles", {}).get("p75")
+                cls_val = metrics.get("cumulative_layout_shift", {}).get("percentiles", {}).get("p75")
+                inp = metrics.get("interaction_to_next_paint", {}).get("percentiles", {}).get("p75")
+                
+                return {
+                    "crux_available": True,
+                    "crux_lcp_ms": lcp,
+                    "crux_cls": float(cls_val) if cls_val is not None else None,
+                    "crux_inp_ms": inp,
+                    "real_user_speed_grade": "POOR" if (lcp and lcp > 4000) else "GOOD"
+                }
+            elif res.status_code == 404:
+                return {"crux_available": False, "crux_reason": "Insufficient traffic for CrUX dataset"}
+        except Exception as e:
+            print(f"[Hybrid Scanner] CrUX API error: {e}")
+
+        return {"crux_available": False}
+
+    def _fetch_google_places(self, target_domain: str, business_name: str = "") -> Dict[str, Any]:
+        """Queries Places API (New) for rating and visual review proof."""
+        if not self.google_api_key:
+            return {"places_found": False}
+
+        search_query = business_name if business_name else target_domain.replace("https://", "").replace("http://", "").split("/")[0]
+        endpoint = "https://places.googleapis.com/v1/places:searchText"
+        headers = {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": self.google_api_key,
+            "X-Goog-FieldMask": "places.id,places.displayName,places.rating,places.userRatingCount,places.reviews"
+        }
+        
+        try:
+            res = requests.post(endpoint, json={"textQuery": search_query}, headers=headers, timeout=10)
+            if res.status_code == 200:
+                places = res.json().get("places", [])
+                if places:
+                    p = places[0]
+                    reviews = p.get("reviews", [])
+                    # Defensively check if photo payload exists in any review
+                    has_photos = any(isinstance(r.get("photos"), list) and len(r.get("photos")) > 0 for r in reviews)
+                    
+                    return {
+                        "places_found": True,
+                        "google_rating": p.get("rating", 0.0),
+                        "google_review_count": p.get("userRatingCount", 0),
+                        "has_visual_review_proof": has_photos
+                    }
+        except Exception as e:
+            print(f"[Hybrid Scanner] Places API error: {e}")
+
+        return {"places_found": False}
+
     def _analyze_text_ai_patterns(self, text: str) -> float:
-        """Lightweight NLP heuristics to detect robotic AI copywriting patterns."""
         if not text or len(text.strip()) < 100:
             return 0.0
 
         score = 0.0
         lower_text = text.lower()
         
-        # 1. AI Cliché Density Checks
         ai_buzzwords = [
             "in today's digital", "landscape", "testament to", "delve into", 
             "seamless integration", "elevate your", "unlock your potential",
@@ -157,21 +242,18 @@ class HybridScanner:
         if buzzword_hits >= 3:
             score += (buzzword_hits * 4.0)
 
-        # 2. Basic Burstiness (Sentence Length Variance) Check
         sentences = [s.strip() for s in re.split(r'[.!?]+', text) if len(s.strip()) > 5]
         if len(sentences) >= 5:
             lengths = [len(s.split()) for s in sentences]
             avg_length = sum(lengths) / len(lengths)
             variance = sum((l - avg_length) ** 2 for l in lengths) / len(lengths)
             
-            # Low variance (< 20.0) indicates robotic uniform sentence lengths typical of LLMs
             if variance < 20.0:
                 score += 15.0
                 
         return min(35.0, score)
 
     async def _run_targeted_playwright(self, url: str, psi_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Phase 3: Renders mobile DOM and executes behavioral CRO, AI detection, & conversion testing."""
         results = {
             "title": "",
             "meta_description": "",
@@ -185,10 +267,15 @@ class HybridScanner:
             "tap_targets_flagged": [],
             "ai_spectrum_pct": 0.0,
             "ai_flags": {},
-            "cms_platform": ""
+            "cms_platform": "",
+            # DOM Tracking Defaults
+            "has_clarity": False,
+            "has_hotjar": False,
+            "has_qualitative_analytics": False,
+            "has_ga4": False,
+            "has_meta_pixel": False
         }
 
-        # Extract flagged tap targets from Lighthouse audit if available
         audits = psi_data.get("lighthouseResult", {}).get("audits", {})
         tap_target_items = audits.get("tap-targets", {}).get("details", {}).get("items", [])
         results["tap_targets_flagged"] = [
@@ -197,10 +284,7 @@ class HybridScanner:
         ]
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-setuid-sandbox"]
-            )
+            browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
             context = await browser.new_context(
                 viewport={"width": 390, "height": 844},
                 user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
@@ -212,14 +296,11 @@ class HybridScanner:
 
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=20000)
-                # Brief pause to let client-side redirects or JS hydration settle,
-                # preventing context destruction
                 try:
                     await page.wait_for_load_state("load", timeout=5000)
                 except Exception:
                     await page.wait_for_timeout(1500)
 
-                # Standard DOM & SEO Metadata
                 results["title"] = await page.title()
 
                 meta_desc = await page.query_selector('meta[name="description"]')
@@ -239,8 +320,16 @@ class HybridScanner:
 
                 content_html = await page.content()
                 results["page_content_len"] = len(content_html)
+                
+                # --- SCRIPT DETECTION ---
+                content_lower = content_html.lower()
+                results["has_clarity"] = "clarity.ms" in content_lower
+                results["has_hotjar"] = "hotjar.com" in content_lower or "static.hotjar.com" in content_lower
+                results["has_qualitative_analytics"] = results["has_clarity"] or results["has_hotjar"]
+                results["has_ga4"] = "googletagmanager.com/gtag/js" in content_lower or "gtag(" in content_lower
+                results["has_meta_pixel"] = "connect.facebook.net" in content_lower or "fbevents.js" in content_lower
 
-                # AI Spectrum Detection (Real DOM Analysis)
+                # AI Spectrum Detection
                 ai_flags = await page.evaluate("""() => {
                     const flags = {
                         tailwind_classes: 0,
@@ -248,8 +337,7 @@ class HybridScanner:
                         lucide_icons: 0,
                         generic_headline: false,
                         unlinked_forms: 0,
-                        has_custom_photos: false,
-                        has_retargeting_pixel: false
+                        has_custom_photos: false
                     };
 
                     const allElements = document.querySelectorAll("*");
@@ -302,17 +390,11 @@ class HybridScanner:
                         !stockDomains.some(d => src.includes(d))
                     );
 
-                    const scripts = Array.from(document.querySelectorAll("script")).map(s => s.src || s.innerText || "");
-                    flags.has_retargeting_pixel = scripts.some(s => 
-                        /facebook|fbq|gtag|googletagmanager|analytics|hotjar|clarity/i.test(s)
-                    );
-
                     return flags;
                 }""")
 
                 results["ai_flags"] = ai_flags
 
-                # Calculate AI Spectrum % Base (DOM Footprints)
                 ai_score = 0.0
                 if ai_flags.get("tailwind_classes", 0) > 20:
                     ai_score += 25.0
@@ -326,33 +408,30 @@ class HybridScanner:
                     ai_score += 10.0
                 if ai_flags.get("has_custom_photos"):
                     ai_score -= 15.0
-                if ai_flags.get("has_retargeting_pixel"):
+                if results.get("has_meta_pixel"):
                     ai_score -= 10.0
 
-                # Integrate Text-Level NLP Burstiness & Cliché Penalty
                 visible_text = await page.evaluate("document.body.innerText")
                 text_ai_penalty = self._analyze_text_ai_patterns(visible_text)
                 ai_score += text_ai_penalty
 
                 results["ai_spectrum_pct"] = max(0.0, min(100.0, round(ai_score, 1)))
 
-                # CMS detection
                 cms = ""
-                if "wp-content" in content_html:
+                if "wp-content" in content_lower:
                     cms = "WordPress"
-                elif "shopify" in content_html.lower() or "myshopify" in content_html.lower():
+                elif "shopify" in content_lower or "myshopify" in content_lower:
                     cms = "Shopify"
-                elif "wix" in content_html.lower():
+                elif "wix" in content_lower:
                     cms = "Wix"
-                elif "squarespace" in content_html.lower():
+                elif "squarespace" in content_lower:
                     cms = "Squarespace"
-                elif "webflow" in content_html.lower():
+                elif "webflow" in content_lower:
                     cms = "Webflow"
                 elif ai_flags.get("tailwind_classes", 0) > 10:
                     cms = "Modern Stack"
                 results["cms_platform"] = cms
 
-                # Behavioral & Conversion Diagnostics
                 tel_links = await page.locator('a[href^="tel:"], a[href*="wa.me"]').count()
                 results["click_to_call_present"] = tel_links > 0
 
@@ -385,7 +464,6 @@ class HybridScanner:
 
 
 def collect_scan_data(domain: str) -> Dict[str, Any]:
-    """Synchronous function entry point."""
     scanner = HybridScanner()
     import asyncio
     return asyncio.run(scanner.execute_hybrid_scan(domain))

@@ -10,7 +10,6 @@ from typing import Optional, Dict, Any
 from hybrid_scanner import HybridScanner
 from scorer import RevenueScorer
 
-# Report engine is optional — app works without it
 try:
     from report_engine import ReportGenerator
     reporter = ReportGenerator()
@@ -19,14 +18,12 @@ except Exception:
     reporter = None
     REPORT_ENGINE_AVAILABLE = False
 
-# Initialize FastAPI Application
 app = FastAPI(
     title="Trilloka Architect Engine API",
     description="3-Phase Telemetry Diagnostic & Frontend Gateway",
     version="3.0.0"
 )
 
-# Enable CORS for Frontend Access
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,14 +32,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Instantiate Pipeline Core Services
 scanner = HybridScanner()
 scorer = RevenueScorer()
 
 
-# Request Payload Model from Frontend
 class AuditRequest(BaseModel):
     domain: str
+    business_name: Optional[str] = ""
     business_type: str = "ecommerce"
     competitor_has_feature: bool = True
     email: Optional[EmailStr] = None
@@ -53,16 +49,15 @@ def health_check() -> Dict[str, Any]:
     return {
         "status": "online",
         "system": "Trilloka Architect Engine v3.0",
-        "pagespeed_api_configured": bool(os.environ.get("PAGESPEED_API_KEY")),
+        "google_api_configured": bool(os.environ.get("PAGESPEED_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
         "report_engine": REPORT_ENGINE_AVAILABLE
     }
 
 
 @app.get("/diagnostic")
 def diagnostic() -> Dict[str, Any]:
-    """Tests each pipeline component."""
     results = {"status": "running", "checks": {}}
-    results["checks"]["env_pagespeed_api_key"] = bool(os.environ.get("PAGESPEED_API_KEY"))
+    results["checks"]["env_google_api_key"] = bool(os.environ.get("PAGESPEED_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
     try:
         from hybrid_scanner import HybridScanner
         s = HybridScanner()
@@ -89,17 +84,18 @@ def diagnostic() -> Dict[str, Any]:
     return results
 
 
-async def _run_scan_async(domain: str) -> Dict[str, Any]:
-    """Run scanner in a thread pool so it doesnt block the event loop."""
+async def _run_scan_async(domain: str, business_name: str = "") -> Dict[str, Any]:
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, lambda: asyncio.run(scanner.execute_hybrid_scan(domain)))
+    return await loop.run_in_executor(
+        None, 
+        lambda: asyncio.run(scanner.execute_hybrid_scan(domain, business_name))
+    )
 
 
 @app.post("/api/audit")
 async def run_audit(request: AuditRequest, background_tasks: BackgroundTasks) -> Dict[str, Any]:
     try:
-        # Step 1: Execute 3-Phase Telemetry Scan (non-blocking)
-        scan_data = await _run_scan_async(request.domain)
+        scan_data = await _run_scan_async(request.domain, request.business_name)
 
         if not scan_data.get("is_reachable", True):
             raise HTTPException(
@@ -107,7 +103,6 @@ async def run_audit(request: AuditRequest, background_tasks: BackgroundTasks) ->
                 detail=f"Domain '{request.domain}' is offline, unreachable, or blocking requests."
             )
 
-        # Step 2: Calculate Harsh Scoring with REAL formulas
         try:
             audit_results = scorer.audit_and_score(
                 scan_data=scan_data,
@@ -135,31 +130,25 @@ async def run_audit(request: AuditRequest, background_tasks: BackgroundTasks) ->
                 "tiered_remediation_packages": {"tier_10_arch10": []}
             }
 
-        # Step 3: Generate Admin Report & Send Lead Alert Email
         if REPORT_ENGINE_AVAILABLE:
             try:
                 admin_master_report = reporter.generate_admin_master_report(
                     audit_data=audit_results,
                     scan_data=scan_data
                 )
-                # Archive to vault in background
                 background_tasks.add_task(
                     reporter.archive_to_vault,
                     target_domain=request.domain,
                     admin_report=admin_master_report,
                     raw_scan_data=scan_data
                 )
-                # Send admin alert email in background
                 background_tasks.add_task(
                     reporter.send_admin_alert_email,
                     admin_report=admin_master_report
                 )
             except Exception as report_err:
                 print(f"[Report Engine] Skipped — {report_err}")
-                import traceback
-                traceback.print_exc()
 
-        # Step 4: Return Frontend-Compatible Payload with REAL data
         all_leaks = audit_results.get("tiered_remediation_packages", {}).get("tier_10_arch10", [])
 
         return {
@@ -186,7 +175,6 @@ async def run_audit(request: AuditRequest, background_tasks: BackgroundTasks) ->
 
 @app.post("/api/scan")
 async def run_scan(request: AuditRequest, background_tasks: BackgroundTasks) -> Dict[str, Any]:
-    """Frontend alias for /api/audit."""
     return await run_audit(request, background_tasks)
 
 
