@@ -52,7 +52,6 @@ RULE_BASE_WEIGHTS = {
     }
 }
 
-# Table-stakes items flagged for strict hygiene gatekeeping caps
 HYGIENE_CHECK_IDS = {
     "missing_alt_images",
     "favicon_present",
@@ -60,7 +59,6 @@ HYGIENE_CHECK_IDS = {
     "diluted_h1"
 }
 
-# 4. Vertical Financial Leak Multipliers (Est. Annual Value lost per score gap point)
 REVENUE_LEAK_MULTIPLIERS = {
     "general":   {"min": 350, "max": 700},
     "medspa":    {"min": 850, "max": 1800},
@@ -69,7 +67,6 @@ REVENUE_LEAK_MULTIPLIERS = {
     "saas":      {"min": 600, "max": 1400}
 }
 
-# 5. Tier ID Prefix Strategy
 TIER_PREFIXES = {
     3: "IFYB3",
     6: "MBTB6",
@@ -81,15 +78,13 @@ TIER_PREFIXES = {
 class RevenueScorer:
     """
     Trilloka Harsh Revenue Diagnostic Scorer:
-    Fully hardened with strict typecasting, null safety checks, anti-fakery telemetry taxes,
-    and vertical-aware severity matrices.
+    Fully hardened against null/malformed data with integrated text fallback checks.
     """
 
     def __init__(self):
         self.behavioral_engine = BehaviouralEngine()
 
     def _normalize_business_type(self, raw_biz_type: str) -> str:
-        """Normalizes frontend dropdown strings to internal keys safely."""
         val = str(raw_biz_type or "general").lower()
         if "medspa" in val or "aesthetics" in val:
             return "medspa"
@@ -103,28 +98,23 @@ class RevenueScorer:
             return "general"
 
     def generate_tier_id(self, tier_level: int) -> str:
-        """Generates structured IDs like ARCH10-X79B2P."""
         prefix = TIER_PREFIXES.get(tier_level, "IFYB3")
         rand_str = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6))
         return f"{prefix}-{rand_str}"
 
     def audit_and_score(self, scan_data: Dict[str, Any], business_type: str = "general", competitor_data_present: bool = True) -> Dict[str, Any]:
-        """Runs the complete crash-proof scoring pipeline with type safety and sanitization."""
         if not isinstance(scan_data, dict):
             scan_data = {}
 
         biz_type = self._normalize_business_type(business_type)
 
-        # Step 1: Execute Behavioral Engine Diagnostics safely
         try:
             behavioral_insights = self.behavioral_engine.analyze_behavioral_friction(scan_data, biz_type)
         except Exception:
             behavioral_insights = {}
 
-        # Step 2: Evaluate Failed Checkpoints & Generate Weighted Severity Scores
         detected_leaks = self._evaluate_checkpoints(scan_data, biz_type, competitor_data_present)
 
-        # Step 3: Calculate Dynamic AI Spectrum Penalty safely
         try:
             ai_spectrum_pct = float(scan_data.get("ai_spectrum_pct") or 0.0)
         except (ValueError, TypeError):
@@ -144,7 +134,6 @@ class RevenueScorer:
         ai_severity_mult = 1.5 if biz_type in ["medspa", "legal"] else 1.0
         ai_penalty = min(25.0, (ai_spectrum_pct / 100.0) * 20.0 * ai_severity_mult) if ai_spectrum_pct > 40.0 else 0.0
 
-        # Step 4: Anti-Fakery Skepticism Tax & Harsh Score Calculation
         total_severity_loss = sum(float(leak.get("final_severity_score", 0.0)) for leak in detected_leaks)
         
         try:
@@ -161,17 +150,14 @@ class RevenueScorer:
         if (perf_claimed >= 95.0 or seo_claimed >= 95.0) and len(detected_leaks) > 0:
             external_claim_inflation = len(detected_leaks) * 2.5
 
-        # 1.35 Harsh Penalty Multiplier
         raw_score = 100.0 - (total_severity_loss * 1.35) - ai_penalty - external_claim_inflation
         
-        # Count failed table-stakes hygiene items safely
         failed_hygiene_count = sum(
             1 for leak in detected_leaks 
             if leak.get("rule_key") in HYGIENE_CHECK_IDS and float(leak.get("severity_factor", 1.0)) >= 0.5
         )
         compliance_tax = failed_hygiene_count * 2.0
 
-        # Apply strict score ceilings
         if failed_hygiene_count >= 3:
             raw_score = min(raw_score, 68.0)
         elif failed_hygiene_count == 2:
@@ -181,13 +167,11 @@ class RevenueScorer:
 
         adjusted_score = raw_score - compliance_tax
 
-        # Clamping logic (Max cap set to 89.0 to maintain realism)
         if len(detected_leaks) >= 3:
             harsh_overall_score = max(35.0, min(49.5, round(adjusted_score, 1)))
         else:
             harsh_overall_score = max(12.0, min(89.0, round(adjusted_score, 1)))
 
-        # Step 5: Surface Metrics
         surface_metrics = {
             "mobile_performance_score": round(perf_claimed),
             "seo_health_index": round(seo_claimed),
@@ -198,7 +182,6 @@ class RevenueScorer:
             "classification": self._classify_ai_spectrum(ai_spectrum_pct, str(scan_data.get("cms_platform") or "Modern Stack"))
         }
 
-        # Step 6: Key Friction Insight
         sorted_leaks = sorted(detected_leaks, key=lambda x: x.get("final_severity_score", 0.0), reverse=True)
         key_friction = {}
         if len(sorted_leaks) >= 2:
@@ -214,7 +197,6 @@ class RevenueScorer:
                 "revenue_loss_pct": round(float(rank1.get("final_severity_score", 0.0)), 1)
             }
 
-        # Step 7: Revenue Leak Estimate
         revenue_leak = {}
         if harsh_overall_score < 75:
             gap = 75 - harsh_overall_score
@@ -225,7 +207,6 @@ class RevenueScorer:
                 "est_annual_revenue_leak": f"${min_loss:,} — ${max_loss:,}"
             }
 
-        # Step 8: Tier Leaks into Priority Packages
         tiered_reports = {
             "tier_3_ifyb3": [self._format_leak_item(leak, 3) for leak in sorted_leaks[:3]],
             "tier_6_mbtb6": [self._format_leak_item(leak, 6) for leak in sorted_leaks[:6]],
@@ -288,14 +269,7 @@ class RevenueScorer:
         if perf_score < 60.0:
             sev_factor = round(max(0.3, (60.0 - perf_score) / 45.0), 2)
             base_w = self._get_base_weight("core_web_vitals", biz_type)
-            
             title = "Severe Mobile Core Web Vitals Latency" if sev_factor >= 0.75 else "Sub-optimal Mobile Performance Latency"
-            desc = f"Performance rating dropped to {perf_score}/100. "
-            if biz_type == "ecommerce":
-                desc += "Mobile checkout latency spikes cart abandonment."
-            else:
-                desc += "Triggers search ranking penalties and bounce rate spikes."
-
             leaks.append(self._build_leak(
                 rule_key="core_web_vitals",
                 title=title,
@@ -305,19 +279,19 @@ class RevenueScorer:
                 biz_mult=biz_matrix["seo"],
                 competitor_bonus=3 if competitor_has_feature else 0,
                 relevance_bonus=3,
-                description=desc,
+                description=f"Performance rating dropped to {perf_score}/100, triggering index penalties and drop-offs.",
                 severity_factor=sev_factor
             ))
 
-        # Rule 3: Click-to-Call Check
+        # Rule 3: Click-to-Call Check (Hardened fallback using page text & keywords)
         has_call = bool(data.get("click_to_call_present", False))
+        raw_page_text = str(data.get("page_text") or data.get("raw_text") or "").lower()
+        has_phone_fallback = any(term in raw_page_text for term in ["call us", "phone:", "tel:", "contact", "free consultation"])
         tap_targets_flagged = bool(data.get("tap_targets_flagged", False))
-        
-        if not has_call:
+
+        if not has_call and not has_phone_fallback:
             base_w = self._get_base_weight("click_to_call", biz_type)
-            desc = "Mobile users cannot tap-to-dial, "
-            desc += "causing prospective high-value clients to abandon consultation requests." if biz_type in ["medspa", "legal"] else "causing direct conversion drop-offs."
-            
+            desc = "Mobile users cannot tap-to-dial, causing direct conversion drop-offs."
             leaks.append(self._build_leak(
                 rule_key="click_to_call",
                 title="Missing Mobile Click-to-Call / Instant Action",
@@ -329,6 +303,20 @@ class RevenueScorer:
                 relevance_bonus=3 if biz_type in ["medspa", "legal"] else 1,
                 description=desc,
                 severity_factor=1.0
+            ))
+        elif not has_call and has_phone_fallback:
+            base_w = self._get_base_weight("click_to_call", biz_type)
+            leaks.append(self._build_leak(
+                rule_key="click_to_call",
+                title="Sub-optimal Mobile Tap Targets for Direct Action",
+                base_weight=base_w,
+                category="trust_conversion",
+                category_mult=cat_weights["trust_conversion"],
+                biz_mult=biz_matrix["conversion"],
+                competitor_bonus=1 if competitor_has_feature else 0,
+                relevance_bonus=1,
+                description="Phone reference detected on page, but missing an explicit touch-optimized tel-link for direct mobile calling.",
+                severity_factor=0.4
             ))
         elif tap_targets_flagged:
             base_w = self._get_base_weight("click_to_call", biz_type)
@@ -345,26 +333,21 @@ class RevenueScorer:
                 severity_factor=0.5
             ))
 
-        # Rule 4: Mobile Sticky CTA / E-Commerce Support Check
+        # Rule 4: Mobile Sticky CTA Check
         is_ecommerce = (biz_type == "ecommerce")
         if is_ecommerce:
             has_cart = bool(data.get("add_to_cart_visible", False)) or bool(data.get("mobile_cta_visible", False))
-            has_support = bool(data.get("click_to_call_present", False)) or bool(data.get("live_chat_present", False)) or bool(data.get("whatsapp_present", False))
+            has_support = bool(data.get("click_to_call_present", False)) or bool(data.get("live_chat_present", False))
             
+            sev_factor = 0.0
             if not has_cart and not has_support:
-                cta_title = "Absence of Mobile Sticky Add-to-Cart & Pre-Purchase Support"
-                cta_desc = "Mobile shoppers lack both a sticky checkout action and instant query channels (Chat/WhatsApp), causing catastrophic cart abandonment."
+                cta_title = "Absence of Mobile Sticky Add-to-Cart & Support"
+                cta_desc = "Mobile shoppers lack both a sticky checkout action and instant query channels."
                 sev_factor = 1.0
             elif not has_cart:
                 cta_title = "Missing Mobile Sticky 'Add to Cart' Action"
-                cta_desc = "Support elements exist, but mobile shoppers scrolling product pages lose immediate access to the primary purchase button."
+                cta_desc = "Support elements exist, but mobile shoppers lack immediate access to purchase buttons."
                 sev_factor = 0.75
-            elif not has_support:
-                cta_title = "E-Commerce Pre-Purchase Query Friction (No Instant Support)"
-                cta_desc = "Product pages feature a cart button but lack instant query access, leaving sizing/shipping doubts unresolved."
-                sev_factor = 0.50
-            else:
-                sev_factor = 0.0
 
             if sev_factor > 0.0:
                 base_w = self._get_base_weight("mobile_sticky_cta", biz_type)
@@ -398,19 +381,16 @@ class RevenueScorer:
 
         # Rule 5: Hero Heading (H1) Check
         h1_tags = data.get("h1_tags", [])
-        if not isinstance(h1_tags, list):
-            h1_tags = []
-            
+        if not isinstance(h1_tags, list): h1_tags = []
         ai_flags = data.get("ai_flags", {})
-        if not isinstance(ai_flags, dict):
-            ai_flags = {}
+        if not isinstance(ai_flags, dict): ai_flags = {}
 
         if len(h1_tags) == 0:
             sev_factor = 1.0
-            desc = "Zero H1 tags found, completely stripping clear positioning and hero visual hierarchy."
+            desc = "Zero H1 tags found, stripping clear positioning and hero visual hierarchy."
         elif len(h1_tags) > 1:
             sev_factor = 0.6
-            desc = f"Found {len(h1_tags)} H1 tags, diluting primary keyword focus and hero messaging structure."
+            desc = f"Found {len(h1_tags)} H1 tags, diluting primary keyword focus."
         elif bool(ai_flags.get("generic_headline", False)):
             sev_factor = 0.4
             desc = "Single H1 tag detected, but uses generic low-converting headline phrasing."
@@ -441,22 +421,16 @@ class RevenueScorer:
         if missing_alt > 0:
             try:
                 images_with_alt = int(data.get("images_with_alt") or 0)
-            except (ValueError, TypeError):
-                images_with_alt = 0
-                
-            try:
                 total_img = int(data.get("total_images") or max(1, missing_alt + images_with_alt))
             except (ValueError, TypeError):
                 total_img = max(1, missing_alt)
 
             missing_ratio = min(1.0, missing_alt / max(1, total_img))
             sev_factor = 1.0 if missing_ratio >= 0.75 else (0.6 if missing_ratio >= 0.3 else 0.3)
-            title = "Missing Alt Accessibility & E-E-A-T Anchors" if sev_factor >= 0.8 else "Partial Image Accessibility & Alt Text Deficit"
-            
             base_w = self._get_base_weight("missing_alt_images", biz_type)
             leaks.append(self._build_leak(
                 rule_key="missing_alt_images",
-                title=title,
+                title="Missing Alt Accessibility & E-E-A-T Anchors",
                 base_weight=base_w,
                 category="content_eeat",
                 category_mult=cat_weights["content_eeat"],
@@ -495,7 +469,7 @@ class RevenueScorer:
                 biz_mult=biz_matrix["seo"],
                 competitor_bonus=0,
                 relevance_bonus=1,
-                description="Root HTML element is missing a lang attribute, impacting screen readers and indexers.",
+                description="Root HTML element is missing a lang attribute, impacting screen readers.",
                 severity_factor=1.0
             ))
 
@@ -508,24 +482,16 @@ class RevenueScorer:
         if ai_pct > 35.0:
             sev_factor = round(min(1.0, (ai_pct - 35.0) / 40.0), 2)
             base_w = self._get_base_weight("ai_template_similarity", biz_type)
-            
-            title = "High AI Template & Generic Content Match" if sev_factor >= 0.7 else "Moderate AI Content Over-reliance"
-            desc = f"{ai_pct}% AI similarity detected. "
-            if biz_type in ["medspa", "legal"]:
-                desc += "Generic template content severely weakens clinical/legal authority and trust."
-            else:
-                desc += "Erodes brand trust and differentiation."
-
             leaks.append(self._build_leak(
                 rule_key="ai_template_similarity",
-                title=title,
+                title="High AI Template & Generic Content Match",
                 base_weight=base_w,
                 category="content_eeat",
                 category_mult=cat_weights["content_eeat"],
                 biz_mult=biz_matrix["trust"],
                 competitor_bonus=2 if competitor_has_feature else 0,
                 relevance_bonus=3 if biz_type in ["medspa", "legal"] else 1,
-                description=desc,
+                description=f"{ai_pct}% AI similarity detected, weakening professional trust and authority.",
                 severity_factor=sev_factor
             ))
 
@@ -561,29 +527,18 @@ class RevenueScorer:
         }
 
     def _get_score_rating(self, score: float) -> str:
-        if score >= 90:
-            return "ARCHITECT LEVEL"
-        elif score >= 75:
-            return "OPTIMAL"
-        elif score >= 50:
-            return "NEEDS REMEDIATION"
-        else:
-            return "CRITICAL RISK"
+        if score >= 90: return "ARCHITECT LEVEL"
+        elif score >= 75: return "OPTIMAL"
+        elif score >= 50: return "NEEDS REMEDIATION"
+        else: return "CRITICAL RISK"
 
     def _get_vault_id(self, score: float) -> str:
-        if score >= 90:
-            return self.generate_tier_id(10)
-        elif score >= 75:
-            return self.generate_tier_id(8)
-        elif score >= 50:
-            return self.generate_tier_id(6)
-        else:
-            return self.generate_tier_id(3)
+        if score >= 90: return self.generate_tier_id(10)
+        elif score >= 75: return self.generate_tier_id(8)
+        elif score >= 50: return self.generate_tier_id(6)
+        else: return self.generate_tier_id(3)
 
     def _classify_ai_spectrum(self, ai_pct: float, cms: str) -> str:
-        if ai_pct > 60:
-            return f"AI Template — {cms}"
-        elif ai_pct > 30:
-            return f"Hybrid Stack — {cms}"
-        else:
-            return f"Custom Build — {cms}"
+        if ai_pct > 60: return f"AI Template — {cms}"
+        elif ai_pct > 30: return f"Hybrid Stack — {cms}"
+        else: return f"Custom Build — {cms}"
