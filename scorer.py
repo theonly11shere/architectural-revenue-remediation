@@ -82,7 +82,8 @@ class RevenueScorer:
     """
     Trilloka Harsh Revenue Diagnostic Scorer:
     Combines hybrid scan data, behavioral engine heuristics, weighted severity index,
-    business vertical matrices, conditional severity scaling, and strict hygiene gatekeeping.
+    business vertical matrices, conditional severity scaling, strict hygiene gatekeeping,
+    harsher penalty multipliers, score capping, and anti-fakery telemetry checks.
     """
 
     def __init__(self):
@@ -109,13 +110,13 @@ class RevenueScorer:
         return f"{prefix}-{rand_str}"
 
     def audit_and_score(self, scan_data: Dict[str, Any], business_type: str = "general", competitor_data_present: bool = True) -> Dict[str, Any]:
-        """Runs the complete harsh scoring pipeline with vertical-aware formulas, graded severity, and hygiene gates."""
+        """Runs the complete harsh scoring pipeline with vertical-aware formulas, graded severity, hygiene gates, and anti-fakery taxes."""
         biz_type = self._normalize_business_type(business_type)
 
         # Step 1: Execute Behavioral Engine Diagnostics
         behavioral_insights = self.behavioral_engine.analyze_behavioral_friction(scan_data, biz_type)
 
-        # Step 2: Evaluate Failed Checkpoints & Generate Contextual Weighted Severity Scores
+        # Step 2: Evaluate Failed Checkpoints & Generate Contextual Weighted Severity Scores (Graded Continuum)
         detected_leaks = self._evaluate_checkpoints(scan_data, biz_type, competitor_data_present)
 
         # Step 3: Calculate Dynamic AI Spectrum Penalty based on Business Type
@@ -135,10 +136,18 @@ class RevenueScorer:
         ai_severity_mult = 1.5 if biz_type in ["medspa", "legal"] else 1.0
         ai_penalty = min(25.0, (ai_spectrum_pct / 100.0) * 20.0 * ai_severity_mult) if ai_spectrum_pct > 40.0 else 0.0
 
-        # Step 4: Calculate Harsh Overall Health Score with Hygiene Gatekeeping
+        # Step 4: Anti-Fakery Skepticism Tax & Harsh Score Calculation
         total_severity_loss = sum(leak["final_severity_score"] for leak in detected_leaks)
         
-        raw_score = 100.0 - (total_severity_loss * 1.15) - ai_penalty
+        # Anti-Fakery Tax: Counter spoiled/faked external metrics claiming 95+ performance or SEO while structural leaks are found
+        external_claim_inflation = 0.0
+        perf_claimed = scan_data.get("performance_score", 65.0)
+        seo_claimed = scan_data.get("google_seo_score", 65.0)
+        if (perf_claimed >= 95.0 or seo_claimed >= 95.0) and len(detected_leaks) > 0:
+            external_claim_inflation = len(detected_leaks) * 2.5
+
+        # Increased harshness multiplier from 1.15 to 1.35
+        raw_score = 100.0 - (total_severity_loss * 1.35) - ai_penalty - external_claim_inflation
         
         # Count failed table-stakes hygiene items (severity factor >= 0.5 triggers hygiene failure)
         failed_hygiene_count = sum(
@@ -158,19 +167,16 @@ class RevenueScorer:
         # Apply compliance tax subtraction
         adjusted_score = raw_score - compliance_tax
 
-        # Harsh clamping logic: If a business has 3 or more total financial leaks, force clamp into the strict failing range.
+        # Harsh clamping logic: Lowered max score ceiling to 89.0 to keep scores grounded ("humble")
         if len(detected_leaks) >= 3:
             harsh_overall_score = max(35.0, min(49.5, round(adjusted_score, 1)))
         else:
-            harsh_overall_score = max(12.0, min(96.0, round(adjusted_score, 1)))
+            harsh_overall_score = max(12.0, min(89.0, round(adjusted_score, 1)))
 
         # Step 5: Calculate Surface Metrics
-        perf_score = scan_data.get("performance_score", 65.0)
-        seo_score = scan_data.get("google_seo_score", 65.0)
-
         surface_metrics = {
-            "mobile_performance_score": round(perf_score),
-            "seo_health_index": round(seo_score),
+            "mobile_performance_score": round(perf_claimed),
+            "seo_health_index": round(seo_claimed),
             "ai_spectrum_pct": round(ai_spectrum_pct, 1),
             "online_presence_index": round(max(0, min(100, harsh_overall_score * 0.85)), 1),
             "conversion_efficiency": round(max(0, min(100, harsh_overall_score * 0.8)), 1),
@@ -242,7 +248,7 @@ class RevenueScorer:
         return rule_weights.get(biz_type, 5)
 
     def _evaluate_checkpoints(self, data: Dict[str, Any], biz_type: str, competitor_has_feature: bool) -> List[Dict[str, Any]]:
-        """Evaluates compliance rules dynamically weighted by business model, category weights, and conditional severity factors."""
+        """Evaluates compliance rules dynamically weighted by business model, category weights, and conditional severity factors (graded work scaling)."""
         biz_matrix = BUSINESS_MODEL_MATRIX[biz_type]
         cat_weights = CATEGORY_WEIGHTS_BY_BIZ[biz_type]
         leaks = []
