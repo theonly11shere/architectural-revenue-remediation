@@ -81,17 +81,16 @@ TIER_PREFIXES = {
 class RevenueScorer:
     """
     Trilloka Harsh Revenue Diagnostic Scorer:
-    Combines hybrid scan data, behavioral engine heuristics, weighted severity index,
-    business vertical matrices, conditional severity scaling, strict hygiene gatekeeping,
-    harsher penalty multipliers, score capping, and anti-fakery telemetry checks.
+    Fully hardened with strict typecasting, null safety checks, anti-fakery telemetry taxes,
+    and vertical-aware severity matrices.
     """
 
     def __init__(self):
         self.behavioral_engine = BehaviouralEngine()
 
     def _normalize_business_type(self, raw_biz_type: str) -> str:
-        """Normalizes frontend dropdown strings to internal keys."""
-        val = str(raw_biz_type).lower()
+        """Normalizes frontend dropdown strings to internal keys safely."""
+        val = str(raw_biz_type or "general").lower()
         if "medspa" in val or "aesthetics" in val:
             return "medspa"
         elif "legal" in val or "law" in val:
@@ -110,17 +109,26 @@ class RevenueScorer:
         return f"{prefix}-{rand_str}"
 
     def audit_and_score(self, scan_data: Dict[str, Any], business_type: str = "general", competitor_data_present: bool = True) -> Dict[str, Any]:
-        """Runs the complete harsh scoring pipeline with vertical-aware formulas, graded severity, hygiene gates, and anti-fakery taxes."""
+        """Runs the complete crash-proof scoring pipeline with type safety and sanitization."""
+        if not isinstance(scan_data, dict):
+            scan_data = {}
+
         biz_type = self._normalize_business_type(business_type)
 
-        # Step 1: Execute Behavioral Engine Diagnostics
-        behavioral_insights = self.behavioral_engine.analyze_behavioral_friction(scan_data, biz_type)
+        # Step 1: Execute Behavioral Engine Diagnostics safely
+        try:
+            behavioral_insights = self.behavioral_engine.analyze_behavioral_friction(scan_data, biz_type)
+        except Exception:
+            behavioral_insights = {}
 
-        # Step 2: Evaluate Failed Checkpoints & Generate Contextual Weighted Severity Scores (Graded Continuum)
+        # Step 2: Evaluate Failed Checkpoints & Generate Weighted Severity Scores
         detected_leaks = self._evaluate_checkpoints(scan_data, biz_type, competitor_data_present)
 
-        # Step 3: Calculate Dynamic AI Spectrum Penalty based on Business Type
-        ai_spectrum_pct = scan_data.get("ai_spectrum_pct", 0.0)
+        # Step 3: Calculate Dynamic AI Spectrum Penalty safely
+        try:
+            ai_spectrum_pct = float(scan_data.get("ai_spectrum_pct") or 0.0)
+        except (ValueError, TypeError):
+            ai_spectrum_pct = 0.0
 
         raw_page_text = str(
             scan_data.get("page_text") or 
@@ -137,26 +145,33 @@ class RevenueScorer:
         ai_penalty = min(25.0, (ai_spectrum_pct / 100.0) * 20.0 * ai_severity_mult) if ai_spectrum_pct > 40.0 else 0.0
 
         # Step 4: Anti-Fakery Skepticism Tax & Harsh Score Calculation
-        total_severity_loss = sum(leak["final_severity_score"] for leak in detected_leaks)
+        total_severity_loss = sum(float(leak.get("final_severity_score", 0.0)) for leak in detected_leaks)
         
-        # Anti-Fakery Tax: Counter spoiled/faked external metrics claiming 95+ performance or SEO while structural leaks are found
+        try:
+            perf_claimed = float(scan_data.get("performance_score") or 65.0)
+        except (ValueError, TypeError):
+            perf_claimed = 65.0
+
+        try:
+            seo_claimed = float(scan_data.get("google_seo_score") or 65.0)
+        except (ValueError, TypeError):
+            seo_claimed = 65.0
+
         external_claim_inflation = 0.0
-        perf_claimed = scan_data.get("performance_score", 65.0)
-        seo_claimed = scan_data.get("google_seo_score", 65.0)
         if (perf_claimed >= 95.0 or seo_claimed >= 95.0) and len(detected_leaks) > 0:
             external_claim_inflation = len(detected_leaks) * 2.5
 
-        # Increased harshness multiplier from 1.15 to 1.35
+        # 1.35 Harsh Penalty Multiplier
         raw_score = 100.0 - (total_severity_loss * 1.35) - ai_penalty - external_claim_inflation
         
-        # Count failed table-stakes hygiene items (severity factor >= 0.5 triggers hygiene failure)
+        # Count failed table-stakes hygiene items safely
         failed_hygiene_count = sum(
             1 for leak in detected_leaks 
-            if leak.get("rule_key") in HYGIENE_CHECK_IDS and leak.get("severity_factor", 1.0) >= 0.5
+            if leak.get("rule_key") in HYGIENE_CHECK_IDS and float(leak.get("severity_factor", 1.0)) >= 0.5
         )
         compliance_tax = failed_hygiene_count * 2.0
 
-        # Apply strict score ceilings if basic foundational checks fail
+        # Apply strict score ceilings
         if failed_hygiene_count >= 3:
             raw_score = min(raw_score, 68.0)
         elif failed_hygiene_count == 2:
@@ -164,16 +179,15 @@ class RevenueScorer:
         elif failed_hygiene_count == 1:
             raw_score = min(raw_score, 88.0)
 
-        # Apply compliance tax subtraction
         adjusted_score = raw_score - compliance_tax
 
-        # Harsh clamping logic: Lowered max score ceiling to 89.0 to keep scores grounded ("humble")
+        # Clamping logic (Max cap set to 89.0 to maintain realism)
         if len(detected_leaks) >= 3:
             harsh_overall_score = max(35.0, min(49.5, round(adjusted_score, 1)))
         else:
             harsh_overall_score = max(12.0, min(89.0, round(adjusted_score, 1)))
 
-        # Step 5: Calculate Surface Metrics
+        # Step 5: Surface Metrics
         surface_metrics = {
             "mobile_performance_score": round(perf_claimed),
             "seo_health_index": round(seo_claimed),
@@ -181,26 +195,26 @@ class RevenueScorer:
             "online_presence_index": round(max(0, min(100, harsh_overall_score * 0.85)), 1),
             "conversion_efficiency": round(max(0, min(100, harsh_overall_score * 0.8)), 1),
             "competitor_gap_score": max(10, 100 - round(harsh_overall_score)),
-            "classification": self._classify_ai_spectrum(ai_spectrum_pct, scan_data.get("cms_platform", "Modern Stack"))
+            "classification": self._classify_ai_spectrum(ai_spectrum_pct, str(scan_data.get("cms_platform") or "Modern Stack"))
         }
 
-        # Step 6: Build Key Friction Insight (Target Rank #2 Leak)
-        sorted_leaks = sorted(detected_leaks, key=lambda x: x["final_severity_score"], reverse=True)
+        # Step 6: Key Friction Insight
+        sorted_leaks = sorted(detected_leaks, key=lambda x: x.get("final_severity_score", 0.0), reverse=True)
         key_friction = {}
         if len(sorted_leaks) >= 2:
             rank2 = sorted_leaks[1]
             key_friction = {
-                "reason": rank2["description"],
-                "revenue_loss_pct": round(rank2["final_severity_score"], 1)
+                "reason": rank2.get("description", ""),
+                "revenue_loss_pct": round(float(rank2.get("final_severity_score", 0.0)), 1)
             }
         elif len(sorted_leaks) == 1:
             rank1 = sorted_leaks[0]
             key_friction = {
-                "reason": rank1["description"],
-                "revenue_loss_pct": round(rank1["final_severity_score"], 1)
+                "reason": rank1.get("description", ""),
+                "revenue_loss_pct": round(float(rank1.get("final_severity_score", 0.0)), 1)
             }
 
-        # Step 7: Calculate Niche-Specific Revenue Leak Estimate
+        # Step 7: Revenue Leak Estimate
         revenue_leak = {}
         if harsh_overall_score < 75:
             gap = 75 - harsh_overall_score
@@ -219,12 +233,10 @@ class RevenueScorer:
             "tier_10_arch10": [self._format_leak_item(leak, 10) for leak in sorted_leaks[:10]]
         }
 
-        # Step 9: Vault ID based on score bracket
         vault_id = self._get_vault_id(harsh_overall_score)
 
-        # Step 10: Construct Final Response
         return {
-            "target_domain": scan_data.get("domain", ""),
+            "target_domain": str(scan_data.get("domain") or ""),
             "business_type": biz_type,
             "overall_health_score": harsh_overall_score,
             "overall_score": round(harsh_overall_score),
@@ -239,22 +251,20 @@ class RevenueScorer:
             "total_severity_index": round(total_severity_loss, 2),
             "tiered_remediation_packages": tiered_reports,
             "vault_id": vault_id,
-            "cms_platform": scan_data.get("cms_platform", "")
+            "cms_platform": str(scan_data.get("cms_platform") or "")
         }
 
     def _get_base_weight(self, rule_key: str, biz_type: str) -> int:
-        """Retrieves vertical-specific base weight for a given rule."""
         rule_weights = RULE_BASE_WEIGHTS.get(rule_key, {})
-        return rule_weights.get(biz_type, 5)
+        return int(rule_weights.get(biz_type, 5))
 
     def _evaluate_checkpoints(self, data: Dict[str, Any], biz_type: str, competitor_has_feature: bool) -> List[Dict[str, Any]]:
-        """Evaluates compliance rules dynamically weighted by business model, category weights, and conditional severity factors (graded work scaling)."""
         biz_matrix = BUSINESS_MODEL_MATRIX[biz_type]
         cat_weights = CATEGORY_WEIGHTS_BY_BIZ[biz_type]
         leaks = []
 
-        # Rule 1: Missing SSL Security Anchor (Binary Failure)
-        if not data.get("has_ssl", False):
+        # Rule 1: SSL Check
+        if not bool(data.get("has_ssl", False)):
             base_w = self._get_base_weight("unsecured_ssl", biz_type)
             leaks.append(self._build_leak(
                 rule_key="unsecured_ssl",
@@ -269,8 +279,12 @@ class RevenueScorer:
                 severity_factor=1.0
             ))
 
-        # Rule 2: Mobile Core Web Vitals Latency (Graded Continuum)
-        perf_score = data.get("performance_score", 100.0)
+        # Rule 2: Core Web Vitals Check
+        try:
+            perf_score = float(data.get("performance_score") or 100.0)
+        except (ValueError, TypeError):
+            perf_score = 100.0
+
         if perf_score < 60.0:
             sev_factor = round(max(0.3, (60.0 - perf_score) / 45.0), 2)
             base_w = self._get_base_weight("core_web_vitals", biz_type)
@@ -295,9 +309,9 @@ class RevenueScorer:
                 severity_factor=sev_factor
             ))
 
-        # Rule 3: Mobile Click-to-Call / Action Target (Graded Scale)
-        has_call = data.get("click_to_call_present", False)
-        tap_targets_flagged = data.get("tap_targets_flagged", False)
+        # Rule 3: Click-to-Call Check
+        has_call = bool(data.get("click_to_call_present", False))
+        tap_targets_flagged = bool(data.get("tap_targets_flagged", False))
         
         if not has_call:
             base_w = self._get_base_weight("click_to_call", biz_type)
@@ -331,11 +345,11 @@ class RevenueScorer:
                 severity_factor=0.5
             ))
 
-        # Rule 4: Mobile Sticky CTA & Pre-Purchase Support Check (Vertical Dual Check)
+        # Rule 4: Mobile Sticky CTA / E-Commerce Support Check
         is_ecommerce = (biz_type == "ecommerce")
         if is_ecommerce:
-            has_cart = data.get("add_to_cart_visible", False) or data.get("mobile_cta_visible", False)
-            has_support = data.get("click_to_call_present", False) or data.get("live_chat_present", False) or data.get("whatsapp_present", False)
+            has_cart = bool(data.get("add_to_cart_visible", False)) or bool(data.get("mobile_cta_visible", False))
+            has_support = bool(data.get("click_to_call_present", False)) or bool(data.get("live_chat_present", False)) or bool(data.get("whatsapp_present", False))
             
             if not has_cart and not has_support:
                 cta_title = "Absence of Mobile Sticky Add-to-Cart & Pre-Purchase Support"
@@ -347,7 +361,7 @@ class RevenueScorer:
                 sev_factor = 0.75
             elif not has_support:
                 cta_title = "E-Commerce Pre-Purchase Query Friction (No Instant Support)"
-                cta_desc = "Product pages feature a cart button but lack instant query access (Live Chat/WhatsApp), leaving customer sizing/shipping doubts unresolved."
+                cta_desc = "Product pages feature a cart button but lack instant query access, leaving sizing/shipping doubts unresolved."
                 sev_factor = 0.50
             else:
                 sev_factor = 0.0
@@ -367,7 +381,7 @@ class RevenueScorer:
                     severity_factor=sev_factor
                 ))
         else:
-            if not data.get("mobile_cta_visible", False):
+            if not bool(data.get("mobile_cta_visible", False)):
                 base_w = self._get_base_weight("mobile_sticky_cta", biz_type)
                 leaks.append(self._build_leak(
                     rule_key="mobile_sticky_cta",
@@ -382,15 +396,22 @@ class RevenueScorer:
                     severity_factor=1.0
                 ))
 
-        # Rule 5: Hero Heading (H1) Positioning (Graded Implementation)
+        # Rule 5: Hero Heading (H1) Check
         h1_tags = data.get("h1_tags", [])
+        if not isinstance(h1_tags, list):
+            h1_tags = []
+            
+        ai_flags = data.get("ai_flags", {})
+        if not isinstance(ai_flags, dict):
+            ai_flags = {}
+
         if len(h1_tags) == 0:
             sev_factor = 1.0
             desc = "Zero H1 tags found, completely stripping clear positioning and hero visual hierarchy."
         elif len(h1_tags) > 1:
             sev_factor = 0.6
             desc = f"Found {len(h1_tags)} H1 tags, diluting primary keyword focus and hero messaging structure."
-        elif data.get("ai_flags", {}).get("generic_headline", False):
+        elif bool(ai_flags.get("generic_headline", False)):
             sev_factor = 0.4
             desc = "Single H1 tag detected, but uses generic low-converting headline phrasing."
         else:
@@ -411,12 +432,24 @@ class RevenueScorer:
                 severity_factor=sev_factor
             ))
 
-        # Rule 6: Image Accessibility & Alt Text (Ratio-Based Scale)
-        missing_alt = data.get("missing_alt_images", 0)
+        # Rule 6: Image Alt Text Check
+        try:
+            missing_alt = int(data.get("missing_alt_images") or 0)
+        except (ValueError, TypeError):
+            missing_alt = 0
+
         if missing_alt > 0:
-            total_img = data.get("total_images", max(1, missing_alt + data.get("images_with_alt", 0)))
+            try:
+                images_with_alt = int(data.get("images_with_alt") or 0)
+            except (ValueError, TypeError):
+                images_with_alt = 0
+                
+            try:
+                total_img = int(data.get("total_images") or max(1, missing_alt + images_with_alt))
+            except (ValueError, TypeError):
+                total_img = max(1, missing_alt)
+
             missing_ratio = min(1.0, missing_alt / max(1, total_img))
-            
             sev_factor = 1.0 if missing_ratio >= 0.75 else (0.6 if missing_ratio >= 0.3 else 0.3)
             title = "Missing Alt Accessibility & E-E-A-T Anchors" if sev_factor >= 0.8 else "Partial Image Accessibility & Alt Text Deficit"
             
@@ -434,8 +467,8 @@ class RevenueScorer:
                 severity_factor=sev_factor
             ))
 
-        # Rule 7: Missing Favicon Hygiene Check (Binary)
-        if not data.get("favicon_present", True):
+        # Rule 7: Favicon Check
+        if not bool(data.get("favicon_present", True)):
             base_w = self._get_base_weight("favicon_present", biz_type)
             leaks.append(self._build_leak(
                 rule_key="favicon_present",
@@ -450,8 +483,8 @@ class RevenueScorer:
                 severity_factor=1.0
             ))
 
-        # Rule 8: Missing HTML Language Attribute (Binary)
-        if not data.get("html_lang_present", True):
+        # Rule 8: HTML Language Attribute Check
+        if not bool(data.get("html_lang_present", True)):
             base_w = self._get_base_weight("html_lang_attribute", biz_type)
             leaks.append(self._build_leak(
                 rule_key="html_lang_attribute",
@@ -466,8 +499,12 @@ class RevenueScorer:
                 severity_factor=1.0
             ))
 
-        # Rule 9: AI Template & Content Match (Graded Continuum)
-        ai_pct = data.get("ai_spectrum_pct", 0.0)
+        # Rule 9: AI Content Similarity Check
+        try:
+            ai_pct = float(data.get("ai_spectrum_pct") or 0.0)
+        except (ValueError, TypeError):
+            ai_pct = 0.0
+
         if ai_pct > 35.0:
             sev_factor = round(min(1.0, (ai_pct - 35.0) / 40.0), 2)
             base_w = self._get_base_weight("ai_template_similarity", biz_type)
@@ -495,11 +532,10 @@ class RevenueScorer:
         return leaks
 
     def _build_leak(self, rule_key: str, title: str, base_weight: int, category: str, category_mult: float, biz_mult: float, competitor_bonus: int, relevance_bonus: int, description: str, severity_factor: float = 1.0) -> Dict[str, Any]:
-        """Calculates final severity score using exact formulas scaled by a conditional severity factor (0.0 to 1.0)."""
-        sev_factor = max(0.0, min(1.0, severity_factor))
-        raw_weighted_base = base_weight * category_mult * biz_mult
+        sev_factor = max(0.0, min(1.0, float(severity_factor)))
+        raw_weighted_base = float(base_weight) * float(category_mult) * float(biz_mult)
         scaled_base = raw_weighted_base * sev_factor
-        final_severity = scaled_base + (competitor_bonus * sev_factor) + (relevance_bonus * sev_factor)
+        final_severity = scaled_base + (float(competitor_bonus) * sev_factor) + (float(relevance_bonus) * sev_factor)
         
         return {
             "rule_key": rule_key,
@@ -516,13 +552,12 @@ class RevenueScorer:
         }
 
     def _format_leak_item(self, leak: Dict[str, Any], tier_level: int) -> Dict[str, Any]:
-        """Formats individual leak dict with exact Tier ID prefix."""
         return {
             "id": self.generate_tier_id(tier_level),
-            "severity_score": leak["final_severity_score"],
-            "leak_name": leak["title"],
-            "impact_summary": leak["description"],
-            "category": leak["category"]
+            "severity_score": float(leak.get("final_severity_score", 0.0)),
+            "leak_name": str(leak.get("title", "")),
+            "impact_summary": str(leak.get("description", "")),
+            "category": str(leak.get("category", ""))
         }
 
     def _get_score_rating(self, score: float) -> str:
