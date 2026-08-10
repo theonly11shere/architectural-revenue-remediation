@@ -86,6 +86,21 @@ def _verified(*statuses: Any) -> bool:
     return any(str(value or "").lower() == "verified" for value in statuses)
 
 
+def _unknown_reason(cp_id: int, scan: Dict[str, Any]) -> Dict[str, str]:
+    """Explain why a checkpoint remains UNKNOWN without implying a hidden failure."""
+    if cp_id == 29:
+        return {"code": "FIELD_DATA_UNAVAILABLE", "customer_note": "Real-user INP requires eligible field telemetry (for example CrUX). No field value was available, so this check is unscored."}
+    if cp_id in {7, 36}:
+        return {"code": "PUBLIC_PROVENANCE_LIMIT", "customer_note": "Image originality/provenance cannot always be proven from public markup alone. The scanner does not guess."}
+    if cp_id == 49:
+        return {"code": "JURISDICTION_CONTEXT_REQUIRED", "customer_note": "Cookie-consent requirements depend on jurisdiction, tracking behavior and consent configuration. Absence is not automatically treated as failure."}
+    if cp_id == 50:
+        return {"code": "SAFE_SUBMISSION_LIMIT", "customer_note": "The scanner avoids destructive or customer-facing live submissions. Form delivery remains unscored unless safely verifiable."}
+    if cp_id in {28, 30, 32, 33}:
+        return {"code": "GOOGLE_TELEMETRY_UNAVAILABLE", "customer_note": "The relevant Google/Lighthouse metric was unavailable in this scan. No deduction is applied."}
+    return {"code": "PUBLIC_VERIFICATION_GAP", "customer_note": "This signal could not be independently verified from the public evidence available during the scan. It is not scored as a failure."}
+
+
 def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] | None = None) -> List[Dict[str, Any]]:
     scan = scan_data or {}
     audit = audit_data or {}
@@ -111,6 +126,7 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
     def add(cp_id: int, name: str, status: str, category: str, evidence: Any = None, reason: str = "") -> None:
         meta = CHECKPOINT_RULE_META.get(cp_id, {})
         dedicated = DEDICATED_CHECKPOINT_RULES.get(cp_id)
+        unknown_meta = _unknown_reason(cp_id, scan) if status == UNKNOWN else {"code": "", "customer_note": ""}
         checkpoints.append(
             {
                 "id": cp_id,
@@ -124,6 +140,8 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
                 "report_weight": float(meta.get("weight") or 0.0),
                 "severity_factor": float(meta.get("severity") or 0.0),
                 "dedicated_rule": bool(dedicated),
+                "unknown_reason_code": unknown_meta["code"],
+                "customer_note": reason or unknown_meta["customer_note"],
             }
         )
 
@@ -234,17 +252,26 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
     return checkpoints
 
 
-def checkpoint_summary(checkpoints: List[Dict[str, Any]]) -> Dict[str, int]:
+def checkpoint_summary(checkpoints: List[Dict[str, Any]]) -> Dict[str, Any]:
     counts = {PASS: 0, FAIL: 0, UNKNOWN: 0, NA: 0}
+    unknown_breakdown: Dict[str, int] = {}
     for checkpoint in checkpoints:
         status = checkpoint.get("status")
         if status in counts:
             counts[status] += 1
+        if status == UNKNOWN:
+            code = str(checkpoint.get("unknown_reason_code") or "PUBLIC_VERIFICATION_GAP")
+            unknown_breakdown[code] = unknown_breakdown.get(code, 0) + 1
+    applicable = max(0, len(checkpoints) - counts[NA])
+    verified = counts[PASS] + counts[FAIL]
     return {
-        "verified": counts[PASS] + counts[FAIL],
+        "verified": verified,
         "passed": counts[PASS],
         "failed": counts[FAIL],
         "unknown": counts[UNKNOWN],
         "not_applicable": counts[NA],
         "total": len(checkpoints),
+        "applicable": applicable,
+        "verified_applicable_ratio": round(verified / applicable, 3) if applicable else 0.0,
+        "unknown_breakdown": unknown_breakdown,
     }

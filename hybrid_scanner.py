@@ -178,6 +178,7 @@ class _StaticHTMLProbe(HTMLParser):
 
 
 class HybridScanner:
+    ENGINE_VERSION = "v5"
     """Three-phase scanner with evidence confidence and business context."""
 
     def __init__(self, google_api_key: Optional[str] = None):
@@ -254,6 +255,7 @@ class HybridScanner:
 
         combined["scan_quality"] = self._build_scan_quality(combined)
         combined["evidence_coverage"] = self._evidence_coverage(combined)
+        combined["scanner_engine_version"] = self.ENGINE_VERSION
         return combined
 
     @staticmethod

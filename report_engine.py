@@ -35,7 +35,9 @@ class ReportGenerator:
         summary = audit.get("checkpoint_summary") or checkpoint_summary(checkpoints)
 
         packages = audit.get("tiered_remediation_packages") or {}
-        leaks = packages.get("all_scoring_leaks") or packages.get("tier_10_arch10") or []
+        # V5 customer report prefers the family-consolidated Top-10 package.
+        # all_scoring_leaks remains raw/backward-compatible for integrations and Vault analysis.
+        leaks = packages.get("tier_10_arch10") or packages.get("all_scoring_leaks") or []
         sorted_leaks = sorted(
             [item for item in leaks if isinstance(item, dict)],
             key=lambda item: float(item.get("severity_score") or item.get("final_score_loss") or 0.0),
@@ -86,6 +88,7 @@ class ReportGenerator:
             "verified_financial_leak_count": len(enriched),
             "full_50_checkpoint_basis": checkpoints,
             "checkpoint_summary": summary,
+            "verification_coverage_note": self._verification_coverage_note(summary),
             "behavioral_diagnostics": audit.get("behavioral_diagnostics", {}),
             "ai_spectrum_pct": audit.get("ai_spectrum_pct"),
             "ai_spectrum_status": audit.get("ai_spectrum_status", scan.get("ai_spectrum_status", "unknown")),
@@ -109,6 +112,7 @@ class ReportGenerator:
             return findings
 
         used_names = {str(item.get("leak_name") or "") for item in findings}
+        used_families = {str(item.get("family") or "") for item in findings if item.get("family")}
         # Prefer verified PASS checks that represent mature commercial dimensions. They are not
         # reclassified as failures; they simply become next-step opportunities in the action file.
         preferred_ids = [26, 28, 29, 30, 32, 33, 35, 11, 14, 21, 27, 44, 45, 46, 47, 48, 13, 10, 9, 15]
@@ -118,6 +122,11 @@ class ReportGenerator:
                 break
             cp = by_id.get(cp_id)
             if not cp or cp.get("status") != PASS:
+                continue
+            cp_family = str(cp.get("family") or "")
+            # Do not fill the action list with another member of a family already represented
+            # by a verified leak (e.g. performance or trust proof).
+            if cp_family and cp_family in used_families:
                 continue
             name = str(cp.get("check") or "Verified strength")
             display = f"Optimization Opportunity — {name}"
@@ -141,6 +150,8 @@ class ReportGenerator:
             leak["solutions_3_angles"] = self._build_opportunity_solution(cp, scan, business_profile)
             findings.append(leak)
             used_names.add(display)
+            if cp_family:
+                used_families.add(cp_family)
 
         # If there still are not ten items, use UNKNOWNs only as verification actions, never as
         # revenue failures. This keeps the file complete while preserving evidence integrity.
@@ -148,6 +159,9 @@ class ReportGenerator:
             if len(findings) >= 10:
                 break
             if cp.get("status") != UNKNOWN:
+                continue
+            cp_family = str(cp.get("family") or "")
+            if cp_family and cp_family in used_families:
                 continue
             name = str(cp.get("check") or "Telemetry")
             display = f"Verification Priority — {name}"
@@ -157,7 +171,7 @@ class ReportGenerator:
                 "rule_key": f"verification_{int(cp.get('id') or 0):02d}",
                 "checkpoint_id": cp.get("id"),
                 "leak_name": display,
-                "impact_summary": "The scanner could not verify this checkpoint from available evidence. It is not scored as a failure; the action is to improve/verifiably expose the signal before making a revenue claim.",
+                "impact_summary": str(cp.get("customer_note") or "The scanner could not verify this checkpoint from available public evidence. It is not scored as a failure."),
                 "category": cp.get("category", ""),
                 "evidence": cp.get("evidence"),
                 "source": "Unresolved checkpoint telemetry",
@@ -178,6 +192,8 @@ class ReportGenerator:
             }
             findings.append(leak)
             used_names.add(display)
+            if cp_family:
+                used_families.add(cp_family)
         return findings[:10]
 
     @staticmethod
@@ -659,6 +675,24 @@ class ReportGenerator:
     def _checkpoint_summary(checkpoints: List[Dict[str, Any]]) -> Dict[str, int]:
         return checkpoint_summary(checkpoints)
 
+    @staticmethod
+    def _verification_coverage_note(summary: Dict[str, Any]) -> str:
+        verified = int(summary.get("verified") or 0)
+        applicable = int(summary.get("applicable") or max(0, 50 - int(summary.get("not_applicable") or 0)))
+        unknown = int(summary.get("unknown") or 0)
+        ratio = float(summary.get("verified_applicable_ratio") or (verified / applicable if applicable else 0.0))
+        if ratio >= 0.80:
+            level = "High public-evidence coverage"
+        elif ratio >= 0.60:
+            level = "Moderate public-evidence coverage"
+        else:
+            level = "Limited public-evidence coverage"
+        return (
+            f"{level}: {verified}/{applicable} applicable checkpoints were independently verified. "
+            f"The remaining {unknown} unknown checkpoint(s) are unscored verification limits, not hidden failures; "
+            "some require real-user field data, jurisdiction context, private analytics, or a safe live transaction/submission that the scanner intentionally does not fabricate."
+        )
+
     def send_admin_alert_email(self, admin_report: Dict[str, Any]) -> bool:
         if not self.resend_api_key:
             print("[Email] RESEND_API_KEY not configured — skipping email")
@@ -710,6 +744,7 @@ class ReportGenerator:
         methodology = report.get("scoring_methodology") or {}
         score_impact = report.get("score_level_impact") or {}
         summary = report.get("checkpoint_summary") or self._checkpoint_summary(report.get("full_50_checkpoint_basis") or [])
+        coverage_note = html.escape(str(report.get("verification_coverage_note") or self._verification_coverage_note(summary)))
 
         score_color = "#22C55E" if score >= 75 else "#D8B66A" if score >= 50 else "#EF4444"
         leaks_html = ""
@@ -777,6 +812,7 @@ class ReportGenerator:
         <h3 style="font-family:Georgia,serif; font-size:16px; color:#D8B66A; margin:0 0 12px 0;">📊 Full 50-Point Checkpoint Basis</h3>
         <p style="font-family:Inter,sans-serif; font-size:14px; margin:0 0 8px 0;">Verified: <strong>{summary.get('verified',0)}</strong> &nbsp;|&nbsp; Passed: <span style="color:#22C55E; font-weight:700;">{summary.get('passed',0)}</span> &nbsp;|&nbsp; Failed: <span style="color:#EF4444; font-weight:700;">{summary.get('failed',0)}</span></p>
         <p style="font-family:Inter,sans-serif; font-size:12px; color:#A9A7A0; margin:0 0 5px 0;">Unknown: {summary.get('unknown',0)} &nbsp;|&nbsp; N/A: {summary.get('not_applicable',0)}</p>
+        <p style="font-family:Inter,sans-serif; font-size:12px; color:#D1D5DB; margin:8px 0 5px 0; line-height:1.5;"><strong>Verification Coverage:</strong> {coverage_note}</p>
         <p style="font-family:Inter,sans-serif; font-size:12px; color:#A9A7A0; margin:0;">Trust & Conversion: 15 checks | SEO & Technical: 20 checks | Content & E-E-A-T: 15 checks</p>
     </div>
 

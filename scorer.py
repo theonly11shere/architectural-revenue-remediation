@@ -106,6 +106,49 @@ LEAK_FAMILY = {
 }
 
 
+# V5 commercial ranking: conversion/revenue consequences outrank ordinary SEO hygiene.
+# This does not alter whether a checkpoint is measured; it changes which verified
+# issues are surfaced first in customer-facing findings.
+COMMERCIAL_PRIORITY_BY_FAMILY = {
+    "conversion_execution": 5.0,
+    "mobile_direct_action": 5.0,
+    "mobile_foundation": 4.8,
+    "mobile_usability": 4.6,
+    "trust_proof": 4.2,
+    "trust_local": 4.1,
+    "trust_policy": 3.8,
+    "trust_identity": 3.6,
+    "measurement": 3.8,
+    "performance": 3.7,
+    "hero_clarity": 3.7,
+    "accessibility_content": 3.2,
+    "content_support": 3.1,
+    "content_depth": 2.8,
+    "content_distinctiveness": 2.8,
+    "content_eeat": 2.7,
+    "search_structure": 2.2,
+    "search_snippet": 1.8,
+    "crawlability": 1.7,
+    "technical_hygiene": 1.5,
+    "foundation_security": 5.0,
+}
+
+DEDUP_SUPERFAMILY = {
+    # All performance threshold/audit signals describe one performance architecture problem.
+    "performance": "performance_architecture",
+    # Phone visibility, tap-to-call, sticky CTA and instant contact are one direct-action family.
+    "mobile_direct_action": "mobile_direct_action",
+    # H1 dedicated and topic-relevance checkpoint are one hero-clarity family.
+    "hero_clarity": "hero_clarity",
+    # AI/template and generic headline are one distinctiveness family.
+    "content_distinctiveness": "content_distinctiveness",
+    # Form dedicated and unlinked-form checkpoint are one conversion execution family.
+    "conversion_execution": "conversion_execution",
+    # Review/testimonial/social-proof/case-study signals can support one trust-proof finding.
+    "trust_proof": "trust_proof",
+}
+
+
 class RevenueScorer:
     """Evidence-backed Trilloka scoring engine."""
 
@@ -197,9 +240,11 @@ class RevenueScorer:
         overall = round(max(0.0, min(100.0, pre_clamp)), 1)
 
         sorted_leaks = sorted(leaks, key=lambda item: item.get("final_score_loss", 0.0), reverse=True)
+        report_leaks = self._consolidate_report_families(sorted_leaks)
+        report_leaks = sorted(report_leaks, key=self._commercial_sort_key, reverse=True)
         key_friction = {}
-        if sorted_leaks:
-            top = sorted_leaks[0]
+        if report_leaks:
+            top = report_leaks[0]
             key_friction = {
                 "reason": top.get("description", ""),
                 # Legacy key retained for frontend compatibility; value is score-loss points, not a measured revenue percentage.
@@ -228,10 +273,11 @@ class RevenueScorer:
         }
 
         tiered = {
-            "tier_3_ifyb3": [self._format_leak_item(leak, 3) for leak in sorted_leaks[:3]],
-            "tier_6_mbtb6": [self._format_leak_item(leak, 6) for leak in sorted_leaks[:6]],
-            "tier_8_noly8": [self._format_leak_item(leak, 8) for leak in sorted_leaks[:8]],
-            "tier_10_arch10": [self._format_leak_item(leak, 10) for leak in sorted_leaks[:10]],
+            "tier_3_ifyb3": [self._format_leak_item(leak, 3) for leak in report_leaks[:3]],
+            "tier_6_mbtb6": [self._format_leak_item(leak, 6) for leak in report_leaks[:6]],
+            "tier_8_noly8": [self._format_leak_item(leak, 8) for leak in report_leaks[:8]],
+            "tier_10_arch10": [self._format_leak_item(leak, 10) for leak in report_leaks[:10]],
+            # Backward-compatible raw leak list. Customer report uses tier_10_arch10, which is family-consolidated.
             "all_scoring_leaks": [self._format_leak_item(leak, 10) for leak in sorted_leaks],
         }
 
@@ -259,7 +305,8 @@ class RevenueScorer:
             "ai_spectrum_pct": ai_pct,
             "ai_spectrum_status": scan_data.get("ai_spectrum_status", "unknown"),
             "behavioral_diagnostics": behavioral,
-            "total_leaks_found": len(sorted_leaks),
+            "total_leaks_found": len(report_leaks),
+            "raw_scoring_signal_count": len(sorted_leaks),
             "total_severity_index": total_loss,
             "tiered_remediation_packages": tiered,
             "vault_id": self._get_vault_id(overall),
@@ -1181,6 +1228,60 @@ class RevenueScorer:
                 )
         return leaks, adjustments
 
+    @staticmethod
+    def _commercial_sort_key(leak: Dict[str, Any]) -> tuple:
+        family = str(leak.get("family") or leak.get("rule_key") or "")
+        priority = float(leak.get("commercial_priority") or COMMERCIAL_PRIORITY_BY_FAMILY.get(family, 2.5))
+        loss = float(leak.get("final_score_loss") or 0.0)
+        severity = float(leak.get("severity_factor") or 0.0)
+        # Revenue consequence is primary; score contribution and severity break ties.
+        return (priority, loss, severity)
+
+    def _consolidate_report_families(self, leaks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Collapse related scoring signals into one customer-facing commercial finding.
+
+        The full raw signals remain in scoring_ledger and overlap_adjustments. The customer
+        should not see PageSpeed<60, PageSpeed<90, LCP, and render-blocking as four separate
+        revenue problems when they are evidence for one performance-architecture issue.
+        """
+        groups: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        for leak in leaks:
+            family = str(leak.get("family") or leak.get("rule_key") or "uncategorized")
+            superfamily = DEDUP_SUPERFAMILY.get(family, family)
+            groups[superfamily].append(leak)
+
+        consolidated: List[Dict[str, Any]] = []
+        for superfamily, items in groups.items():
+            ordered = sorted(items, key=lambda x: float(x.get("final_score_loss") or 0.0), reverse=True)
+            primary = dict(ordered[0])
+            family_total = round(sum(float(x.get("final_score_loss") or 0.0) for x in ordered), 2)
+            primary["final_score_loss"] = family_total
+            primary["final_severity_score"] = family_total
+            primary["severity_score"] = family_total
+            primary["family"] = superfamily
+            primary["commercial_priority"] = COMMERCIAL_PRIORITY_BY_FAMILY.get(
+                str(ordered[0].get("family") or superfamily),
+                COMMERCIAL_PRIORITY_BY_FAMILY.get(superfamily, 2.5),
+            )
+            primary["supporting_rule_keys"] = [str(x.get("rule_key") or "") for x in ordered]
+            primary["supporting_findings"] = [
+                {
+                    "rule_key": x.get("rule_key"),
+                    "title": x.get("title"),
+                    "score_loss": x.get("final_score_loss"),
+                    "evidence": x.get("evidence"),
+                    "source": x.get("source"),
+                }
+                for x in ordered
+            ]
+            if len(ordered) > 1:
+                primary["description"] = (
+                    str(primary.get("description") or "")
+                    + f" Supporting telemetry from {len(ordered) - 1} related check(s) was consolidated into this finding rather than reported as duplicate leaks."
+                )
+            consolidated.append(primary)
+        return consolidated
+
     def _conversion_substitution(
         self, rule_key: str, biz_type: str, data: Dict[str, Any], profile: Dict[str, Any]
     ) -> float:
@@ -1238,6 +1339,9 @@ class RevenueScorer:
             "pre_dedupe_penalty": leak.get("pre_dedupe_penalty"),
             "family_adjustment": leak.get("family_adjustment"),
             "final_score_loss": leak.get("final_score_loss"),
+            "commercial_priority": leak.get("commercial_priority", COMMERCIAL_PRIORITY_BY_FAMILY.get(str(leak.get("family") or ""), 2.5)),
+            "supporting_rule_keys": leak.get("supporting_rule_keys") or [leak.get("rule_key")],
+            "supporting_findings": leak.get("supporting_findings") or [],
         }
 
     @staticmethod
