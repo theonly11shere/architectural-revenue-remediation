@@ -64,7 +64,7 @@ class AdminAuthManager:
         self.from_email = os.environ.get(
             "ADMIN_OTP_FROM_EMAIL", os.environ.get("FROM_EMAIL", "alerts@trilloka.com")
         ).strip()
-        self.otp_ttl_seconds = max(120, int(os.environ.get("ADMIN_OTP_TTL_SECONDS", "600")))
+        self.otp_ttl_seconds = max(120, int(os.environ.get("ADMIN_OTP_TTL_SECONDS", "1800")))
         self.session_ttl_seconds = max(120, int(os.environ.get("ADMIN_SESSION_TTL_SECONDS", "900")))
         self.request_cooldown_seconds = max(15, int(os.environ.get("ADMIN_OTP_REQUEST_COOLDOWN_SECONDS", "60")))
         self.max_requests_per_hour = max(1, int(os.environ.get("ADMIN_OTP_MAX_REQUESTS_PER_HOUR", "5")))

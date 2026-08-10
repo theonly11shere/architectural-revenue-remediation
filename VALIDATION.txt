@@ -33,7 +33,7 @@ Owner OTP behavior tested:
 - /docs, /redoc and /openapi.json are not public
 
 Owner security defaults:
-- code TTL: 10 minutes
+- code TTL: 30 minutes
 - owner session TTL: 15 minutes
 - max wrong attempts: 5
 - request cooldown: 60 seconds in production example
