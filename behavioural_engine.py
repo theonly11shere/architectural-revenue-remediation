@@ -1,132 +1,157 @@
-import math
-from typing import Dict, Any, List
+"""Trilloka behavioural risk heuristics.
+
+These outputs are modeled diagnostic indices, not observed analytics. Legacy keys are
+retained for compatibility, but the payload explicitly labels the estimates.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List
+
 
 class BehaviouralEngine:
-    """
-    Trilloka Behavioural Engine:
-    Evaluates user psychology, visual friction, hero clarity, 
-    and estimated visitor bounce risk probability from telemetry.
-    """
-
     def analyze_behavioral_friction(self, scraped_data: Dict[str, Any], business_type: str = "general") -> Dict[str, Any]:
-        """Runs behavioral heuristics analysis on scraped page telemetry, tailored by business vertical."""
-        title = scraped_data.get("title", "")
-        meta_desc = scraped_data.get("meta_description", "")
-        h1_tags = scraped_data.get("h1_tags", [])
-        perf_score = scraped_data.get("performance_score", 65.0)
-        has_ssl = scraped_data.get("has_ssl", False)
-        page_len = scraped_data.get("page_content_len", 0)
-        img_count = scraped_data.get("image_count", 0)
-        missing_alt = scraped_data.get("missing_alt_images", 0)
+        title = str(scraped_data.get("title") or "")
+        meta_desc = str(scraped_data.get("meta_description") or "")
+        h1_tags = scraped_data.get("h1_tags") or []
+        perf_score = scraped_data.get("performance_score")
+        has_ssl = scraped_data.get("has_ssl")
+        word_count = int(scraped_data.get("visible_word_count") or 0)
+        img_count = int(scraped_data.get("image_count") or 0)
+        missing_alt = int(scraped_data.get("missing_alt_images") or 0)
 
-        # 1. Cognitive Load & Readability Friction Score (0-100)
-        cognitive_load_score = self._calc_cognitive_load(page_len, img_count)
-
-        # 2. Hero & Value Proposition Prominence Score (0-100)
-        value_prop_score = self._calc_value_prop_prominence(title, meta_desc, h1_tags)
-
-        # 3. Psychological Trust Anchor Score (0-100)
+        cognitive_load_score = self._calc_cognitive_load(word_count, img_count)
+        value_prop_score = self._calc_value_prop_prominence(title, meta_desc, h1_tags, scraped_data.get("h1_status"))
         trust_anchor_score = self._calc_trust_anchors(has_ssl, missing_alt, img_count)
+        estimated_bounce_risk_index = self._estimate_bounce_risk_index(perf_score, cognitive_load_score, business_type)
 
-        # 4. Behavioral Bounce Risk Probability (0% - 100%)
-        bounce_risk_percentage = self._estimate_bounce_risk(perf_score, cognitive_load_score, business_type)
-
-        # 5. Aggregate Behavioral Score
         behavioral_score = round(
-            (value_prop_score * 0.35) + 
-            (trust_anchor_score * 0.35) + 
-            (cognitive_load_score * 0.30), 
-            1
+            (value_prop_score * 0.35)
+            + (trust_anchor_score * 0.35)
+            + (cognitive_load_score * 0.30),
+            1,
+        )
+
+        leaks = self._extract_behavioral_leaks(
+            value_prop_score,
+            trust_anchor_score,
+            cognitive_load_score,
+            estimated_bounce_risk_index,
+            business_type,
+            scraped_data,
         )
 
         return {
+            "status": "modeled",
             "behavioral_score": behavioral_score,
-            "bounce_risk_percentage": f"{bounce_risk_percentage}%",
+            "estimated_bounce_risk_index": estimated_bounce_risk_index,
+            # Legacy key retained. It is explicitly labeled below as modeled, not observed abandonment.
+            "bounce_risk_percentage": f"{estimated_bounce_risk_index}%",
+            "bounce_risk_kind": "MODELED_ESTIMATE",
             "heuristics": {
                 "cognitive_load_score": cognitive_load_score,
                 "value_prop_prominence": value_prop_score,
-                "trust_anchor_score": trust_anchor_score
+                "trust_anchor_score": trust_anchor_score,
             },
-            # Pass scraped_data down into the extraction logic
-            "behavioral_friction_leaks": self._extract_behavioral_leaks(
-                value_prop_score, trust_anchor_score, cognitive_load_score, bounce_risk_percentage, business_type, scraped_data
-            )
+            "behavioral_friction_leaks": leaks,
         }
 
-    def _calc_cognitive_load(self, page_len: int, img_count: int) -> float:
-        if page_len == 0:
-            return 20.0
-        if page_len < 2000:
-            return 60.0
-        if page_len > 150000:
-            return 55.0
-        return 88.0
+    @staticmethod
+    def _calc_cognitive_load(word_count: int, img_count: int) -> float:
+        if word_count <= 0:
+            return 40.0
+        if word_count < 120:
+            return 68.0
+        if word_count > 2200:
+            return 62.0
+        if img_count > 80:
+            return 65.0
+        return 86.0
 
-    def _calc_value_prop_prominence(self, title: str, meta_desc: str, h1_tags: List[str]) -> float:
+    @staticmethod
+    def _calc_value_prop_prominence(title: str, meta_desc: str, h1_tags: List[str], h1_status: Any) -> float:
         score = 0.0
-        if len(title) >= 10:
-            score += 30.0
-        if len(meta_desc) >= 30:
-            score += 30.0
-        if len(h1_tags) == 1:
-            score += 40.0
-        elif len(h1_tags) > 1:
-            score += 20.0
+        if len(title.strip()) >= 10:
+            score += 25.0
+        if len(meta_desc.strip()) >= 30:
+            score += 25.0
+        if str(h1_status or "").lower() == "present" and len(h1_tags) == 1:
+            score += 50.0
+        elif str(h1_status or "").lower() == "present" and len(h1_tags) > 1:
+            score += 35.0
+        elif str(h1_status or "").lower() == "unknown":
+            # Unknown evidence is neutral rather than a confirmed failure.
+            score += 25.0
         return min(100.0, score)
 
-    def _calc_trust_anchors(self, has_ssl: bool, missing_alt: int, total_img: int) -> float:
+    @staticmethod
+    def _calc_trust_anchors(has_ssl: Any, missing_alt: int, total_img: int) -> float:
         score = 0.0
-        if has_ssl:
-            score += 50.0
+        if has_ssl is True:
+            score += 55.0
+        elif has_ssl is None:
+            score += 30.0
         if total_img > 0:
-            alt_ratio = (total_img - missing_alt) / total_img
-            score += alt_ratio * 50.0
+            alt_ratio = max(0.0, min(1.0, (total_img - missing_alt) / total_img))
+            score += alt_ratio * 45.0
         else:
-            score += 25.0
-        return round(score, 1)
+            score += 30.0
+        return round(min(100.0, score), 1)
 
-    def _estimate_bounce_risk(self, perf_score: float, cognitive_load: float, business_type: str) -> float:
-        base_bounce = max(10.0, (100.0 - perf_score) * 0.75)
-        if cognitive_load < 50.0:
-            base_bounce += 15.0
-        if business_type in ["medspa", "legal"]:
-            base_bounce *= 1.1
-        return round(min(89.0, base_bounce), 1)
+    @staticmethod
+    def _estimate_bounce_risk_index(perf_score: Any, cognitive_load: float, business_type: str) -> float:
+        try:
+            perf = float(perf_score) if perf_score is not None else None
+        except (TypeError, ValueError):
+            perf = None
 
-    def _extract_behavioral_leaks(self, value_prop: float, trust: float, cog_load: float, bounce_risk: float, business_type: str, scraped_data: Dict[str, Any] = None) -> List[str]:
-        leaks = []
-        sd = scraped_data or {}
-        
-        # --- NEW SCRIPT & TELEMETRY LEAK RULES ---
-        if sd.get("is_reachable", True) and not sd.get("has_qualitative_analytics", True):
-            leaks.append("Blind User Telemetry: Missing qualitative session recording (Hotjar/Clarity). Operating without visual cursor/heatmap drop-off data.")
+        # This is intentionally an index, not an observed probability.
+        base = 25.0 if perf is None else max(8.0, (100.0 - perf) * 0.55)
+        if cognitive_load < 60.0:
+            base += 12.0
+        if business_type in {"medspa", "legal", "ecommerce"}:
+            base *= 1.05
+        return round(min(85.0, max(5.0, base)), 1)
 
-        if sd.get("real_user_speed_grade") == "POOR":
-            lcp = sd.get('crux_lcp_ms', 'Unknown')
-            leaks.append(f"CrUX Real-User Speed Warning: Google 28-day field data flags severe mobile latency ({lcp}ms LCP).")
+    def _extract_behavioral_leaks(
+        self,
+        value_prop: float,
+        trust: float,
+        cog_load: float,
+        bounce_index: float,
+        business_type: str,
+        scraped_data: Dict[str, Any],
+    ) -> List[str]:
+        leaks: List[str] = []
+        data = scraped_data or {}
 
-        if sd.get("places_found") and not sd.get("has_visual_review_proof"):
-            leaks.append("Weak Social Proof Integrity: Top Google Business reviews lack attached customer photos/visual job proof.")
+        if data.get("browser_loaded") and not data.get("has_qualitative_analytics"):
+            leaks.append(
+                "Blind Qualitative Telemetry: no Hotjar/Clarity-style session replay signal was detected."
+            )
 
-        # --- STANDARD HEURISTIC RULES ---
-        if value_prop < 70.0:
+        if data.get("real_user_speed_grade") == "POOR":
+            leaks.append(
+                f"CrUX Real-User Speed Warning: field telemetry is poor (LCP {data.get('crux_lcp_ms')} ms where available)."
+            )
+
+        if value_prop < 65.0 and data.get("h1_status") != "unknown":
             if business_type == "legal":
-                leaks.append("Weak Practice Area Value Proposition: H1 heading fails to instantly communicate firm jurisdiction or core legal specialty.")
+                leaks.append("Weak Practice-Area Hero Clarity: the verified hero structure does not strongly support immediate legal positioning.")
             elif business_type == "medspa":
-                leaks.append("Weak Treatment Value Proposition: Hero area lacks clear patient transformation or primary aesthetic offer.")
+                leaks.append("Weak Treatment Hero Clarity: the verified hero structure does not strongly support the primary aesthetic offer.")
             else:
-                leaks.append("Weak Above-the-Fold Hero Clarity: Missing a single focused H1 heading or primary offer tag.")
+                leaks.append("Weak Above-the-Fold Hero Clarity: verified title/meta/H1 signals are not strongly aligned.")
 
-        if trust < 70.0:
-            if business_type in ["legal", "medspa"]:
-                leaks.append("High Credibility Friction: Missing SSL or visual elements required to establish professional/clinical trust.")
-            else:
-                leaks.append("Psychological Trust Friction: Unsecured connection or missing image accessibility attributes.")
+        if trust < 65.0:
+            leaks.append("Modeled Trust Friction: verified security/accessibility signals are weaker than the diagnostic baseline.")
 
         if cog_load < 60.0:
-            leaks.append("High Cognitive Clutter: Layout complexity increases user scanning friction.")
+            leaks.append("Modeled Cognitive-Load Risk: page density may increase scanning friction.")
 
-        if bounce_risk > 40.0:
-            leaks.append(f"Critical Latency Bounce Risk: Estimated {bounce_risk}% visitor abandonment before taking action.")
-            
+        if bounce_index > 40.0:
+            leaks.append(
+                f"Modeled Latency/Clutter Risk Index: {bounce_index}/100. This is a heuristic risk index, not observed visitor abandonment."
+            )
+
         return leaks

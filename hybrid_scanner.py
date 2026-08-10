@@ -1,469 +1,1187 @@
+"""Trilloka production scanning engine.
+
+Single source of truth for HTTP, Google telemetry, mobile DOM evidence,
+business classification and confidence-aware scanner facts.
+
+Backward compatibility:
+- Keeps legacy keys used by the existing scorer/frontend.
+- Adds evidence/status fields; it does not remove public fields.
+- Unknown telemetry is represented explicitly and is never converted into a failure.
+"""
+
+from __future__ import annotations
+
+import json
 import os
-import urllib.parse
-import requests
 import re
-from typing import Dict, Any, List
+import urllib.parse
+from typing import Any, Dict, Iterable, List, Optional, Tuple
+
+import requests
 from playwright.async_api import async_playwright
 
 
-class HybridScanner:
-    """
-    Ultimate Hybrid Scanning Engine:
-    - Phase 1: Fast HTTP Pre-flight (SSL, Status Codes, Server Headers)
-    - Phase 2: Google PageSpeed Insights, CrUX Telemetry, Google Places Data
-    - Phase 3: Mobile Playwright Headless Browser (DOM + AI Pattern Detection + CRO Diagnostics)
-    """
+PHONE_RE = re.compile(r"(?<!\d)(?:\+?1[\s.\-]?)?(?:\(?\d{3}\)?[\s.\-]?)\d{3}[\s.\-]?\d{4}(?!\d)")
+H1_SOURCE_RE = re.compile(r"<h1\b[^>]*>(.*?)</h1\s*>", re.IGNORECASE | re.DOTALL)
+TAG_RE = re.compile(r"<[^>]+>")
 
-    def __init__(self, google_api_key: str = None):
-        # Gracefully supports Railway's PAGESPEED_API_KEY or GOOGLE_API_KEY fallback
+BOT_CHALLENGE_PATTERNS = (
+    "checking your browser",
+    "verify you are human",
+    "attention required",
+    "access denied",
+    "captcha",
+    "cf-chl-",
+    "cloudflare ray id",
+    "unusual traffic",
+    "too many requests",
+)
+
+SOCIAL_DOMAINS = (
+    "facebook.com",
+    "instagram.com",
+    "linkedin.com",
+    "tiktok.com",
+    "youtube.com",
+    "x.com",
+    "twitter.com",
+    "pinterest.com",
+)
+
+
+class HybridScanner:
+    """Three-phase scanner with evidence confidence and business context."""
+
+    def __init__(self, google_api_key: Optional[str] = None):
         self.google_api_key = (
-            google_api_key 
-            or os.environ.get("PAGESPEED_API_KEY", "") 
+            google_api_key
+            or os.environ.get("PAGESPEED_API_KEY", "")
             or os.environ.get("GOOGLE_API_KEY", "")
         )
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": "TrillokaBot/2.0 Revenue Architecture Auditor"})
 
     async def execute_hybrid_scan(self, target_domain: str, business_name: str = "") -> Dict[str, Any]:
-        """Runs the complete 3-phase hybrid telemetry sequence."""
-        url = target_domain if target_domain.startswith(("http://", "https://")) else f"https://{target_domain}"
+        """Run HTTP, Google and mobile-browser evidence collection."""
+        url = self._normalize_url(target_domain)
 
-        # 1. Fast HTTP Pre-flight Check
         http_meta = self._fast_http_preflight(url)
-
-        if not http_meta["is_reachable"]:
-            return {
-                "domain": target_domain,
-                "url": url,
-                "is_reachable": False,
-                "has_ssl": False,
-                "status_code": 0,
-                "title": "",
-                "meta_description": "",
-                "h1_tags": [],
-                "image_count": 0,
-                "missing_alt_images": 0,
-                "page_content_len": 0,
-                "performance_score": 0.0,
-                "google_seo_score": 0.0,
-                "click_to_call_present": False,
-                "mobile_cta_visible": False,
-                "form_payload_fired": False,
-                "tap_targets_flagged": [],
-                "pagespeed_api_status": "unreachable",
-                "psi_raw": {},
-                "ai_spectrum_pct": 0.0,
-                "ai_flags": {},
-                "cms_platform": "",
-                # New Default Flags to prevent downstream KeyError
-                "crux_available": False,
-                "places_found": False,
-                "has_clarity": False,
-                "has_hotjar": False,
-                "has_qualitative_analytics": False,
-                "has_ga4": False,
-                "has_meta_pixel": False
-            }
-
-        # 2. Fetch Google Telemetry (PageSpeed, CrUX, Places)
-        pagespeed_meta = self._fetch_google_pagespeed(url)
-        crux_meta = self._fetch_crux_telemetry(url)
+        site_files = self._fetch_site_files(http_meta.get("final_url") or url)
+        pagespeed_meta = self._fetch_google_pagespeed(http_meta.get("final_url") or url)
+        crux_meta = self._fetch_crux_telemetry(http_meta.get("final_url") or url)
         places_meta = self._fetch_google_places(target_domain, business_name)
-        
-        psi_raw = pagespeed_meta.get("psi_raw", {})
 
-        # 3. Targeted Mobile Playwright Execution
         try:
-            dom_meta = await self._run_targeted_playwright(url, psi_raw)
-        except Exception as e:
-            print(f"[Hybrid Scanner] Playwright skipped: {e}")
-            dom_meta = {
-                "title": "",
-                "meta_description": "",
-                "h1_tags": [],
-                "image_count": 0,
-                "missing_alt_images": 0,
-                "page_content_len": 0,
-                "click_to_call_present": False,
-                "mobile_cta_visible": False,
-                "form_payload_fired": False,
-                "tap_targets_flagged": [],
-                "ai_spectrum_pct": 0.0,
-                "ai_flags": {},
-                "cms_platform": "",
-                "has_clarity": False,
-                "has_hotjar": False,
-                "has_qualitative_analytics": False,
-                "has_ga4": False,
-                "has_meta_pixel": False
-            }
+            dom_meta = await self._run_targeted_playwright(
+                http_meta.get("final_url") or url,
+                pagespeed_meta.get("psi_raw") or {},
+            )
+        except Exception as exc:  # defensive outer boundary
+            print(f"[Hybrid Scanner] Playwright skipped: {exc}")
+            dom_meta = self._empty_dom_meta(error=str(exc))
 
-        return {
+        combined: Dict[str, Any] = {
             "domain": target_domain,
             "url": url,
             **http_meta,
+            **site_files,
             **pagespeed_meta,
             **crux_meta,
             **places_meta,
-            **dom_meta
+            **dom_meta,
         }
 
+        # A response may be blocked to requests but available in the browser, or vice versa.
+        combined["is_reachable"] = bool(
+            http_meta.get("is_reachable") or dom_meta.get("browser_loaded")
+        )
+        combined["has_ssl"] = bool(
+            urllib.parse.urlparse(combined.get("final_url") or url).scheme == "https"
+        )
+
+        business_profile = self._classify_business(combined)
+        combined["business_profile"] = business_profile
+        combined["h1_relevance_status"] = self._assess_h1_relevance(combined, business_profile)
+
+        combined["scan_quality"] = self._build_scan_quality(combined)
+        combined["evidence_coverage"] = self._evidence_coverage(combined)
+        return combined
+
+    @staticmethod
+    def _normalize_url(target_domain: str) -> str:
+        value = (target_domain or "").strip()
+        if not value:
+            raise ValueError("Target domain is required")
+        if value.startswith(("http://", "https://")):
+            return value
+        return f"https://{value}"
+
     def _fast_http_preflight(self, url: str) -> Dict[str, Any]:
-        preflight = {
+        preflight: Dict[str, Any] = {
             "is_reachable": False,
+            "response_ok": False,
             "has_ssl": url.startswith("https://"),
             "status_code": 0,
-            "headers": {}
+            "headers": {},
+            "final_url": url,
+            "redirect_chain": [],
+            "https_redirect_enforced": None,
+            "http_preflight_error": "",
+            "http_bot_challenge_suspected": False,
         }
         try:
-            response = requests.get(url, timeout=10, headers={"User-Agent": "TrillokaBot/1.0 Web Auditor"})
-            preflight["is_reachable"] = True
-            preflight["status_code"] = response.status_code
-            preflight["headers"] = dict(response.headers)
-        except Exception as e:
-            print(f"[Hybrid Scanner] HTTP Preflight failed for {url}: {e}")
+            response = self.session.get(url, timeout=(5, 12), allow_redirects=True)
+            history = [
+                {"status_code": r.status_code, "url": r.url, "location": r.headers.get("Location")}
+                for r in response.history
+            ]
+            preflight.update(
+                {
+                    "is_reachable": True,
+                    "response_ok": 200 <= response.status_code < 400,
+                    "status_code": response.status_code,
+                    "headers": dict(response.headers),
+                    "final_url": response.url,
+                    "redirect_chain": history,
+                    "has_ssl": urllib.parse.urlparse(response.url).scheme == "https",
+                }
+            )
+            body_sample = (response.text or "")[:12000].lower()
+            preflight["http_bot_challenge_suspected"] = (
+                response.status_code in {403, 429}
+                or any(pattern in body_sample for pattern in BOT_CHALLENGE_PATTERNS)
+            )
+        except Exception as exc:
+            preflight["http_preflight_error"] = str(exc)
+            print(f"[Hybrid Scanner] HTTP preflight failed for {url}: {exc}")
+
+        preflight["https_redirect_enforced"] = self._check_https_redirect(url)
         return preflight
+
+    def _check_https_redirect(self, url: str) -> Optional[bool]:
+        try:
+            parsed = urllib.parse.urlparse(url)
+            if not parsed.netloc:
+                return None
+            http_url = urllib.parse.urlunparse(
+                ("http", parsed.netloc, parsed.path or "/", parsed.params, parsed.query, "")
+            )
+            response = self.session.get(http_url, timeout=(4, 8), allow_redirects=True)
+            final_scheme = urllib.parse.urlparse(response.url).scheme.lower()
+            if final_scheme == "https":
+                return True
+            if 200 <= response.status_code < 500:
+                return False
+        except Exception:
+            return None
+        return None
+
+    def _fetch_site_files(self, url: str) -> Dict[str, Any]:
+        parsed = urllib.parse.urlparse(url)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        out: Dict[str, Any] = {
+            "robots_valid": None,
+            "robots_status_code": None,
+            "sitemap_present": None,
+            "sitemap_status_code": None,
+        }
+
+        sitemap_candidates: List[str] = [f"{origin}/sitemap.xml"]
+        try:
+            robots = self.session.get(f"{origin}/robots.txt", timeout=(4, 8), allow_redirects=True)
+            out["robots_status_code"] = robots.status_code
+            if robots.status_code == 200 and (robots.text or "").strip():
+                out["robots_valid"] = True
+                for line in robots.text.splitlines():
+                    if line.lower().startswith("sitemap:"):
+                        candidate = line.split(":", 1)[1].strip()
+                        if candidate.startswith(("http://", "https://")):
+                            sitemap_candidates.insert(0, candidate)
+            elif robots.status_code in {404, 410}:
+                out["robots_valid"] = False
+        except Exception:
+            pass
+
+        for candidate in dict.fromkeys(sitemap_candidates):
+            try:
+                sitemap = self.session.get(candidate, timeout=(4, 8), allow_redirects=True)
+                out["sitemap_status_code"] = sitemap.status_code
+                sample = (sitemap.text or "")[:2000].lower()
+                if sitemap.status_code == 200 and ("<urlset" in sample or "<sitemapindex" in sample):
+                    out["sitemap_present"] = True
+                    out["sitemap_url"] = sitemap.url
+                    break
+                if sitemap.status_code in {404, 410} and out["sitemap_present"] is None:
+                    out["sitemap_present"] = False
+            except Exception:
+                continue
+        return out
 
     def _fetch_google_pagespeed(self, url: str) -> Dict[str, Any]:
         encoded_url = urllib.parse.quote(url, safe="")
         endpoint = (
-            f"https://pagespeedonline.googleapis.com/pagespeedonline/v5/runPagespeed"
+            "https://pagespeedonline.googleapis.com/pagespeedonline/v5/runPagespeed"
             f"?url={encoded_url}&category=PERFORMANCE&category=SEO&strategy=mobile"
         )
         if self.google_api_key:
             endpoint += f"&key={self.google_api_key}"
 
-        try:
-            response = requests.get(endpoint, timeout=15)
-            if response.status_code == 200:
-                data = response.json()
-                categories = data.get("lighthouseResult", {}).get("categories", {})
-                perf_score = categories.get("performance", {}).get("score", 0.65) * 100
-                seo_score = categories.get("seo", {}).get("score", 0.65) * 100
-                return {
-                    "performance_score": round(perf_score, 1),
-                    "google_seo_score": round(seo_score, 1),
-                    "pagespeed_api_status": "success",
-                    "psi_raw": data
-                }
-        except Exception as e:
-            print(f"[Hybrid Scanner] Google PageSpeed API error: {e}")
-
-        return {
-            "performance_score": 65.0,
-            "google_seo_score": 65.0,
-            "pagespeed_api_status": "fallback",
-            "psi_raw": {}
+        unavailable = {
+            "performance_score": None,
+            "google_seo_score": None,
+            "pagespeed_api_status": "unavailable",
+            "pagespeed_error": "",
+            "psi_raw": {},
+            "psi_lcp_ms": None,
+            "psi_cls": None,
+            "psi_viewport_configured": None,
+            "psi_render_blocking_count": None,
+            "psi_tap_targets_flagged": None,
+            "psi_lazy_images_score": None,
         }
 
+        try:
+            response = self.session.get(endpoint, timeout=(5, 20))
+            if response.status_code != 200:
+                unavailable["pagespeed_error"] = f"HTTP {response.status_code}"
+                return unavailable
+
+            data = response.json()
+            lighthouse = data.get("lighthouseResult") or {}
+            categories = lighthouse.get("categories") or {}
+            audits = lighthouse.get("audits") or {}
+
+            def category_score(name: str) -> Optional[float]:
+                raw = (categories.get(name) or {}).get("score")
+                return round(float(raw) * 100, 1) if raw is not None else None
+
+            tap_audit = audits.get("tap-targets") or {}
+            tap_details = (tap_audit.get("details") or {}).get("items")
+            tap_flagged = len(tap_details) if isinstance(tap_details, list) else None
+
+            blocking = audits.get("render-blocking-resources") or {}
+            blocking_items = (blocking.get("details") or {}).get("items")
+            blocking_count = len(blocking_items) if isinstance(blocking_items, list) else None
+
+            return {
+                "performance_score": category_score("performance"),
+                "google_seo_score": category_score("seo"),
+                "pagespeed_api_status": "success",
+                "pagespeed_error": "",
+                "psi_raw": data,
+                "psi_lcp_ms": self._audit_numeric(audits, "largest-contentful-paint"),
+                "psi_cls": self._audit_numeric(audits, "cumulative-layout-shift"),
+                "psi_viewport_configured": self._audit_pass(audits, "viewport"),
+                "psi_render_blocking_count": blocking_count,
+                "psi_tap_targets_flagged": tap_flagged,
+                "psi_lazy_images_score": (audits.get("offscreen-images") or {}).get("score"),
+            }
+        except Exception as exc:
+            unavailable["pagespeed_error"] = str(exc)
+            print(f"[Hybrid Scanner] PageSpeed API error: {exc}")
+            return unavailable
+
+    @staticmethod
+    def _audit_numeric(audits: Dict[str, Any], audit_id: str) -> Optional[float]:
+        value = (audits.get(audit_id) or {}).get("numericValue")
+        try:
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _audit_pass(audits: Dict[str, Any], audit_id: str) -> Optional[bool]:
+        audit = audits.get(audit_id)
+        if not isinstance(audit, dict) or audit.get("score") is None:
+            return None
+        return float(audit.get("score")) >= 0.9
+
     def _fetch_crux_telemetry(self, url: str) -> Dict[str, Any]:
-        """Queries Google CrUX API for 28-day real user field data."""
         if not self.google_api_key:
-            return {"crux_available": False, "crux_reason": "No API Key configured"}
+            return {
+                "crux_available": False,
+                "crux_reason": "No API key configured",
+                "crux_lcp_ms": None,
+                "crux_cls": None,
+                "crux_inp_ms": None,
+                "real_user_speed_grade": "UNKNOWN",
+            }
 
         endpoint = f"https://chromeuxreport.googleapis.com/v1/records:queryRecord?key={self.google_api_key}"
-        
-        # CrUX aggregates best by origin for smaller sites
+        parsed = urllib.parse.urlparse(url)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
         try:
-            parsed = urllib.parse.urlparse(url)
-            origin = f"{parsed.scheme}://{parsed.netloc}"
-        except Exception:
-            origin = url
-
-        try:
-            res = requests.post(endpoint, json={"origin": origin}, timeout=10)
-            if res.status_code == 200:
-                metrics = res.json().get("record", {}).get("metrics", {})
-                lcp = metrics.get("largest_contentful_paint", {}).get("percentiles", {}).get("p75")
-                cls_val = metrics.get("cumulative_layout_shift", {}).get("percentiles", {}).get("p75")
-                inp = metrics.get("interaction_to_next_paint", {}).get("percentiles", {}).get("p75")
-                
+            response = self.session.post(endpoint, json={"origin": origin}, timeout=(4, 12))
+            if response.status_code == 200:
+                metrics = (response.json().get("record") or {}).get("metrics") or {}
+                lcp = self._crux_p75(metrics, "largest_contentful_paint")
+                cls_value = self._crux_p75(metrics, "cumulative_layout_shift")
+                inp = self._crux_p75(metrics, "interaction_to_next_paint")
+                cls_float = float(cls_value) if cls_value is not None else None
                 return {
                     "crux_available": True,
-                    "crux_lcp_ms": lcp,
-                    "crux_cls": float(cls_val) if cls_val is not None else None,
-                    "crux_inp_ms": inp,
-                    "real_user_speed_grade": "POOR" if (lcp and lcp > 4000) else "GOOD"
+                    "crux_reason": "",
+                    "crux_lcp_ms": self._to_float(lcp),
+                    "crux_cls": cls_float,
+                    "crux_inp_ms": self._to_float(inp),
+                    "real_user_speed_grade": self._grade_core_web_vitals(
+                        self._to_float(lcp), self._to_float(inp), cls_float
+                    ),
                 }
-            elif res.status_code == 404:
-                return {"crux_available": False, "crux_reason": "Insufficient traffic for CrUX dataset"}
-        except Exception as e:
-            print(f"[Hybrid Scanner] CrUX API error: {e}")
+            if response.status_code == 404:
+                reason = "Insufficient traffic for CrUX dataset"
+            else:
+                reason = f"CrUX HTTP {response.status_code}"
+        except Exception as exc:
+            reason = str(exc)
+            print(f"[Hybrid Scanner] CrUX API error: {exc}")
+        return {
+            "crux_available": False,
+            "crux_reason": reason,
+            "crux_lcp_ms": None,
+            "crux_cls": None,
+            "crux_inp_ms": None,
+            "real_user_speed_grade": "UNKNOWN",
+        }
 
-        return {"crux_available": False}
+    @staticmethod
+    def _crux_p75(metrics: Dict[str, Any], name: str) -> Any:
+        return ((metrics.get(name) or {}).get("percentiles") or {}).get("p75")
+
+    @staticmethod
+    def _to_float(value: Any) -> Optional[float]:
+        try:
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _grade_core_web_vitals(lcp: Optional[float], inp: Optional[float], cls_value: Optional[float]) -> str:
+        values = [value for value in (lcp, inp, cls_value) if value is not None]
+        if not values:
+            return "UNKNOWN"
+        if (lcp is not None and lcp > 4000) or (inp is not None and inp > 500) or (cls_value is not None and cls_value > 0.25):
+            return "POOR"
+        if (lcp is not None and lcp > 2500) or (inp is not None and inp > 200) or (cls_value is not None and cls_value > 0.1):
+            return "NEEDS_IMPROVEMENT"
+        return "GOOD"
 
     def _fetch_google_places(self, target_domain: str, business_name: str = "") -> Dict[str, Any]:
-        """Queries Places API (New) for rating and visual review proof."""
         if not self.google_api_key:
-            return {"places_found": False}
+            return {"places_found": False, "places_confidence": "unknown"}
 
-        search_query = business_name if business_name else target_domain.replace("https://", "").replace("http://", "").split("/")[0]
+        query = business_name.strip() if business_name else target_domain.replace("https://", "").replace("http://", "").split("/")[0]
         endpoint = "https://places.googleapis.com/v1/places:searchText"
         headers = {
             "Content-Type": "application/json",
             "X-Goog-Api-Key": self.google_api_key,
-            "X-Goog-FieldMask": "places.id,places.displayName,places.rating,places.userRatingCount,places.reviews"
+            "X-Goog-FieldMask": "places.id,places.displayName,places.rating,places.userRatingCount",
         }
-        
         try:
-            res = requests.post(endpoint, json={"textQuery": search_query}, headers=headers, timeout=10)
-            if res.status_code == 200:
-                places = res.json().get("places", [])
+            response = self.session.post(endpoint, json={"textQuery": query}, headers=headers, timeout=(4, 12))
+            if response.status_code == 200:
+                places = response.json().get("places") or []
                 if places:
-                    p = places[0]
-                    reviews = p.get("reviews", [])
-                    # Defensively check if photo payload exists in any review
-                    has_photos = any(isinstance(r.get("photos"), list) and len(r.get("photos")) > 0 for r in reviews)
-                    
+                    place = places[0]
                     return {
                         "places_found": True,
-                        "google_rating": p.get("rating", 0.0),
-                        "google_review_count": p.get("userRatingCount", 0),
-                        "has_visual_review_proof": has_photos
+                        "places_confidence": "medium",
+                        "place_id": place.get("id"),
+                        "place_display_name": (place.get("displayName") or {}).get("text", ""),
+                        "google_rating": place.get("rating"),
+                        "google_review_count": place.get("userRatingCount"),
+                        # Do not manufacture review-photo evidence from a field we did not request.
+                        "has_visual_review_proof": None,
                     }
-        except Exception as e:
-            print(f"[Hybrid Scanner] Places API error: {e}")
+        except Exception as exc:
+            print(f"[Hybrid Scanner] Places API error: {exc}")
+        return {"places_found": False, "places_confidence": "unknown"}
 
-        return {"places_found": False}
-
-    def _analyze_text_ai_patterns(self, text: str) -> float:
-        if not text or len(text.strip()) < 100:
-            return 0.0
-
-        score = 0.0
-        lower_text = text.lower()
-        
-        ai_buzzwords = [
-            "in today's digital", "landscape", "testament to", "delve into", 
-            "seamless integration", "elevate your", "unlock your potential",
-            "beacon of", "moreover", "crucial to understand", "cutting-edge",
-            "fostering", "paramount", "transformative", "revolutionary"
-        ]
-        
-        buzzword_hits = sum(1 for word in ai_buzzwords if word in lower_text)
-        if buzzword_hits >= 3:
-            score += (buzzword_hits * 4.0)
-
-        sentences = [s.strip() for s in re.split(r'[.!?]+', text) if len(s.strip()) > 5]
-        if len(sentences) >= 5:
-            lengths = [len(s.split()) for s in sentences]
-            avg_length = sum(lengths) / len(lengths)
-            variance = sum((l - avg_length) ** 2 for l in lengths) / len(lengths)
-            
-            if variance < 20.0:
-                score += 15.0
-                
-        return min(35.0, score)
-
-    async def _run_targeted_playwright(self, url: str, psi_data: Dict[str, Any]) -> Dict[str, Any]:
-        results = {
+    def _empty_dom_meta(self, error: str = "") -> Dict[str, Any]:
+        return {
+            "browser_loaded": False,
+            "dom_complete": False,
+            "browser_status_code": None,
+            "browser_error": error,
+            "bot_challenge_suspected": False,
             "title": "",
             "meta_description": "",
             "h1_tags": [],
+            "h1_dom_count": None,
+            "h1_dom_text": [],
+            "h1_source_count": None,
+            "h1_status": "unknown",
             "image_count": 0,
             "missing_alt_images": 0,
+            "images_with_alt": 0,
+            "total_images": 0,
             "page_content_len": 0,
+            "page_html_length": 0,
+            "page_text": "",
+            "visible_word_count": 0,
             "click_to_call_present": False,
+            "click_to_call_status": "unknown",
+            "phone_number_visible": False,
+            "phone_visibility_status": "unknown",
+            "detected_phone_numbers": [],
             "mobile_cta_visible": False,
+            "mobile_primary_cta_present": False,
+            "mobile_sticky_cta_present": False,
+            "mobile_cta_status": "unknown",
+            "mobile_cta_type": "unknown",
+            "mobile_cta_types": [],
+            "add_to_cart_visible": False,
+            "order_online_present": False,
+            "reservation_present": False,
+            "directions_present": False,
+            "whatsapp_present": False,
+            "live_chat_present": False,
             "form_payload_fired": False,
+            "forms_present": False,
+            "form_action_valid": None,
+            "form_functional_status": "UNKNOWN",
             "tap_targets_flagged": [],
-            "ai_spectrum_pct": 0.0,
+            "ai_spectrum_pct": None,
+            "ai_spectrum_status": "unknown",
             "ai_flags": {},
-            "cms_platform": "",
-            # DOM Tracking Defaults
+            "cms_platform": "Not confidently identified",
+            "cms_confidence": "low",
             "has_clarity": False,
             "has_hotjar": False,
             "has_qualitative_analytics": False,
             "has_ga4": False,
-            "has_meta_pixel": False
+            "has_meta_pixel": False,
+            "retargeting_pixel_installed": False,
+            "favicon_present": None,
+            "html_lang_present": None,
+            "schema_present": None,
+            "schema_types": [],
+            "canonical_present": None,
+            "mobile_viewport_configured": None,
+            "lazy_loading_status": "UNKNOWN",
+            "address_location_visible": None,
+            "trust_badges_present": None,
+            "reviews_visible": None,
+            "guarantee_refund_present": None,
+            "about_team_linked": None,
+            "social_proof_present": None,
+            "faq_present": None,
+            "case_studies_portfolio_present": None,
+            "blog_present": None,
+            "social_links_present": None,
+            "privacy_policy_linked": None,
+            "terms_linked": None,
+            "privacy_terms_linked": None,
+            "cookie_banner_present": None,
+            "author_bylines_present": None,
+            "publication_dates_visible": None,
+            "custom_photography_status": "UNKNOWN",
+            "custom_photography_signal": False,
         }
 
-        audits = psi_data.get("lighthouseResult", {}).get("audits", {})
-        tap_target_items = audits.get("tap-targets", {}).get("details", {}).get("items", [])
-        results["tap_targets_flagged"] = [
-            item["node"]["selector"] for item in tap_target_items 
-            if "node" in item and "selector" in item["node"]
-        ]
+    async def _run_targeted_playwright(self, url: str, psi_data: Dict[str, Any]) -> Dict[str, Any]:
+        results = self._empty_dom_meta()
+        audits = (psi_data.get("lighthouseResult") or {}).get("audits") or {}
+        tap_items = ((audits.get("tap-targets") or {}).get("details") or {}).get("items")
+        if isinstance(tap_items, list):
+            results["tap_targets_flagged"] = [
+                ((item.get("node") or {}).get("selector"))
+                for item in tap_items
+                if ((item.get("node") or {}).get("selector"))
+            ]
 
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-setuid-sandbox"],
+            )
             context = await browser.new_context(
                 viewport={"width": 390, "height": 844},
-                user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
+                user_agent=(
+                    "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
+                    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
+                ),
             )
             page = await context.new_page()
 
-            network_posts = []
-            page.on("request", lambda req: network_posts.append(req.url) if req.method == "POST" else None)
-
             try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                response = await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                results["browser_loaded"] = True
+                results["browser_status_code"] = response.status if response else None
+
                 try:
-                    await page.wait_for_load_state("load", timeout=5000)
+                    await page.wait_for_load_state("load", timeout=6000)
                 except Exception:
+                    # Dynamic apps can remain network-active indefinitely; allow bounded hydration.
                     await page.wait_for_timeout(1500)
 
+                ready_state = await page.evaluate("document.readyState")
+                results["dom_complete"] = ready_state == "complete"
                 results["title"] = await page.title()
 
-                meta_desc = await page.query_selector('meta[name="description"]')
-                results["meta_description"] = await meta_desc.get_attribute("content") if meta_desc else ""
+                meta_desc = page.locator('meta[name="description"]').first
+                results["meta_description"] = (
+                    (await meta_desc.get_attribute("content")) or ""
+                    if await meta_desc.count()
+                    else ""
+                )
 
-                h1_nodes = await page.query_selector_all("h1")
-                results["h1_tags"] = [await h.inner_text() for h in h1_nodes if await h.inner_text()]
-
-                images = await page.query_selector_all("img")
-                results["image_count"] = len(images)
-                missing_alt = 0
-                for img in images:
-                    alt = await img.get_attribute("alt")
-                    if not alt:
-                        missing_alt += 1
-                results["missing_alt_images"] = missing_alt
+                visible_text = await page.evaluate("document.body ? document.body.innerText : ''")
+                visible_text = visible_text or ""
+                results["page_text"] = visible_text
+                results["visible_word_count"] = len(re.findall(r"\b\w+[\w'’-]*\b", visible_text))
 
                 content_html = await page.content()
-                results["page_content_len"] = len(content_html)
-                
-                # --- SCRIPT DETECTION ---
+                results["page_html_length"] = len(content_html)
+                results["page_content_len"] = len(content_html)  # legacy key; do not use for word count
                 content_lower = content_html.lower()
+
+                challenge_haystack = f"{results['title']}\n{visible_text[:12000]}\n{content_lower[:12000]}".lower()
+                results["bot_challenge_suspected"] = (
+                    results.get("browser_status_code") in {403, 429}
+                    or any(pattern in challenge_haystack for pattern in BOT_CHALLENGE_PATTERNS)
+                )
+
+                # H1 evidence from rendered DOM and serialized source.
+                h1_locator = page.locator("h1")
+                h1_count = await h1_locator.count()
+                h1_text: List[str] = []
+                for idx in range(h1_count):
+                    try:
+                        text = (await h1_locator.nth(idx).inner_text()).strip()
+                    except Exception:
+                        text = ""
+                    if text:
+                        h1_text.append(text)
+                source_h1_matches = H1_SOURCE_RE.findall(content_html)
+                source_h1_text = [TAG_RE.sub(" ", item).strip() for item in source_h1_matches]
+
+                results["h1_dom_count"] = h1_count
+                results["h1_dom_text"] = h1_text
+                results["h1_source_count"] = len(source_h1_matches)
+                # Legacy field remains the rendered H1 text list.
+                results["h1_tags"] = h1_text or [text for text in source_h1_text if text]
+
+                if h1_count > 0 or len(source_h1_matches) > 0:
+                    results["h1_status"] = "present"
+                elif (
+                    results["browser_loaded"]
+                    and results["dom_complete"]
+                    and not results["bot_challenge_suspected"]
+                    and len(content_html) > 500
+                ):
+                    results["h1_status"] = "missing"
+                else:
+                    results["h1_status"] = "unknown"
+
+                # Images / accessibility / lazy loading signals.
+                images = page.locator("img")
+                image_count = await images.count()
+                missing_alt = 0
+                with_alt = 0
+                lazy_count = 0
+                same_origin_content_images = 0
+                origin = urllib.parse.urlparse(page.url).netloc.lower()
+                for idx in range(image_count):
+                    img = images.nth(idx)
+                    alt = await img.get_attribute("alt")
+                    aria = await img.get_attribute("aria-label")
+                    aria_labelledby = await img.get_attribute("aria-labelledby")
+                    role = (await img.get_attribute("role") or "").lower()
+                    loading = (await img.get_attribute("loading") or "").lower()
+                    src = await img.get_attribute("src") or ""
+                    if alt is not None or aria or aria_labelledby or role in {"presentation", "none"}:
+                        with_alt += 1
+                    else:
+                        missing_alt += 1
+                    if loading == "lazy":
+                        lazy_count += 1
+                    if src:
+                        src_host = urllib.parse.urlparse(urllib.parse.urljoin(page.url, src)).netloc.lower()
+                        if src_host == origin and not re.search(r"logo|icon|favicon|sprite", src, re.I):
+                            same_origin_content_images += 1
+
+                results.update(
+                    {
+                        "image_count": image_count,
+                        "total_images": image_count,
+                        "missing_alt_images": missing_alt,
+                        "images_with_alt": with_alt,
+                        "lazy_image_count": lazy_count,
+                        "custom_photography_signal": same_origin_content_images > 0,
+                        # Same-origin imagery is only a signal, never proof that photography is original.
+                        "custom_photography_status": "UNKNOWN",
+                    }
+                )
+                if image_count == 0:
+                    results["lazy_loading_status"] = "NOT_APPLICABLE"
+                elif lazy_count > 0:
+                    results["lazy_loading_status"] = "PASS"
+                else:
+                    results["lazy_loading_status"] = "UNKNOWN"
+
+                # Metadata / technical document evidence.
+                results["favicon_present"] = await page.locator(
+                    'link[rel~="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]'
+                ).count() > 0
+                html_lang = await page.locator("html").get_attribute("lang")
+                results["html_lang_present"] = bool((html_lang or "").strip())
+                results["canonical_present"] = await page.locator('link[rel="canonical"][href]').count() > 0
+                viewport_content = ""
+                viewport = page.locator('meta[name="viewport"]').first
+                if await viewport.count():
+                    viewport_content = (await viewport.get_attribute("content")) or ""
+                results["mobile_viewport_configured"] = bool(viewport_content.strip())
+
+                schema_types = await self._extract_schema_types(page)
+                results["schema_types"] = schema_types
+                results["schema_present"] = bool(schema_types) or await page.locator(
+                    '[itemscope], [typeof], script[type="application/ld+json"]'
+                ).count() > 0
+
+                # Analytics and tracking evidence.
                 results["has_clarity"] = "clarity.ms" in content_lower
                 results["has_hotjar"] = "hotjar.com" in content_lower or "static.hotjar.com" in content_lower
                 results["has_qualitative_analytics"] = results["has_clarity"] or results["has_hotjar"]
-                results["has_ga4"] = "googletagmanager.com/gtag/js" in content_lower or "gtag(" in content_lower
-                results["has_meta_pixel"] = "connect.facebook.net" in content_lower or "fbevents.js" in content_lower
+                results["has_ga4"] = any(
+                    marker in content_lower
+                    for marker in ("googletagmanager.com/gtag/js", "gtag(", "gtm.js", "gtm-")
+                )
+                results["has_meta_pixel"] = any(
+                    marker in content_lower for marker in ("connect.facebook.net", "fbevents.js", "fbq(")
+                )
+                results["retargeting_pixel_installed"] = results["has_meta_pixel"] or any(
+                    marker in content_lower
+                    for marker in ("googleadservices.com/pagead/conversion", "doubleclick.net", "aw-")
+                )
 
-                # AI Spectrum Detection
-                ai_flags = await page.evaluate("""() => {
-                    const flags = {
-                        tailwind_classes: 0,
-                        shadcn_markers: false,
-                        lucide_icons: 0,
-                        generic_headline: false,
-                        unlinked_forms: 0,
-                        has_custom_photos: false
-                    };
+                # Phone and instant-action evidence are separate facts.
+                detected_phones = sorted(set(match.group(0).strip() for match in PHONE_RE.finditer(visible_text)))
+                schema_phone = await page.evaluate(
+                    """() => Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
+                    .map(s => s.textContent || '').some(t => /\"telephone\"\\s*:/i.test(t))"""
+                )
+                tel_count = await page.locator('a[href^="tel:"]').count()
+                whatsapp_count = await page.locator('a[href*="wa.me"], a[href*="whatsapp.com"]').count()
+                results["detected_phone_numbers"] = detected_phones
+                results["phone_number_visible"] = bool(detected_phones) or bool(schema_phone)
+                results["phone_visibility_status"] = "verified" if results["browser_loaded"] else "unknown"
+                results["click_to_call_present"] = tel_count > 0
+                results["click_to_call_status"] = "verified" if results["browser_loaded"] else "unknown"
+                results["whatsapp_present"] = whatsapp_count > 0
+                results["live_chat_present"] = self._detect_live_chat(content_lower, visible_text)
 
-                    const allElements = document.querySelectorAll("*");
-                    let twCount = 0;
-                    allElements.forEach(el => {
-                        const cls = el.className || "";
-                        if (/\\b(flex|grid|bg-\\w+|text-\\w+|p-\\d+|m-\\d+|rounded|shadow|border|hover:|md:|lg:)\\b/.test(cls)) {
-                            twCount++;
-                        }
-                    });
-                    flags.tailwind_classes = twCount;
+                # Forms: inspect architecture only. Do NOT submit forms or trigger irreversible actions.
+                forms = page.locator("form")
+                form_count = await forms.count()
+                form_valid_flags: List[bool] = []
+                unlinked_forms = 0
+                for idx in range(form_count):
+                    form = forms.nth(idx)
+                    action = (await form.get_attribute("action") or "").strip()
+                    has_inputs = await form.locator("input, textarea, select").count() > 0
+                    has_submit = await form.locator(
+                        'button[type="submit"], input[type="submit"], button:not([type])'
+                    ).count() > 0
+                    # SPA forms often intentionally omit action; interactive inputs + submit is a valid architecture signal.
+                    structurally_valid = bool(action) or (has_inputs and has_submit)
+                    form_valid_flags.append(structurally_valid)
+                    if not structurally_valid:
+                        unlinked_forms += 1
+                results["forms_present"] = form_count > 0
+                results["form_action_valid"] = (
+                    all(form_valid_flags) if form_valid_flags else None
+                )
+                results["form_functional_status"] = "UNKNOWN" if form_count > 0 else "NOT_APPLICABLE"
+                results["form_payload_fired"] = False  # legacy field: intentionally no submission
 
-                    const shadcnEls = document.querySelectorAll('[class*="shadcn"], [data-slot], [class*="cn("]');
-                    flags.shadcn_markers = shadcnEls.length > 0;
+                # CTA evidence before and after scroll.
+                initial_actions = await self._collect_action_candidates(page)
+                await page.evaluate("window.scrollBy(0, Math.min(700, document.body.scrollHeight || 700))")
+                await page.wait_for_timeout(250)
+                scrolled_actions = await self._collect_action_candidates(page)
+                all_actions = self._dedupe_action_candidates(initial_actions + scrolled_actions)
+                cta_types = sorted({a.get("type") for a in all_actions if a.get("type") and a.get("type") != "other"})
+                sticky_actions = [a for a in scrolled_actions if a.get("sticky") and a.get("visible")]
+                primary_actions = [a for a in all_actions if a.get("type") != "other" and a.get("visible")]
+                results["mobile_primary_cta_present"] = bool(primary_actions)
+                results["mobile_sticky_cta_present"] = bool(sticky_actions)
+                results["mobile_cta_visible"] = results["mobile_sticky_cta_present"]  # legacy alias
+                results["mobile_cta_status"] = "verified"
+                results["mobile_cta_types"] = cta_types
+                results["mobile_cta_type"] = cta_types[0] if cta_types else "unknown"
+                results["mobile_cta_evidence"] = all_actions[:20]
+                results["add_to_cart_visible"] = any(t in cta_types for t in ("add_to_cart", "buy"))
+                results["order_online_present"] = "order" in cta_types
+                results["reservation_present"] = "reserve" in cta_types or "book" in cta_types
+                results["directions_present"] = "directions" in cta_types
 
-                    const svgs = document.querySelectorAll("svg");
-                    let lucideCount = 0;
-                    svgs.forEach(svg => {
-                        const html = svg.outerHTML || "";
-                        if (html.includes("lucide") || html.includes("stroke-linecap") || html.includes("stroke-width")) {
-                            lucideCount++;
-                        }
-                    });
-                    flags.lucide_icons = lucideCount;
+                # Content / trust / navigation signals used only when observed.
+                results.update(await self._collect_content_signals(page, visible_text, schema_types))
 
-                    const headings = Array.from(document.querySelectorAll("h1, h2, h3"));
-                    const genericPatterns = [
-                        /empowering.*business/i, /next-gen/i, /unlock.*potential/i,
-                        /transform.*digital/i, /innovative solutions/i,
-                        /streamline.*workflow/i, /leverage.*power/i,
-                        /cutting-edge/i, /seamless.*experience/i
-                    ];
-                    flags.generic_headline = headings.some(h => 
-                        genericPatterns.some(pat => pat.test(h.innerText))
-                    );
-
-                    const forms = document.querySelectorAll("form");
-                    let unlinked = 0;
-                    forms.forEach(f => {
-                        const action = f.getAttribute("action") || "";
-                        if (!action || action === "#" || action === "") {
-                            unlinked++;
-                        }
-                    });
-                    flags.unlinked_forms = unlinked;
-
-                    const imgSrcs = Array.from(document.querySelectorAll("img")).map(i => i.src || "");
-                    const stockDomains = ["unsplash", "pexels", "shutterstock", "gettyimages", "istock", "adobe.stock"];
-                    flags.has_custom_photos = imgSrcs.some(src => 
-                        !stockDomains.some(d => src.includes(d))
-                    );
-
-                    return flags;
-                }""")
-
+                # AI/template-pattern heuristic: explicitly a pattern index, not authorship proof.
+                ai_flags = await self._collect_template_flags(page)
+                ai_flags["unlinked_forms"] = unlinked_forms
+                ai_flags["has_retargeting_pixel"] = results["retargeting_pixel_installed"]
+                ai_flags["has_custom_photos"] = results["custom_photography_signal"]
                 results["ai_flags"] = ai_flags
+                ai_score, ai_status = self._calculate_template_pattern_index(visible_text, ai_flags)
+                results["ai_spectrum_pct"] = ai_score
+                results["ai_spectrum_status"] = ai_status
 
-                ai_score = 0.0
-                if ai_flags.get("tailwind_classes", 0) > 20:
-                    ai_score += 25.0
-                if ai_flags.get("shadcn_markers"):
-                    ai_score += 20.0
-                if ai_flags.get("lucide_icons", 0) > 5:
-                    ai_score += 15.0
-                if ai_flags.get("generic_headline"):
-                    ai_score += 15.0
-                if ai_flags.get("unlinked_forms", 0) > 0:
-                    ai_score += 10.0
-                if ai_flags.get("has_custom_photos"):
-                    ai_score -= 15.0
-                if results.get("has_meta_pixel"):
-                    ai_score -= 10.0
-
-                visible_text = await page.evaluate("document.body.innerText")
-                text_ai_penalty = self._analyze_text_ai_patterns(visible_text)
-                ai_score += text_ai_penalty
-
-                results["ai_spectrum_pct"] = max(0.0, min(100.0, round(ai_score, 1)))
-
-                cms = ""
-                if "wp-content" in content_lower:
-                    cms = "WordPress"
-                elif "shopify" in content_lower or "myshopify" in content_lower:
-                    cms = "Shopify"
-                elif "wix" in content_lower:
-                    cms = "Wix"
-                elif "squarespace" in content_lower:
-                    cms = "Squarespace"
-                elif "webflow" in content_lower:
-                    cms = "Webflow"
-                elif ai_flags.get("tailwind_classes", 0) > 10:
-                    cms = "Modern Stack"
+                cms, cms_confidence = await self._detect_cms(page, content_lower)
                 results["cms_platform"] = cms
+                results["cms_confidence"] = cms_confidence
 
-                tel_links = await page.locator('a[href^="tel:"], a[href*="wa.me"]').count()
-                results["click_to_call_present"] = tel_links > 0
-
-                await page.evaluate("window.scrollBy(0, 500)")
-                results["mobile_cta_visible"] = await page.evaluate("""() => {
-                    const elements = Array.from(document.querySelectorAll('button, a.cta, .sticky-cta, [class*="cta"]'));
-                    return elements.some(el => {
-                        const style = window.getComputedStyle(el);
-                        return style.position === 'fixed' || style.position === 'sticky';
-                    });
-                }""")
-
-                target_button = page.locator('form button[type="submit"], form input[type="submit"]').first
-                if await target_button.count() > 0:
-                    initial_count = len(network_posts)
-                    try:
-                        await target_button.click(timeout=1500)
-                        await page.wait_for_timeout(500)
-                        if len(network_posts) > initial_count:
-                            results["form_payload_fired"] = True
-                    except Exception:
-                        pass
-
-            except Exception as e:
-                print(f"[Hybrid Scanner] Playwright note for {url}: {e}")
+            except Exception as exc:
+                results["browser_error"] = str(exc)
+                print(f"[Hybrid Scanner] Playwright note for {url}: {exc}")
             finally:
                 await browser.close()
 
         return results
 
+    async def _extract_schema_types(self, page: Any) -> List[str]:
+        raw_scripts: List[str] = await page.locator('script[type="application/ld+json"]').all_text_contents()
+        found: List[str] = []
+
+        def walk(value: Any) -> None:
+            if isinstance(value, dict):
+                item_type = value.get("@type")
+                if isinstance(item_type, str):
+                    found.append(item_type)
+                elif isinstance(item_type, list):
+                    found.extend(str(x) for x in item_type)
+                for child in value.values():
+                    walk(child)
+            elif isinstance(value, list):
+                for child in value:
+                    walk(child)
+
+        for raw in raw_scripts:
+            try:
+                walk(json.loads(raw))
+            except Exception:
+                continue
+        return sorted(set(x.strip() for x in found if str(x).strip()))
+
+    @staticmethod
+    def _detect_live_chat(content_lower: str, visible_text: str) -> bool:
+        haystack = f"{content_lower}\n{visible_text.lower()}"
+        markers = (
+            "intercom",
+            "drift.com",
+            "crisp.chat",
+            "tawk.to",
+            "livechatinc",
+            "zendesk",
+            "chat with us",
+            "live chat",
+        )
+        return any(marker in haystack for marker in markers)
+
+    async def _collect_action_candidates(self, page: Any) -> List[Dict[str, Any]]:
+        return await page.evaluate(
+            """() => {
+                const classify = (text, href) => {
+                    const value = `${text || ''} ${href || ''}`.toLowerCase();
+                    if (/add\\s*to\\s*cart|add\\s*to\\s*bag/.test(value)) return 'add_to_cart';
+                    if (/buy\\s*now|checkout|purchase/.test(value)) return 'buy';
+                    if (/order\\s*(online|now)?|pickup|delivery/.test(value)) return 'order';
+                    if (/reserve|reservation/.test(value)) return 'reserve';
+                    if (/book\\s*(now|appointment|consultation)?/.test(value)) return 'book';
+                    if (/tel:|call\\s*(now|us|restaurant)?/.test(value)) return 'call';
+                    if (/directions|maps\\.google|google\\.com\\/maps/.test(value)) return 'directions';
+                    if (/get\\s*a?\\s*quote|request\\s*quote|estimate/.test(value)) return 'quote';
+                    if (/start\\s*(free\\s*)?trial|free\\s*trial/.test(value)) return 'trial';
+                    if (/book\\s*demo|request\\s*demo|demo/.test(value)) return 'demo';
+                    if (/contact\\s*(us)?|get\\s*in\\s*touch/.test(value)) return 'contact';
+                    if (/chat|whatsapp|wa\\.me/.test(value)) return 'chat';
+                    return 'other';
+                };
+                const elements = Array.from(document.querySelectorAll('a, button, [role="button"]'));
+                return elements.map(el => {
+                    const style = getComputedStyle(el);
+                    const rect = el.getBoundingClientRect();
+                    const href = el.getAttribute('href') || '';
+                    const text = (el.innerText || el.getAttribute('aria-label') || '').trim().slice(0, 160);
+                    const visible = rect.width > 0 && rect.height > 0 &&
+                        style.display !== 'none' && style.visibility !== 'hidden' &&
+                        parseFloat(style.opacity || '1') > 0.05;
+                    const sticky = style.position === 'fixed' || style.position === 'sticky';
+                    const inViewport = rect.bottom >= 0 && rect.top <= window.innerHeight &&
+                        rect.right >= 0 && rect.left <= window.innerWidth;
+                    return {
+                        text, href, visible: visible && inViewport, sticky,
+                        type: classify(text, href),
+                        x: Math.round(rect.x), y: Math.round(rect.y),
+                        width: Math.round(rect.width), height: Math.round(rect.height)
+                    };
+                }).filter(x => x.visible && (x.type !== 'other' || x.sticky));
+            }"""
+        )
+
+    @staticmethod
+    def _dedupe_action_candidates(items: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        seen: set[Tuple[Any, ...]] = set()
+        output: List[Dict[str, Any]] = []
+        for item in items:
+            key = (item.get("text"), item.get("href"), item.get("type"), item.get("sticky"))
+            if key not in seen:
+                seen.add(key)
+                output.append(item)
+        return output
+
+    async def _collect_content_signals(
+        self, page: Any, visible_text: str, schema_types: List[str]
+    ) -> Dict[str, Any]:
+        text_lower = visible_text.lower()
+        links = await page.locator("a[href]").evaluate_all(
+            "els => els.map(a => ({text:(a.innerText||a.getAttribute('aria-label')||'').trim().toLowerCase(), href:(a.href||'').toLowerCase()}))"
+        )
+        hrefs = [str(item.get("href") or "") for item in links]
+        link_text = [str(item.get("text") or "") for item in links]
+        schema_lower = " ".join(schema_types).lower()
+
+        address_visible = bool(
+            re.search(
+                r"\b\d{1,6}\s+[a-z0-9.'’\- ]+\s(?:street|st\.?|avenue|ave\.?|road|rd\.?|boulevard|blvd\.?|drive|dr\.?|lane|ln\.?|way|highway|hwy\.?|place|pl\.?|court|ct\.?)\b",
+                text_lower,
+                re.I,
+            )
+            or any("maps.google" in href or "google.com/maps" in href for href in hrefs)
+            or "postaladdress" in schema_lower
+        )
+        trust_badges = bool(
+            re.search(r"\b(verified|secure checkout|bbb accredited|trustpilot|licensed|insured|certified)\b", text_lower)
+        )
+        reviews_visible = bool(
+            "aggregaterating" in schema_lower
+            or re.search(r"\b(testimonials?|customer reviews?|client reviews?)\b", text_lower)
+        )
+        guarantee_refund = bool(re.search(r"\b(money[- ]back|refund policy|satisfaction guarantee|guaranteed)\b", text_lower))
+        about_team = any(re.search(r"\b(about|our team|team|our story|who we are)\b", text) for text in link_text)
+        faq = "faqpage" in schema_lower or bool(re.search(r"\b(frequently asked questions|faqs?)\b", text_lower))
+        case_studies = any(re.search(r"\b(case studies|portfolio|our work|projects|success stories)\b", text) for text in link_text)
+        blog = any(re.search(r"\b(blog|insights|resources|articles|news)\b", text) for text in link_text)
+        social = any(any(domain in href for domain in SOCIAL_DOMAINS) for href in hrefs)
+        privacy = any("privacy" in text or "/privacy" in href for text, href in zip(link_text, hrefs))
+        terms = any(
+            re.search(r"\bterms\b", text) or "/terms" in href or "terms-of" in href
+            for text, href in zip(link_text, hrefs)
+        )
+        cookie_banner = bool(
+            re.search(r"\b(cookie settings|cookie preferences|accept cookies|manage cookies)\b", text_lower)
+            or await page.locator('[class*="cookie"], [id*="cookie"], [class*="consent"], [id*="consent"]').count() > 0
+        )
+        bylines = bool(
+            await page.locator('[rel="author"], [class*="author"], [itemprop="author"]').count() > 0
+            or re.search(r"(?:^|\n)\s*by\s+[A-Z][A-Za-z.'’\-]+(?:\s+[A-Z][A-Za-z.'’\-]+)+", visible_text)
+        )
+        publication_dates = bool(
+            await page.locator('time[datetime], meta[property="article:published_time"], [itemprop="datePublished"]').count() > 0
+        )
+        return {
+            "address_location_visible": address_visible,
+            "trust_badges_present": trust_badges,
+            "reviews_visible": reviews_visible,
+            "guarantee_refund_present": guarantee_refund,
+            "about_team_linked": about_team,
+            "social_proof_present": reviews_visible or trust_badges,
+            "faq_present": faq,
+            "case_studies_portfolio_present": case_studies,
+            "blog_present": blog,
+            "social_links_present": social,
+            "privacy_policy_linked": privacy,
+            "terms_linked": terms,
+            "privacy_terms_linked": privacy and terms,
+            "cookie_banner_present": cookie_banner,
+            "author_bylines_present": bylines,
+            "publication_dates_visible": publication_dates,
+        }
+
+    async def _collect_template_flags(self, page: Any) -> Dict[str, Any]:
+        return await page.evaluate(
+            """() => {
+                const all = Array.from(document.querySelectorAll('*'));
+                let tailwind = 0;
+                all.forEach(el => {
+                    const cls = typeof el.className === 'string' ? el.className : '';
+                    if (/\\b(flex|grid|bg-\\w+|text-\\w+|p-\\d+|m-\\d+|rounded|shadow|border|hover:|md:|lg:)\\b/.test(cls)) tailwind++;
+                });
+                const svgs = Array.from(document.querySelectorAll('svg'));
+                const lucide = svgs.filter(svg => (svg.outerHTML || '').includes('lucide')).length;
+                const headings = Array.from(document.querySelectorAll('h1,h2,h3')).map(h => h.innerText || '');
+                const generic = [
+                    /empowering.*business/i, /next-gen/i, /unlock.*potential/i,
+                    /transform.*digital/i, /innovative solutions/i,
+                    /streamline.*workflow/i, /leverage.*power/i,
+                    /cutting-edge/i, /seamless.*experience/i
+                ].some(p => headings.some(h => p.test(h)));
+                return {
+                    tailwind_classes: tailwind,
+                    shadcn_markers: document.querySelectorAll('[data-slot], [class*="shadcn"]').length > 0,
+                    lucide_icons: lucide,
+                    generic_headline: generic,
+                    unlinked_forms: 0,
+                    has_custom_photos: false,
+                    has_retargeting_pixel: false
+                };
+            }"""
+        )
+
+    def _calculate_template_pattern_index(self, text: str, flags: Dict[str, Any]) -> Tuple[Optional[float], str]:
+        text = (text or "").strip()
+        score = 0.0
+        evidence_count = 0
+
+        # Tooling signals increase template-pattern likelihood, not AI authorship probability.
+        if flags.get("tailwind_classes", 0) > 20:
+            score += 12.0
+            evidence_count += 1
+        if flags.get("shadcn_markers"):
+            score += 10.0
+            evidence_count += 1
+        if flags.get("lucide_icons", 0) > 5:
+            score += 6.0
+            evidence_count += 1
+        if flags.get("generic_headline"):
+            score += 15.0
+            evidence_count += 1
+        if flags.get("unlinked_forms", 0) > 0:
+            score += 5.0
+            evidence_count += 1
+
+        text_score = self._analyze_text_template_patterns(text)
+        if text_score > 0:
+            score += text_score
+            evidence_count += 1
+
+        if len(text) < 100 and evidence_count == 0:
+            return None, "unknown"
+        return round(max(0.0, min(100.0, score)), 1), "heuristic"
+
+    @staticmethod
+    def _analyze_text_template_patterns(text: str) -> float:
+        if not text or len(text.strip()) < 100:
+            return 0.0
+        lower = text.lower()
+        buzzwords = (
+            "in today's digital",
+            "testament to",
+            "delve into",
+            "seamless integration",
+            "elevate your",
+            "unlock your potential",
+            "beacon of",
+            "crucial to understand",
+            "cutting-edge",
+            "transformative",
+            "revolutionary",
+        )
+        hits = sum(1 for phrase in buzzwords if phrase in lower)
+        score = min(18.0, hits * 3.0)
+
+        sentences = [s.strip() for s in re.split(r"[.!?]+", text) if len(s.split()) >= 4]
+        if len(sentences) >= 8:
+            lengths = [len(s.split()) for s in sentences]
+            avg = sum(lengths) / len(lengths)
+            variance = sum((n - avg) ** 2 for n in lengths) / len(lengths)
+            if variance < 12:
+                score += 6.0
+        return score
+
+    async def _detect_cms(self, page: Any, content_lower: str) -> Tuple[str, str]:
+        generator = page.locator('meta[name="generator"]').first
+        generator_value = ""
+        if await generator.count():
+            generator_value = ((await generator.get_attribute("content")) or "").strip()
+        gen_lower = generator_value.lower()
+
+        signals = [content_lower, gen_lower]
+        joined = "\n".join(signals)
+        checks = (
+            ("WordPress", ("wp-content", "wp-includes", "wordpress")),
+            ("Shopify", ("cdn.shopify.com", "myshopify", "shopify")),
+            ("Wix", ("wixstatic.com", "wix.com", "wix")),
+            ("Squarespace", ("static1.squarespace.com", "squarespace")),
+            ("Webflow", ("webflow.js", "webflow.css", "webflow")),
+            ("Next.js", ("/_next/", "__next_data__", "next.js")),
+        )
+        for name, markers in checks:
+            hits = sum(marker in joined for marker in markers)
+            if hits >= 2 or (hits == 1 and generator_value):
+                return name, "high"
+            if hits == 1:
+                return name, "medium"
+
+        if await page.locator("#root, #app").count() > 0 and await page.locator("script[src]").count() > 2:
+            return "Modern JavaScript Stack", "low"
+        return "Not confidently identified", "low"
+
+    def _classify_business(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        text = " ".join(
+            [
+                str(data.get("title") or ""),
+                str(data.get("meta_description") or ""),
+                " ".join(data.get("h1_tags") or []),
+                str(data.get("page_text") or "")[:20000],
+                " ".join(data.get("schema_types") or []),
+                " ".join(data.get("mobile_cta_types") or []),
+            ]
+        ).lower()
+
+        rules: Dict[str, Tuple[str, ...]] = {
+            "restaurant": (
+                "restaurant", "cafe", "café", "menu", "order online", "pickup", "delivery",
+                "reservation", "cuisine", "dine", "breakfast", "lunch", "dinner", "food",
+            ),
+            "legal": ("law firm", "lawyer", "attorney", "legal services", "practice area", "litigation"),
+            "medspa": ("med spa", "medspa", "aesthetic", "injectable", "botox", "filler", "laser treatment"),
+            "ecommerce": ("add to cart", "checkout", "shop now", "product", "shipping", "shopify", "shopping cart"),
+            "saas": ("saas", "software", "platform", "start free trial", "free trial", "book demo", "api"),
+            "local_service": (
+                "service area", "free estimate", "get a quote", "plumbing", "electrician", "cleaning service",
+                "roofing", "moving", "contractor", "landscaping", "hvac", "repair service",
+            ),
+            "professional_service": (
+                "consulting", "consultant", "accounting", "bookkeeping", "marketing agency", "design agency",
+                "architecture firm", "engineering firm", "professional services",
+            ),
+        }
+
+        score_map: Dict[str, int] = {name: 0 for name in rules}
+        signal_map: Dict[str, List[str]] = {name: [] for name in rules}
+        for vertical, phrases in rules.items():
+            for phrase in phrases:
+                if phrase in text:
+                    score_map[vertical] += 1
+                    signal_map[vertical].append(phrase)
+
+        # Strong structured/action evidence gets extra weight.
+        schema_text = " ".join(data.get("schema_types") or []).lower()
+        if "restaurant" in schema_text:
+            score_map["restaurant"] += 4
+            signal_map["restaurant"].append("schema:Restaurant")
+        if any(t in (data.get("mobile_cta_types") or []) for t in ("add_to_cart", "buy")):
+            score_map["ecommerce"] += 3
+            signal_map["ecommerce"].append("commerce CTA")
+        if data.get("order_online_present"):
+            score_map["restaurant"] += 2
+            signal_map["restaurant"].append("order action")
+
+        best_vertical = max(score_map, key=score_map.get) if score_map else "general"
+        best_score = score_map.get(best_vertical, 0)
+        if best_score < 2:
+            best_vertical = "general"
+            confidence = 0.4
+            signals: List[str] = []
+        else:
+            confidence = min(0.96, 0.48 + best_score * 0.07)
+            signals = signal_map.get(best_vertical, [])[:8]
+
+        cta_types = set(data.get("mobile_cta_types") or [])
+        primary, secondary = self._conversion_model(best_vertical, cta_types)
+        return {
+            "vertical": best_vertical,
+            "confidence": round(confidence, 2),
+            "primary_conversion": primary,
+            "secondary_conversions": secondary,
+            "signals": signals,
+        }
+
+    @staticmethod
+    def _conversion_model(vertical: str, cta_types: set[str]) -> Tuple[str, List[str]]:
+        if vertical == "restaurant":
+            if "order" in cta_types:
+                return "order_online", ["reservation", "directions", "call", "view_menu"]
+            if "reserve" in cta_types or "book" in cta_types:
+                return "reservation", ["order_online", "directions", "call", "view_menu"]
+            return "visit_or_order", ["call", "view_menu", "directions"]
+        if vertical == "legal":
+            return "consultation", ["call", "contact_form"]
+        if vertical == "medspa":
+            return "booking", ["consultation", "call"]
+        if vertical == "ecommerce":
+            return "add_to_cart_checkout", ["product_question", "chat"]
+        if vertical == "saas":
+            return "signup_trial_demo", ["contact", "chat"]
+        if vertical == "local_service":
+            return "quote_or_call", ["contact_form", "booking"]
+        if vertical == "professional_service":
+            return "consultation_or_lead", ["contact_form", "call"]
+        return "primary_site_action", ["contact"]
+
+    @staticmethod
+    def _assess_h1_relevance(data: Dict[str, Any], profile: Dict[str, Any]) -> str:
+        if data.get("h1_status") != "present":
+            return "UNKNOWN"
+        h1 = " ".join(data.get("h1_tags") or []).lower()
+        if not h1.strip() or float(profile.get("confidence") or 0) < 0.55:
+            return "UNKNOWN"
+        vertical = profile.get("vertical")
+        keywords = {
+            "restaurant": ("restaurant", "cafe", "café", "cuisine", "food", "dining", "kitchen"),
+            "legal": ("law", "legal", "lawyer", "attorney", "litigation"),
+            "medspa": ("medspa", "med spa", "aesthetic", "treatment", "skin", "laser"),
+            "ecommerce": ("shop", "store", "product", "collection"),
+            "saas": ("software", "platform", "automation", "api"),
+            "local_service": ("service", "repair", "cleaning", "contractor", "plumbing", "moving"),
+            "professional_service": ("consulting", "services", "agency", "architecture", "engineering", "accounting"),
+        }.get(vertical, ())
+        if any(keyword in h1 for keyword in keywords):
+            return "PASS"
+        # Lack of a simple keyword overlap is not enough evidence to call it wrong.
+        return "UNKNOWN"
+
+    def _build_scan_quality(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        browser_loaded = bool(data.get("browser_loaded"))
+        dom_complete = bool(data.get("dom_complete"))
+        response_ok = bool(data.get("response_ok"))
+        challenge = bool(data.get("bot_challenge_suspected") or data.get("http_bot_challenge_suspected"))
+        pagespeed_available = data.get("pagespeed_api_status") == "success"
+        crux_available = bool(data.get("crux_available"))
+
+        if browser_loaded and not challenge and (dom_complete or response_ok):
+            confidence = "high" if response_ok and dom_complete else "medium"
+        elif browser_loaded and not challenge:
+            confidence = "medium"
+        else:
+            confidence = "low"
+
+        return {
+            "http_ok": response_ok,
+            "browser_loaded": browser_loaded,
+            "dom_complete": dom_complete,
+            "bot_challenge_suspected": challenge,
+            "pagespeed_available": pagespeed_available,
+            "crux_available": crux_available,
+            "confidence": confidence,
+        }
+
+    @staticmethod
+    def _evidence_coverage(data: Dict[str, Any]) -> Dict[str, Any]:
+        evidence_fields = {
+            "http": data.get("status_code") not in (None, 0),
+            "dom": bool(data.get("browser_loaded")),
+            "h1": data.get("h1_status") in {"present", "missing"},
+            "cta": data.get("mobile_cta_status") == "verified",
+            "phone": data.get("phone_visibility_status") == "verified",
+            "pagespeed": data.get("pagespeed_api_status") == "success",
+            "crux": bool(data.get("crux_available")),
+            "metadata": bool(data.get("browser_loaded")),
+        }
+        verified = sum(bool(v) for v in evidence_fields.values())
+        return {
+            "verified_groups": verified,
+            "total_groups": len(evidence_fields),
+            "ratio": round(verified / len(evidence_fields), 2),
+            "groups": evidence_fields,
+        }
+
 
 def collect_scan_data(domain: str) -> Dict[str, Any]:
-    scanner = HybridScanner()
+    """Backward-compatible synchronous helper."""
     import asyncio
-    return asyncio.run(scanner.execute_hybrid_scan(domain))
+
+    return asyncio.run(HybridScanner().execute_hybrid_scan(domain))
