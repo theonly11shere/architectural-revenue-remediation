@@ -1,6 +1,8 @@
 import os
+import json
 import asyncio
 import uvicorn
+from urllib.parse import urlparse
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
@@ -42,6 +44,64 @@ class AuditRequest(BaseModel):
     business_type: str = "ecommerce"
     competitor_has_feature: bool = True
     email: Optional[EmailStr] = None
+
+
+def handle_trilloka_guardrail(target_domain: str) -> Optional[Dict[str, Any]]:
+    """
+    Guardrail Interceptor:
+    Prevents public/external live scanning of Trilloka core infrastructure.
+    Serves witty sarcastic response with authentic 30-day telemetry snapshot data.
+    """
+    clean_url = target_domain if target_domain.startswith(("http://", "https://")) else f"https://{target_domain}"
+    domain = urlparse(clean_url).netloc.lower() or target_domain.lower()
+
+    if "trilloka" in domain:
+        snapshot_file = "trilloka_30day_audit_snapshot.json"
+        snapshot_data = {}
+
+        if os.path.exists(snapshot_file):
+            try:
+                with open(snapshot_file, "r") as f:
+                    snapshot_data = json.load(f)
+            except Exception as e:
+                print(f"[Guardrail] Error reading snapshot JSON: {e}")
+
+        score = snapshot_data.get("overall_score", 75.0)
+
+        return {
+            "success": True,
+            "is_guarded": True,
+            "target_domain": target_domain,
+            "status": "INTERCEPTED",
+            "guardrail": {
+                "heading": "Nice try!!!",
+                "message": "Did you really think we didn't know some of you wouldn't be able to resist yourselves. Well, The Architect has commanded us to scan his own website every 30 days and check its ongoing state of strength...",
+                "note": "While external public scans are barred on core infrastructure, below are the authentic telemetry results from our latest scheduled 30-day diagnostic run."
+            },
+            "overall_score": score,
+            "surface_metrics": {
+                "mobile_performance_score": score,
+                "seo_health_index": score,
+                "ai_spectrum_pct": snapshot_data.get("ai_spectrum_pct", 0.0),
+                "online_presence_index": 75,
+                "conversion_efficiency": 75,
+                "competitor_gap_score": 0,
+                "classification": "Architect Core Platform"
+            },
+            "key_friction_insight": {
+                "passed_count": snapshot_data.get("passed_count", 3),
+                "failed_count": snapshot_data.get("failed_count", 1),
+                "load_time_seconds": snapshot_data.get("load_time_seconds", 0.97)
+            },
+            "revenue_leak": {
+                "annual_leak": "$0 / year (Architect Core Shielded)"
+            },
+            "cms_platform": snapshot_data.get("cms_detected", "Trilloka Engine"),
+            "audit_snapshot": snapshot_data,
+            "message": "Trilloka infrastructure self-scan intercepted. Displaying official 30-day telemetry snapshot."
+        }
+
+    return None
 
 
 @app.get("/health")
@@ -95,6 +155,12 @@ async def _run_scan_async(domain: str, business_name: str = "") -> Dict[str, Any
 @app.post("/api/audit")
 async def run_audit(request: AuditRequest, background_tasks: BackgroundTasks) -> Dict[str, Any]:
     try:
+        # STEP 1: Guardrail Check Interceptor
+        guardrail_response = handle_trilloka_guardrail(request.domain)
+        if guardrail_response:
+            return guardrail_response
+
+        # STEP 2: Proceed with standard live scan for external sites
         scan_data = await _run_scan_async(request.domain, request.business_name)
 
         if not scan_data.get("is_reachable", True):

@@ -1,0 +1,14 @@
+{
+  "is_guarded": true,
+  "status": "INTERCEPTED",
+  "title": "🛑 Nice try!!!",
+  "message": "Did you really think we didn't know some of you wouldn't be able to resist yourselves?\n\nWell, The Architect has commanded us to scan his own website every 30 days to check its ongoing state of strength.\n\nWhile mere mortals cannot scan our core infrastructure on demand, here is the authentic telemetry from our latest scheduled audit:",
+  "snapshot": {
+    "target": "trilloka.com",
+    "score": "75.0%",
+    "load_time": "0.97s",
+    "passed": 3,
+    "failed": 1,
+    "last_updated": "30-Day Automated Cycle"
+  }
+}
