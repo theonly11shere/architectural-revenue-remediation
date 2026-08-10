@@ -26,6 +26,7 @@ NA = "NOT_APPLICABLE"
 CHECKPOINT_RULE_META: Dict[int, Dict[str, Any]] = {
     2: {"rule_key": "https_redirect", "family": "foundation_security", "weight": 1.4, "severity": 0.45},
     6: {"rule_key": "retargeting_telemetry", "family": "measurement", "weight": 1.5, "severity": 0.40},
+    7: {"rule_key": "primary_mobile_action", "family": "mobile_direct_action", "weight": 2.6, "severity": 0.70},
     8: {"rule_key": "phone_visibility", "family": "mobile_direct_action", "weight": 2.2, "severity": 0.55},
     9: {"rule_key": "location_visibility", "family": "trust_local", "weight": 1.8, "severity": 0.50},
     10: {"rule_key": "trust_credentials", "family": "trust_proof", "weight": 1.8, "severity": 0.45},
@@ -90,7 +91,7 @@ def _unknown_reason(cp_id: int, scan: Dict[str, Any]) -> Dict[str, str]:
     """Explain why a checkpoint remains UNKNOWN without implying a hidden failure."""
     if cp_id == 29:
         return {"code": "FIELD_DATA_UNAVAILABLE", "customer_note": "Real-user INP requires eligible field telemetry (for example CrUX). No field value was available, so this check is unscored."}
-    if cp_id in {7, 36}:
+    if cp_id == 36:
         return {"code": "PUBLIC_PROVENANCE_LIMIT", "customer_note": "Image originality/provenance cannot always be proven from public markup alone. The scanner does not guess."}
     if cp_id == 49:
         return {"code": "JURISDICTION_CONTEXT_REQUIRED", "customer_note": "Cookie-consent requirements depend on jurisdiction, tracking behavior and consent configuration. Absence is not automatically treated as failure."}
@@ -158,7 +159,7 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
     add(5, "Form Action / SPA Structure Valid", NA if scan.get("forms_present") is False else bool_status(scan.get("form_action_valid"), forms_verified), "trust_conversion")
     measurement_present = bool(scan.get("has_ga4") or scan.get("has_meta_pixel") or scan.get("has_qualitative_analytics"))
     add(6, "Analytics / Measurement Layer Present", bool_status(measurement_present, tracking_verified), "trust_conversion")
-    add(7, "Custom Photography Used", scan.get("custom_photography_status") if scan.get("custom_photography_status") in {PASS, FAIL, UNKNOWN, NA} else UNKNOWN, "trust_conversion", {"same_origin_signal": scan.get("custom_photography_signal")}, "Original-vs-stock cannot always be proven from markup alone")
+    add(7, "Primary Mobile Conversion Action Visible", bool_status(scan.get("mobile_primary_cta_present"), scan.get("mobile_cta_status") == "verified"), "trust_conversion", scan.get("mobile_cta_types"))
     add(8, "Phone Number Visible", bool_status(scan.get("phone_number_visible"), scan.get("phone_visibility_status") == "verified"), "trust_conversion", scan.get("detected_phone_numbers"))
     location_relevant = applicability_vertical not in {"ecommerce", "saas"}
     add(9, "Address / Location Signal Visible", NA if not location_relevant else bool_status(scan.get("address_location_visible"), content_verified), "trust_conversion")
@@ -245,9 +246,33 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
     policy_relevant = bool(scan.get("forms_present") or scan.get("has_ga4") or scan.get("has_meta_pixel") or scan.get("retargeting_pixel_installed")) or applicability_vertical in {"ecommerce", "saas", "legal", "medspa", "professional_service"}
     add(48, "Privacy Policy & Terms Linked", bool_status(scan.get("privacy_terms_linked"), content_verified) if policy_relevant else NA, "content_eeat")
     cookie = scan.get("cookie_banner_present")
-    add(49, "Cookie Consent / Preference Interface", PASS if cookie is True else UNKNOWN, "content_eeat", "Absence is jurisdiction/context dependent and is not automatically failed")
+    tracking_or_cookie_context = bool(
+        scan.get("has_ga4")
+        or scan.get("has_meta_pixel")
+        or scan.get("has_qualitative_analytics")
+        or scan.get("retargeting_pixel_installed")
+        or scan.get("consent_required") is True
+    )
+    if cookie is True:
+        cookie_status = PASS
+        cookie_reason = "Consent/preference interface detected."
+    elif scan.get("consent_required") is False or not tracking_or_cookie_context:
+        cookie_status = NA
+        cookie_reason = "No verified consent-requiring context was established from the public scan; absence is not treated as a leak."
+    else:
+        cookie_status = UNKNOWN
+        cookie_reason = "Tracking/cookie context exists, but jurisdiction and consent requirements cannot be determined from the public page alone; no deduction is applied."
+    add(49, "Cookie Consent / Preference Interface", cookie_status, "content_eeat", scan.get("cookie_banner_present"), cookie_reason)
+
     form_status = str(scan.get("form_functional_status") or UNKNOWN).upper()
-    add(50, "Contact Form Functional", NA if scan.get("forms_present") is False else (form_status if form_status in {PASS, FAIL, UNKNOWN} else UNKNOWN), "content_eeat", "No destructive live submission performed")
+    add(
+        50,
+        "Contact Form Delivery / Completion Verified",
+        NA if scan.get("forms_present") is False else (form_status if form_status in {PASS, FAIL, UNKNOWN} else UNKNOWN),
+        "content_eeat",
+        scan.get("form_payload_fired"),
+        "No destructive customer-facing submission is performed; the form is not destructively tested. Structural validity is scored separately in checkpoint 5; delivery remains UNKNOWN unless safely verified.",
+    )
 
     return checkpoints
 

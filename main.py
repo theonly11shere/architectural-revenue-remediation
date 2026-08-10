@@ -38,7 +38,7 @@ except Exception as exc:
 app = FastAPI(
     title="Trilloka Architect Engine API",
     description="3-Phase Telemetry Diagnostic & Frontend Gateway",
-    version="4.0.0",
+    version="6.0.0",
 )
 
 app.add_middleware(
@@ -121,7 +121,7 @@ def handle_trilloka_guardrail(target_domain: str) -> Optional[Dict[str, Any]]:
 def health_check() -> Dict[str, Any]:
     return {
         "status": "online",
-        "system": "Trilloka Architect Engine v4.0",
+        "system": "Trilloka Architect Engine v6.0",
         "google_api_configured": bool(os.environ.get("PAGESPEED_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
         "report_engine": REPORT_ENGINE_AVAILABLE,
     }
@@ -245,6 +245,8 @@ async def run_audit(request: AuditRequest, background_tasks: BackgroundTasks) ->
         "ai_spectrum_status": audit_results.get("ai_spectrum_status", "unknown"),
         "cms_confidence": scan_data.get("cms_confidence", "low"),
         "report_checkpoint_summary": (admin_master_report or {}).get("checkpoint_summary", {}),
+        "verification_coverage_note": (admin_master_report or {}).get("verification_coverage_note", ""),
+        "scanner_engine_version": scan_data.get("scanner_engine_version", "v6"),
     }
 
 

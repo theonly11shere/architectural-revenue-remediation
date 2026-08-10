@@ -148,6 +148,15 @@ DEDUP_SUPERFAMILY = {
     "trust_proof": "trust_proof",
 }
 
+CONSOLIDATED_FAMILY_LABELS = {
+    "performance_architecture": "Mobile Performance Architecture Drag",
+    "mobile_direct_action": "Mobile Direct-Action Friction",
+    "hero_clarity": "Hero Clarity / Primary Message Gap",
+    "content_distinctiveness": "Content Distinctiveness Gap",
+    "conversion_execution": "Conversion Execution Friction",
+    "trust_proof": "Trust & Social Proof Gap",
+}
+
 
 class RevenueScorer:
     """Evidence-backed Trilloka scoring engine."""
@@ -1258,11 +1267,18 @@ class RevenueScorer:
             primary["final_score_loss"] = family_total
             primary["final_severity_score"] = family_total
             primary["severity_score"] = family_total
-            primary["family"] = superfamily
+            # Keep the public/report family stable (e.g. "performance") while separately
+            # recording the broader deduplication superfamily used to collapse supporting signals.
+            original_family = str(ordered[0].get("family") or superfamily)
+            primary["family"] = original_family
+            primary["dedup_superfamily"] = superfamily
             primary["commercial_priority"] = COMMERCIAL_PRIORITY_BY_FAMILY.get(
-                str(ordered[0].get("family") or superfamily),
+                original_family,
                 COMMERCIAL_PRIORITY_BY_FAMILY.get(superfamily, 2.5),
             )
+            if len(ordered) > 1 and superfamily in CONSOLIDATED_FAMILY_LABELS:
+                primary["title"] = CONSOLIDATED_FAMILY_LABELS[superfamily]
+                primary["leak_name"] = CONSOLIDATED_FAMILY_LABELS[superfamily]
             primary["supporting_rule_keys"] = [str(x.get("rule_key") or "") for x in ordered]
             primary["supporting_findings"] = [
                 {

@@ -38,14 +38,13 @@ class ReportGenerator:
         # V5 customer report prefers the family-consolidated Top-10 package.
         # all_scoring_leaks remains raw/backward-compatible for integrations and Vault analysis.
         leaks = packages.get("tier_10_arch10") or packages.get("all_scoring_leaks") or []
-        sorted_leaks = sorted(
-            [item for item in leaks if isinstance(item, dict)],
-            key=lambda item: float(item.get("severity_score") or item.get("final_score_loss") or 0.0),
-            reverse=True,
-        )
+        # The scorer has already ordered tier_10_arch10 by commercial/revenue priority.
+        # Preserve that order here; re-sorting by raw severity would let ordinary technical
+        # hygiene jump above higher-consequence conversion friction.
+        ordered_leaks = [item for item in leaks if isinstance(item, dict)]
 
         enriched: List[Dict[str, Any]] = []
-        for leak in sorted_leaks[:10]:
+        for leak in ordered_leaks[:10]:
             severity_factor = leak.get("severity_factor")
             enriched.append(
                 {
@@ -230,7 +229,7 @@ class ReportGenerator:
             "core_philosophy": "Trilloka measures Revenue Readiness, not literal conversion percentage. A functioning site begins from an operating baseline and must earn higher scores through verified strengths while verified leaks subtract weighted points.",
             "graded_continuum": "Every deduction is scaled by implementation severity, evidence confidence and business relevance. Unknown telemetry earns no strength and creates no penalty.",
             "vertical_weighting": f"Conversion relevance is weighted for the {biz} model, with substitution credit when another strong conversion path already serves the customer.",
-            "hygiene_gatekeeping": "Ordinary good websites are intentionally calibrated around the upper-60s to mid-70s. Scores above 80 require advanced verified maturity across performance, conversion, trust, measurement and technical execution; no raw finding-count clamp forces a rating.",
+            "hygiene_gatekeeping": "Verified conversion friction, primary-action usability, trust and journey blockers are prioritized ahead of ordinary SEO hygiene when commercial impact is higher. This prioritization is Baymard-informed where published Baymard UX research is applicable, while Trilloka also uses its own evidence-weighted rules and does not claim full Baymard certification or that every checkpoint originates from Baymard. Ordinary good websites are intentionally calibrated around the upper-60s to mid-70s; scores above 80 require advanced verified maturity.",
         }
 
     @staticmethod
@@ -292,8 +291,10 @@ class ReportGenerator:
     ) -> Dict[str, str]:
         vertical = str(business_profile.get("inferred_subtype") or business_profile.get("vertical") or "general")
         evidence = leak.get("evidence") or {}
+        family = str(leak.get("family") or "")
+        supporting = set(str(x) for x in (leak.get("supporting_rule_keys") or []) if x)
 
-        if rule_key == "core_web_vitals":
+        if family == "performance" or rule_key == "core_web_vitals":
             return {
                 "technical": "Trace the specific PageSpeed/CrUX bottleneck before changing assets: optimize the critical rendering path, compress oversized media, defer non-critical scripts and retest the same mobile URL.",
                 "cro_ux": "Protect the primary conversion action from delayed rendering; keep the first meaningful value proposition and action usable while heavier content loads.",
@@ -325,6 +326,17 @@ class ReportGenerator:
                 "why_recommend": "The recommendation is limited to the verified hero/H1 evidence; unrelated publishing schedules, redirects or infographic work are not prescribed unless separately detected.",
                 "cadence_title": "Week 1",
                 "cadence_text": "Correct the hero semantic/value-proposition issue, verify the rendered result, then measure primary-action engagement before making further copy changes.",
+            }
+
+        if family == "mobile_direct_action" and len(supporting) > 1:
+            labels = self._vertical_cta_labels(vertical)
+            return {
+                "technical": f"Consolidate the verified mobile direct-action gaps into one clean action system: keep {labels['primary']} prominent, make any supported call/contact action directly tappable, and add persistence only where it improves the primary journey without covering content or consent controls.",
+                "cro_ux": f"Prioritize {labels['primary']} and treat {labels['secondary']} as supporting paths. Avoid stacking multiple competing buttons simply to satisfy individual checks.",
+                "systems": "Track the primary action, sticky-action engagement and secondary direct-contact actions as separate events so the business can measure which path actually creates progression.",
+                "why_recommend": "Multiple related mobile-action signals were detected, but V6 consolidates them into one commercial finding so the same underlying friction is not reported or scored as several separate leaks.",
+                "cadence_title": "Weeks 1–2",
+                "cadence_text": "Fix the primary mobile action architecture once, verify it after scrolling and on common viewport sizes, then compare action engagement before adding further controls.",
             }
 
         if rule_key == "click_to_call":
@@ -687,10 +699,22 @@ class ReportGenerator:
             level = "Moderate public-evidence coverage"
         else:
             level = "Limited public-evidence coverage"
+        breakdown = summary.get("unknown_breakdown") or {}
+        reason_labels = {
+            "FIELD_DATA_UNAVAILABLE": "real-user field data unavailable",
+            "PUBLIC_PROVENANCE_LIMIT": "public provenance cannot be proven",
+            "JURISDICTION_CONTEXT_REQUIRED": "jurisdiction/consent context required",
+            "SAFE_SUBMISSION_LIMIT": "safe live submission intentionally not performed",
+            "GOOGLE_TELEMETRY_UNAVAILABLE": "Google/Lighthouse telemetry unavailable",
+            "PUBLIC_VERIFICATION_GAP": "public evidence could not independently verify the signal",
+        }
+        parts = [f"{count} {reason_labels.get(code, code.lower().replace('_', ' '))}" for code, count in breakdown.items() if int(count or 0) > 0]
+        breakdown_text = (" Reasons: " + "; ".join(parts) + ".") if parts else ""
         return (
             f"{level}: {verified}/{applicable} applicable checkpoints were independently verified. "
-            f"The remaining {unknown} unknown checkpoint(s) are unscored verification limits, not hidden failures; "
-            "some require real-user field data, jurisdiction context, private analytics, or a safe live transaction/submission that the scanner intentionally does not fabricate."
+            f"The remaining {unknown} checkpoint(s) are UNKNOWN. UNKNOWN does not mean FAILED and causes no score deduction. "
+            "These are transparent public-verification limits, not hidden failures."
+            + breakdown_text
         )
 
     def send_admin_alert_email(self, admin_report: Dict[str, Any]) -> bool:
