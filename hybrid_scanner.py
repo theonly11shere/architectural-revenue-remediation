@@ -3,6 +3,12 @@
 Single source of truth for HTTP, Google telemetry, mobile DOM evidence,
 business classification and confidence-aware scanner facts.
 
+V4 evidence consensus hardening:
+- Positive evidence from any reliable source cannot be erased by a weaker negative pass.
+- Negative visible-content claims require a complete rendered DOM when static HTML alone is inconclusive.
+- Mobile/desktop browser retries are merged by evidence consensus, not last-writer wins.
+- Ambiguous HTTP->HTTPS checks remain UNKNOWN instead of becoming false failures.
+
 Backward compatibility:
 - Keeps legacy keys used by the existing scorer/frontend.
 - Adds evidence/status fields; it does not remove public fields.
@@ -311,6 +317,11 @@ class HybridScanner:
         return preflight
 
     def _check_https_redirect(self, url: str) -> Optional[bool]:
+        """Return True/False only when the HTTP redirect behavior is actually conclusive.
+
+        A WAF/challenge/4xx/5xx response is not evidence that HTTPS enforcement is missing;
+        those cases remain UNKNOWN (None).
+        """
         try:
             parsed = urllib.parse.urlparse(url)
             if not parsed.netloc:
@@ -322,7 +333,17 @@ class HybridScanner:
             final_scheme = urllib.parse.urlparse(response.url).scheme.lower()
             if final_scheme == "https":
                 return True
-            if 200 <= response.status_code < 500:
+
+            body_sample = (response.text or "")[:12000].lower()
+            ambiguous = (
+                response.status_code >= 400
+                or any(pattern in body_sample for pattern in BOT_CHALLENGE_PATTERNS)
+            )
+            if ambiguous:
+                return None
+
+            # A successful final HTTP document with no HTTPS redirect is conclusive.
+            if 200 <= response.status_code < 400 and final_scheme == "http":
                 return False
         except Exception:
             return None
@@ -892,16 +913,144 @@ class HybridScanner:
             score += 1
         return score
 
+    @staticmethod
+    def _dom_evidence_complete(data: Dict[str, Any]) -> bool:
+        """Whether a rendered pass is safe to use for negative presence claims."""
+        return bool(
+            data.get("browser_loaded")
+            and data.get("dom_complete")
+            and not data.get("bot_challenge_suspected")
+            and len(str(data.get("page_text") or "")) >= 20
+        )
+
+    @staticmethod
+    def _static_evidence_complete(data: Dict[str, Any]) -> bool:
+        return bool(
+            data.get("static_html_verified")
+            and not data.get("static_html_error")
+        )
+
+    @staticmethod
+    def _union_strings(*values: Any) -> List[str]:
+        found: List[str] = []
+        for value in values:
+            if isinstance(value, (list, tuple, set)):
+                for item in value:
+                    text = str(item or "").strip()
+                    if text and text not in found:
+                        found.append(text)
+        return found
+
+    @classmethod
+    def _presence_consensus(
+        cls,
+        first_value: Any,
+        second_value: Any,
+        *,
+        first_negative_verified: bool,
+        second_negative_verified: bool,
+        allow_first_only_negative: bool = True,
+        allow_second_only_negative: bool = True,
+    ) -> Optional[bool]:
+        """Merge a presence/absence fact without allowing a false negative to erase proof.
+
+        True is monotonic: if either reliable source observes the feature, the merged result is True.
+        False is emitted only when a source is allowed to make a conclusive negative claim.
+        Otherwise the result is UNKNOWN (None).
+        """
+        if first_value is True or second_value is True:
+            return True
+
+        first_false = first_value is False
+        second_false = second_value is False
+
+        if first_false and second_false:
+            if (first_negative_verified and allow_first_only_negative) or (
+                second_negative_verified and allow_second_only_negative
+            ):
+                return False
+            return None
+
+        if first_false and first_negative_verified and allow_first_only_negative:
+            return False
+        if second_false and second_negative_verified and allow_second_only_negative:
+            return False
+        return None
+
     def _merge_dom_attempts(self, first: Dict[str, Any], second: Dict[str, Any]) -> Dict[str, Any]:
         primary, secondary = (second, first) if self._dom_attempt_score(second) > self._dom_attempt_score(first) else (first, second)
         merged = dict(primary)
-        # Fill only genuinely absent/unknown values from the weaker attempt.
+
+        # Fill genuinely absent/unknown scalar values from the weaker attempt.
         for key, value in secondary.items():
             current = merged.get(key)
             if current in (None, "", [], {}) and value not in (None, "", [], {}):
                 merged[key] = value
             if isinstance(current, str) and current.lower() == "unknown" and isinstance(value, str) and value.lower() != "unknown":
                 merged[key] = value
+
+        first_complete = self._dom_evidence_complete(first)
+        second_complete = self._dom_evidence_complete(second)
+
+        # H1 presence is monotonic across browser attempts. A single positive observation wins.
+        first_h1 = str(first.get("h1_status") or "unknown").lower()
+        second_h1 = str(second.get("h1_status") or "unknown").lower()
+        if "present" in {first_h1, second_h1}:
+            merged["h1_status"] = "present"
+            merged["h1_tags"] = self._union_strings(first.get("h1_tags"), second.get("h1_tags"))
+            merged["h1_dom_text"] = self._union_strings(first.get("h1_dom_text"), second.get("h1_dom_text"))
+            merged["h1_dom_count"] = max(int(first.get("h1_dom_count") or 0), int(second.get("h1_dom_count") or 0))
+            merged["h1_source_count"] = max(int(first.get("h1_source_count") or 0), int(second.get("h1_source_count") or 0))
+        elif first_h1 == "missing" and second_h1 == "missing" and (first_complete or second_complete):
+            merged["h1_status"] = "missing"
+        elif first_h1 == "missing" and first_complete and second_h1 == "unknown":
+            merged["h1_status"] = "missing"
+        elif second_h1 == "missing" and second_complete and first_h1 == "unknown":
+            merged["h1_status"] = "missing"
+        else:
+            merged["h1_status"] = "unknown"
+
+        # Presence facts from mobile + desktop use evidence consensus. A positive observation
+        # on either viewport cannot be erased by the other viewport missing it.
+        dom_presence_keys = (
+            "phone_number_visible", "click_to_call_present", "whatsapp_present", "live_chat_present",
+            "favicon_present", "html_lang_present", "canonical_present", "mobile_viewport_configured",
+            "schema_present", "has_clarity", "has_hotjar", "has_qualitative_analytics",
+            "has_ga4", "has_meta_pixel", "retargeting_pixel_installed", "forms_present",
+            "address_location_visible", "trust_badges_present", "reviews_visible",
+            "guarantee_refund_present", "about_team_linked", "social_proof_present",
+            "faq_present", "case_studies_portfolio_present", "blog_present", "social_links_present",
+            "privacy_policy_linked", "terms_linked", "privacy_terms_linked", "cookie_banner_present",
+            "author_bylines_present", "publication_dates_visible",
+        )
+        for key in dom_presence_keys:
+            consensus = self._presence_consensus(
+                first.get(key),
+                second.get(key),
+                first_negative_verified=first_complete,
+                second_negative_verified=second_complete,
+            )
+            if consensus is not None:
+                merged[key] = consensus
+            elif key in merged and merged.get(key) is False:
+                # Do not preserve a weak negative when neither rendered pass was complete.
+                merged[key] = None
+
+        # Preserve/union positive evidence payloads.
+        merged["detected_phone_numbers"] = self._union_strings(
+            first.get("detected_phone_numbers"), second.get("detected_phone_numbers")
+        )
+        merged["schema_types"] = self._union_strings(first.get("schema_types"), second.get("schema_types"))
+
+        if merged.get("phone_number_visible") is not None:
+            merged["phone_visibility_status"] = "verified"
+        else:
+            merged["phone_visibility_status"] = "unknown"
+        if merged.get("click_to_call_present") is not None:
+            merged["click_to_call_status"] = "verified"
+        else:
+            merged["click_to_call_status"] = "unknown"
+
         # Mobile CTA evidence must come from the mobile viewport. A desktop retry may recover
         # document evidence but must never masquerade as mobile sticky-CTA verification.
         mobile_attempt = first if first.get("browser_mode", "mobile") == "mobile" else second
@@ -922,25 +1071,162 @@ class HybridScanner:
         return merged
 
     def _merge_static_and_dom(self, static: Dict[str, Any], dom: Dict[str, Any]) -> Dict[str, Any]:
-        """Browser evidence wins when verified; raw HTML fills gaps without overwriting certainty."""
+        """Merge raw-HTML and rendered-DOM facts using evidence consensus.
+
+        V4 invariant: proof of presence from either reliable source wins. A source that misses
+        something is not allowed to erase proof collected by another source. Negative visible-
+        content claims require a complete rendered DOM; structural metadata may also use a
+        complete static HTML document as conclusive evidence.
+        """
         merged = dict(static or {})
         dom = dom or {}
+        static_complete = self._static_evidence_complete(static)
+        dom_complete = self._dom_evidence_complete(dom)
 
         # Always preserve browser-quality diagnostics.
         for key in ("browser_loaded", "dom_complete", "browser_status_code", "browser_error", "bot_challenge_suspected", "browser_mode", "browser_retry_used", "browser_attempts"):
             if key in dom:
                 merged[key] = dom.get(key)
 
-        # Fields with explicit status markers.
-        if str(dom.get("h1_status") or "unknown") in {"present", "missing"}:
-            for key in ("h1_tags", "h1_dom_count", "h1_dom_text", "h1_source_count", "h1_status"):
-                merged[key] = dom.get(key)
-        if str(dom.get("phone_visibility_status") or "unknown") == "verified":
-            for key in ("phone_number_visible", "phone_visibility_status", "detected_phone_numbers"):
-                merged[key] = dom.get(key)
-        if str(dom.get("click_to_call_status") or "unknown") == "verified":
-            for key in ("click_to_call_present", "click_to_call_status", "whatsapp_present", "live_chat_present"):
-                merged[key] = dom.get(key)
+        # H1: positive evidence from either source wins. Missing requires a complete rendered DOM
+        # or agreement from both complete evidence paths.
+        static_h1 = str(static.get("h1_status") or "unknown").lower()
+        dom_h1 = str(dom.get("h1_status") or "unknown").lower()
+        if "present" in {static_h1, dom_h1}:
+            merged["h1_status"] = "present"
+            merged["h1_tags"] = self._union_strings(static.get("h1_tags"), dom.get("h1_tags"))
+            merged["h1_dom_text"] = self._union_strings(dom.get("h1_dom_text"))
+            merged["h1_dom_count"] = dom.get("h1_dom_count")
+            merged["h1_source_count"] = max(int(static.get("h1_source_count") or 0), int(dom.get("h1_source_count") or 0))
+        elif dom_h1 == "missing" and dom_complete:
+            merged["h1_status"] = "missing"
+            for key in ("h1_tags", "h1_dom_count", "h1_dom_text", "h1_source_count"):
+                if key in dom:
+                    merged[key] = dom.get(key)
+        else:
+            merged["h1_status"] = "unknown"
+
+        # Browser content/metadata values supplement static text; non-empty values never erase a
+        # better static value. Page text is merged by choosing the richer rendered/static body.
+        static_text = str(static.get("page_text") or "")
+        dom_text = str(dom.get("page_text") or "")
+        if len(dom_text) >= len(static_text) and len(dom_text) >= 20:
+            merged["page_text"] = dom_text
+            merged["visible_word_count"] = dom.get("visible_word_count")
+        elif static_text:
+            merged["page_text"] = static_text
+            merged["visible_word_count"] = static.get("visible_word_count")
+
+        for key in ("title", "meta_description"):
+            static_value = str(static.get(key) or "").strip()
+            dom_value = str(dom.get(key) or "").strip()
+            if dom_value and not static_value:
+                merged[key] = dom_value
+            elif static_value:
+                merged[key] = static_value
+            elif dom_value:
+                merged[key] = dom_value
+
+        if dom.get("page_html_length"):
+            merged["page_html_length"] = max(int(static.get("page_html_length") or 0), int(dom.get("page_html_length") or 0))
+            merged["page_content_len"] = merged["page_html_length"]
+
+        # Structural/document presence. Static HTML may make a conclusive negative claim; rendered
+        # DOM may overturn it with positive evidence.
+        structural_presence_keys = (
+            "favicon_present", "html_lang_present", "canonical_present", "mobile_viewport_configured",
+            "schema_present",
+        )
+        for key in structural_presence_keys:
+            consensus = self._presence_consensus(
+                static.get(key),
+                dom.get(key),
+                first_negative_verified=static_complete,
+                second_negative_verified=dom_complete,
+                allow_first_only_negative=True,
+                allow_second_only_negative=True,
+            )
+            merged[key] = consensus
+
+        merged["schema_types"] = self._union_strings(static.get("schema_types"), dom.get("schema_types"))
+        if merged["schema_types"]:
+            merged["schema_present"] = True
+
+        # Visible/trust/contact signals: any positive source wins. A raw-HTML miss by itself is not
+        # enough to fail because client-rendered/lazy content may not exist in the initial source.
+        visible_presence_keys = (
+            "address_location_visible", "trust_badges_present", "reviews_visible",
+            "guarantee_refund_present", "about_team_linked", "social_proof_present",
+            "faq_present", "case_studies_portfolio_present", "blog_present", "social_links_present",
+            "privacy_policy_linked", "terms_linked", "privacy_terms_linked", "cookie_banner_present",
+            "author_bylines_present", "publication_dates_visible",
+        )
+        for key in visible_presence_keys:
+            consensus = self._presence_consensus(
+                static.get(key),
+                dom.get(key),
+                first_negative_verified=static_complete,
+                second_negative_verified=dom_complete,
+                allow_first_only_negative=False,
+                allow_second_only_negative=True,
+            )
+            merged[key] = consensus
+
+        # Phone visibility and instant actions use the same positive-wins rule. Static HTML can prove
+        # presence; a negative becomes conclusive only with a complete rendered DOM.
+        for key in ("phone_number_visible", "click_to_call_present", "whatsapp_present", "live_chat_present"):
+            consensus = self._presence_consensus(
+                static.get(key),
+                dom.get(key),
+                first_negative_verified=static_complete,
+                second_negative_verified=dom_complete,
+                allow_first_only_negative=False,
+                allow_second_only_negative=True,
+            )
+            merged[key] = consensus
+
+        merged["detected_phone_numbers"] = self._union_strings(
+            static.get("detected_phone_numbers"), dom.get("detected_phone_numbers")
+        )
+        merged["phone_visibility_status"] = "verified" if merged.get("phone_number_visible") is not None else "unknown"
+        merged["click_to_call_status"] = "verified" if merged.get("click_to_call_present") is not None else "unknown"
+
+        # Tracking presence: a positive in either source wins. A rendered negative is conclusive;
+        # static-only negatives stay UNKNOWN because tags can be injected dynamically.
+        for key in (
+            "has_clarity", "has_hotjar", "has_qualitative_analytics", "has_ga4",
+            "has_meta_pixel", "retargeting_pixel_installed",
+        ):
+            consensus = self._presence_consensus(
+                static.get(key),
+                dom.get(key),
+                first_negative_verified=static_complete,
+                second_negative_verified=dom_complete,
+                allow_first_only_negative=False,
+                allow_second_only_negative=True,
+            )
+            merged[key] = consensus
+
+        # Forms can be inserted by JavaScript. Positive evidence wins; static-only absence is unknown.
+        forms_consensus = self._presence_consensus(
+            static.get("forms_present"),
+            dom.get("forms_present"),
+            first_negative_verified=static_complete,
+            second_negative_verified=dom_complete,
+            allow_first_only_negative=False,
+            allow_second_only_negative=True,
+        )
+        merged["forms_present"] = forms_consensus
+        if dom.get("form_action_valid") is not None and dom_complete:
+            merged["form_action_valid"] = dom.get("form_action_valid")
+        elif static.get("form_action_valid") is not None:
+            merged["form_action_valid"] = static.get("form_action_valid")
+        if dom.get("form_functional_status") not in (None, "", "UNKNOWN"):
+            merged["form_functional_status"] = dom.get("form_functional_status")
+        if "form_payload_fired" in dom:
+            merged["form_payload_fired"] = dom.get("form_payload_fired")
+
+        # Mobile CTA evidence remains browser/mobile-only; raw HTML cannot prove visibility/stickiness.
         if str(dom.get("mobile_cta_status") or "unknown") == "verified":
             for key in (
                 "mobile_cta_visible", "mobile_primary_cta_present", "mobile_sticky_cta_present",
@@ -949,36 +1235,8 @@ class HybridScanner:
             ):
                 merged[key] = dom.get(key)
 
-        # Browser content/metadata overrides static only if actually collected.
-        if len(str(dom.get("page_text") or "")) >= 20:
-            for key in ("title", "meta_description", "page_text", "visible_word_count", "page_html_length", "page_content_len"):
-                value = dom.get(key)
-                if value not in (None, ""):
-                    merged[key] = value
-            # A successful serialized DOM supports these technical/content facts, including negative results.
-            for key in (
-                "favicon_present", "html_lang_present", "canonical_present", "mobile_viewport_configured",
-                "schema_present", "schema_types", "has_clarity", "has_hotjar", "has_qualitative_analytics",
-                "has_ga4", "has_meta_pixel", "retargeting_pixel_installed", "forms_present", "form_action_valid",
-                "form_functional_status", "form_payload_fired", "address_location_visible", "trust_badges_present",
-                "reviews_visible", "guarantee_refund_present", "about_team_linked", "social_proof_present",
-                "faq_present", "case_studies_portfolio_present", "blog_present", "social_links_present",
-                "privacy_policy_linked", "terms_linked", "privacy_terms_linked", "cookie_banner_present",
-                "author_bylines_present", "publication_dates_visible",
-            ):
-                if key in dom and dom.get(key) is not None:
-                    merged[key] = dom.get(key)
-            merged.update(
-                {
-                    "metadata_evidence_status": "verified",
-                    "tracking_evidence_status": "verified",
-                    "form_evidence_status": "verified",
-                    "technical_evidence_status": "verified",
-                    "content_signal_status": "verified",
-                }
-            )
-
-        if int(dom.get("total_images") or 0) > 0 or (dom.get("browser_loaded") and dom.get("missing_alt_images") is not None):
+        # Images: rendered DOM is preferred when available; otherwise keep complete static evidence.
+        if int(dom.get("total_images") or 0) > 0 or (dom_complete and dom.get("missing_alt_images") is not None):
             for key in (
                 "image_count", "total_images", "missing_alt_images", "images_with_alt", "lazy_image_count",
                 "lazy_loading_status", "custom_photography_signal", "custom_photography_status",
@@ -995,6 +1253,15 @@ class HybridScanner:
         if str(dom.get("cms_platform") or "") and dom.get("cms_platform") != "Not confidently identified":
             merged["cms_platform"] = dom.get("cms_platform")
             merged["cms_confidence"] = dom.get("cms_confidence", "low")
+
+        # Evidence-status markers describe collection availability; individual booleans can still be
+        # None/UNKNOWN when neither source is conclusive.
+        if static_complete or dom_complete:
+            merged["metadata_evidence_status"] = "verified"
+            merged["technical_evidence_status"] = "verified"
+            merged["content_signal_status"] = "verified"
+            merged["tracking_evidence_status"] = "verified"
+            merged["form_evidence_status"] = "verified"
 
         return merged
 
@@ -1088,6 +1355,39 @@ class HybridScanner:
             "custom_photography_signal": False,
         }
 
+    async def _hydrate_lazy_content(self, page: Any) -> None:
+        """Bounded non-interactive scroll sweep to reveal lazy-rendered page sections.
+
+        This never clicks or submits anything. It only scrolls through a handful of positions and
+        returns to the top before evidence collection. Failure is non-fatal.
+        """
+        try:
+            metrics = await page.evaluate(
+                """() => ({
+                    height: Math.max(document.body?.scrollHeight || 0, document.documentElement?.scrollHeight || 0),
+                    viewport: window.innerHeight || 800
+                })"""
+            )
+            height = int((metrics or {}).get("height") or 0)
+            viewport = max(1, int((metrics or {}).get("viewport") or 800))
+            if height <= viewport * 1.25:
+                return
+
+            max_y = max(0, height - viewport)
+            # At most five reveal positions keeps the pass fast and deterministic.
+            positions = sorted({
+                min(max_y, int(max_y * fraction))
+                for fraction in (0.20, 0.40, 0.60, 0.80, 1.00)
+            })
+            for y in positions:
+                await page.evaluate("y => window.scrollTo(0, y)", y)
+                await page.wait_for_timeout(120)
+            await page.evaluate("window.scrollTo(0, 0)")
+            await page.wait_for_timeout(180)
+        except Exception:
+            # Lazy hydration is an evidence enhancer, never a reason to fail the scan.
+            return
+
     async def _run_targeted_playwright(self, url: str, psi_data: Dict[str, Any], mode: str = "mobile") -> Dict[str, Any]:
         results = self._empty_dom_meta()
         audits = (psi_data.get("lighthouseResult") or {}).get("audits") or {}
@@ -1130,6 +1430,11 @@ class HybridScanner:
                 except Exception:
                     # Dynamic apps can remain network-active indefinitely; allow bounded hydration.
                     await page.wait_for_timeout(1500)
+
+                # Reveal lazy/footer sections before collecting visible-content evidence. This is
+                # especially important for reviews, address, phone and policy links that may not be
+                # rendered until the visitor moves down the page.
+                await self._hydrate_lazy_content(page)
 
                 ready_state = await page.evaluate("document.readyState")
                 results["dom_complete"] = ready_state == "complete"
@@ -1473,7 +1778,10 @@ class HybridScanner:
         )
         reviews_visible = bool(
             "aggregaterating" in schema_lower
-            or re.search(r"\b(testimonials?|customer reviews?|client reviews?)\b", text_lower)
+            or re.search(
+                r"\b(testimonials?|customer reviews?|client reviews?|google reviews?|reviews?)\b",
+                text_lower,
+            )
         )
         guarantee_refund = bool(re.search(r"\b(money[- ]back|refund policy|satisfaction guarantee|guaranteed)\b", text_lower))
         about_team = any(re.search(r"\b(about|our team|team|our story|who we are)\b", text) for text in link_text)
