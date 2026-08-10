@@ -232,6 +232,8 @@ async def run_audit(request: AuditRequest, background_tasks: BackgroundTasks) ->
         "cms_platform": audit_results.get("cms_platform", "Not confidently identified"),
         "dev_handoff_kit": audit_results.get("dev_handoff_kit", ""),
         "top_5_seo_leaks": all_leaks[:5],
+        # Additive only: existing frontend key above is untouched.
+        "top_10_financial_leaks": all_leaks[:10],
         "message": "Scan complete. Full report available for purchase.",
         # Additive v4 diagnostics
         "business_profile": audit_results.get("business_profile", {}),

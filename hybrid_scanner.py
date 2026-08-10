@@ -11,10 +11,12 @@ Backward compatibility:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import urllib.parse
+from html.parser import HTMLParser
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import requests
@@ -49,6 +51,126 @@ SOCIAL_DOMAINS = (
 )
 
 
+class _StaticHTMLProbe(HTMLParser):
+    """Small dependency-free HTML evidence extractor used when browser evidence is weak."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.title_parts: List[str] = []
+        self._in_title = False
+        self.h1_parts: List[List[str]] = []
+        self._current_h1: Optional[List[str]] = None
+        self.visible_parts: List[str] = []
+        self._skip_depth = 0
+        self.metas: List[Dict[str, str]] = []
+        self.links: List[Dict[str, str]] = []
+        self.images: List[Dict[str, str]] = []
+        self.forms: List[Dict[str, Any]] = []
+        self._form_stack: List[Dict[str, Any]] = []
+        self.actions: List[Dict[str, str]] = []
+        self._anchor_stack: List[Dict[str, Any]] = []
+        self._button_stack: List[Dict[str, Any]] = []
+        self.schema_scripts: List[str] = []
+        self._schema_buffer: Optional[List[str]] = None
+        self.html_lang = ""
+        self.generator = ""
+        self.has_author_markup = False
+        self.has_publication_date_markup = False
+        self.cookie_markup = False
+
+    @staticmethod
+    def _attrs(attrs: List[Tuple[str, Optional[str]]]) -> Dict[str, str]:
+        return {str(k).lower(): str(v or "") for k, v in attrs}
+
+    def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]) -> None:
+        tag = tag.lower()
+        a = self._attrs(attrs)
+        if tag in {"script", "style", "noscript"}:
+            self._skip_depth += 1
+        if tag == "html":
+            self.html_lang = a.get("lang", "")
+        if tag == "title":
+            self._in_title = True
+        if tag == "meta":
+            self.metas.append(a)
+            if a.get("name", "").lower() == "generator":
+                self.generator = a.get("content", "")
+            if a.get("property", "").lower() == "article:published_time" or a.get("itemprop", "").lower() == "datepublished":
+                self.has_publication_date_markup = True
+        if tag == "link":
+            self.links.append(a)
+        if tag == "img":
+            self.images.append(a)
+        if tag == "h1":
+            self._current_h1 = []
+            self.h1_parts.append(self._current_h1)
+        if tag == "a":
+            item = {"href": a.get("href", ""), "text_parts": []}
+            self._anchor_stack.append(item)
+            if a.get("rel", "").lower() == "author":
+                self.has_author_markup = True
+        if tag == "button":
+            self._button_stack.append({"href": "", "text_parts": [], "type": a.get("type", "")})
+        if tag == "form":
+            form = {"action": a.get("action", ""), "has_inputs": False, "has_submit": False}
+            self._form_stack.append(form)
+            self.forms.append(form)
+        if self._form_stack and tag in {"input", "textarea", "select"}:
+            self._form_stack[-1]["has_inputs"] = True
+            if tag == "input" and a.get("type", "").lower() == "submit":
+                self._form_stack[-1]["has_submit"] = True
+        if self._form_stack and tag == "button" and a.get("type", "submit").lower() in {"", "submit"}:
+            self._form_stack[-1]["has_submit"] = True
+        if tag == "script" and a.get("type", "").lower() == "application/ld+json":
+            self._schema_buffer = []
+        attrs_blob = " ".join(f"{k}={v}" for k, v in a.items()).lower()
+        if "cookie" in attrs_blob or "consent" in attrs_blob:
+            self.cookie_markup = True
+        if "author" in a.get("class", "").lower() or a.get("itemprop", "").lower() == "author":
+            self.has_author_markup = True
+        if tag == "time" and a.get("datetime"):
+            self.has_publication_date_markup = True
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if tag == "title":
+            self._in_title = False
+        if tag == "h1":
+            self._current_h1 = None
+        if tag == "a" and self._anchor_stack:
+            item = self._anchor_stack.pop()
+            self.actions.append({"href": str(item.get("href") or ""), "text": " ".join(item.get("text_parts") or []).strip()})
+        if tag == "button" and self._button_stack:
+            item = self._button_stack.pop()
+            self.actions.append({"href": "", "text": " ".join(item.get("text_parts") or []).strip()})
+        if tag == "form" and self._form_stack:
+            self._form_stack.pop()
+        if tag == "script" and self._schema_buffer is not None:
+            self.schema_scripts.append("".join(self._schema_buffer))
+            self._schema_buffer = None
+        if tag in {"script", "style", "noscript"} and self._skip_depth > 0:
+            self._skip_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self._schema_buffer is not None:
+            self._schema_buffer.append(data)
+        clean = " ".join((data or "").split())
+        if not clean:
+            return
+        if self._in_title:
+            self.title_parts.append(clean)
+        if self._current_h1 is not None:
+            self._current_h1.append(clean)
+        if self._anchor_stack:
+            self._anchor_stack[-1]["text_parts"].append(clean)
+        if self._button_stack:
+            self._button_stack[-1]["text_parts"].append(clean)
+        if self._skip_depth == 0:
+            self.visible_parts.append(clean)
+            # Title text is harmless if duplicated into visible text; the title field is separately recovered below.
+
+
+
 class HybridScanner:
     """Three-phase scanner with evidence confidence and business context."""
 
@@ -66,19 +188,40 @@ class HybridScanner:
         url = self._normalize_url(target_domain)
 
         http_meta = self._fast_http_preflight(url)
+        raw_html = str(http_meta.pop("_http_html", "") or "")
+        static_meta = self._extract_static_html_evidence(
+            raw_html,
+            http_meta.get("final_url") or url,
+            verified=bool(http_meta.get("response_ok")),
+        )
         site_files = self._fetch_site_files(http_meta.get("final_url") or url)
         pagespeed_meta = self._fetch_google_pagespeed(http_meta.get("final_url") or url)
         crux_meta = self._fetch_crux_telemetry(http_meta.get("final_url") or url)
         places_meta = self._fetch_google_places(target_domain, business_name)
 
         try:
-            dom_meta = await self._run_targeted_playwright(
+            mobile_dom = await self._run_targeted_playwright(
                 http_meta.get("final_url") or url,
                 pagespeed_meta.get("psi_raw") or {},
+                mode="mobile",
             )
         except Exception as exc:  # defensive outer boundary
-            print(f"[Hybrid Scanner] Playwright skipped: {exc}")
-            dom_meta = self._empty_dom_meta(error=str(exc))
+            print(f"[Hybrid Scanner] Mobile Playwright skipped: {exc}")
+            mobile_dom = self._empty_dom_meta(error=str(exc))
+
+        dom_meta = mobile_dom
+        if self._needs_browser_retry(mobile_dom, static_meta):
+            try:
+                desktop_dom = await self._run_targeted_playwright(
+                    http_meta.get("final_url") or url,
+                    pagespeed_meta.get("psi_raw") or {},
+                    mode="desktop",
+                )
+                dom_meta = self._merge_dom_attempts(mobile_dom, desktop_dom)
+            except Exception as exc:
+                print(f"[Hybrid Scanner] Desktop retry skipped: {exc}")
+
+        evidence_meta = self._merge_static_and_dom(static_meta, dom_meta)
 
         combined: Dict[str, Any] = {
             "domain": target_domain,
@@ -88,7 +231,7 @@ class HybridScanner:
             **pagespeed_meta,
             **crux_meta,
             **places_meta,
-            **dom_meta,
+            **evidence_meta,
         }
 
         # A response may be blocked to requests but available in the browser, or vice versa.
@@ -128,6 +271,9 @@ class HybridScanner:
             "https_redirect_enforced": None,
             "http_preflight_error": "",
             "http_bot_challenge_suspected": False,
+            "http_html_length": 0,
+            "http_html_sha256": "",
+            "_http_html": "",
         }
         try:
             response = self.session.get(url, timeout=(5, 12), allow_redirects=True)
@@ -146,7 +292,13 @@ class HybridScanner:
                     "has_ssl": urllib.parse.urlparse(response.url).scheme == "https",
                 }
             )
-            body_sample = (response.text or "")[:12000].lower()
+            raw_html = response.text or ""
+            # Keep a bounded in-memory copy only for evidence extraction; it is removed before final scan output.
+            bounded_html = raw_html[:1_500_000]
+            preflight["_http_html"] = bounded_html
+            preflight["http_html_length"] = len(raw_html)
+            preflight["http_html_sha256"] = hashlib.sha256(raw_html.encode("utf-8", errors="ignore")).hexdigest() if raw_html else ""
+            body_sample = bounded_html[:12000].lower()
             preflight["http_bot_challenge_suspected"] = (
                 response.status_code in {403, 429}
                 or any(pattern in body_sample for pattern in BOT_CHALLENGE_PATTERNS)
@@ -397,6 +549,455 @@ class HybridScanner:
             print(f"[Hybrid Scanner] Places API error: {exc}")
         return {"places_found": False, "places_confidence": "unknown"}
 
+    def _extract_static_html_evidence(self, html_text: str, url: str, verified: bool) -> Dict[str, Any]:
+        """Extract evidence from the HTTP HTML so a browser-side error does not blank the audit."""
+        results = self._empty_dom_meta()
+        if not verified or not html_text or len(html_text.strip()) < 80:
+            return results
+
+        probe = _StaticHTMLProbe()
+        try:
+            probe.feed(html_text)
+            probe.close()
+        except Exception as exc:
+            results["static_html_error"] = str(exc)
+            return results
+
+        visible_text = " ".join(probe.visible_parts)
+        text_lower = visible_text.lower()
+        html_lower = html_text.lower()
+        title = " ".join(probe.title_parts).strip()
+        meta_description = ""
+        viewport_content = ""
+        for meta in probe.metas:
+            if meta.get("name", "").lower() == "description" and not meta_description:
+                meta_description = meta.get("content", "").strip()
+            if meta.get("name", "").lower() == "viewport" and not viewport_content:
+                viewport_content = meta.get("content", "").strip()
+
+        h1_tags = [" ".join(parts).strip() for parts in probe.h1_parts if " ".join(parts).strip()]
+        schema_types = self._extract_static_schema_types(probe.schema_scripts)
+        links = []
+        for action in probe.actions:
+            href = urllib.parse.urljoin(url, str(action.get("href") or ""))
+            links.append({"href": href.lower(), "text": str(action.get("text") or "").lower()})
+        for link in probe.links:
+            href = urllib.parse.urljoin(url, str(link.get("href") or ""))
+            links.append({"href": href.lower(), "text": ""})
+
+        detected_phones = sorted(set(match.group(0).strip() for match in PHONE_RE.finditer(visible_text)))
+        schema_phone = bool(re.search(r'"telephone"\s*:', "\n".join(probe.schema_scripts), re.I))
+        tel_present = any(str(item.get("href") or "").lower().startswith("tel:") for item in probe.actions)
+        whatsapp_present = any(
+            "wa.me" in str(item.get("href") or "").lower()
+            or "whatsapp.com" in str(item.get("href") or "").lower()
+            for item in probe.actions
+        )
+
+        image_count = len(probe.images)
+        missing_alt = 0
+        with_alt = 0
+        lazy_count = 0
+        same_origin_images = 0
+        origin = urllib.parse.urlparse(url).netloc.lower()
+        for image in probe.images:
+            alt_present = "alt" in image
+            aria = image.get("aria-label") or image.get("aria-labelledby")
+            role = image.get("role", "").lower()
+            if alt_present or aria or role in {"presentation", "none"}:
+                with_alt += 1
+            else:
+                missing_alt += 1
+            if image.get("loading", "").lower() == "lazy":
+                lazy_count += 1
+            src = image.get("src", "")
+            if src:
+                src_host = urllib.parse.urlparse(urllib.parse.urljoin(url, src)).netloc.lower()
+                if src_host == origin and not re.search(r"logo|icon|favicon|sprite", src, re.I):
+                    same_origin_images += 1
+
+        form_valid_flags: List[bool] = []
+        unlinked_forms = 0
+        for form in probe.forms:
+            structurally_valid = bool(str(form.get("action") or "").strip()) or bool(
+                form.get("has_inputs") and form.get("has_submit")
+            )
+            form_valid_flags.append(structurally_valid)
+            if not structurally_valid:
+                unlinked_forms += 1
+
+        action_types = sorted(
+            {
+                self._classify_action_text(str(item.get("text") or ""), str(item.get("href") or ""))
+                for item in probe.actions
+            }
+            - {"other"}
+        )
+
+        content_signals = self._static_content_signals(visible_text, links, schema_types, probe)
+        ai_flags = {
+            "tailwind_classes": len(re.findall(r'\b(?:flex|grid|bg-[\w-]+|text-[\w-]+|rounded|shadow)\b', html_text)),
+            "shadcn_markers": "data-slot=" in html_lower or "shadcn" in html_lower,
+            "lucide_icons": html_lower.count("lucide"),
+            "generic_headline": bool(
+                re.search(
+                    r"empowering.*business|next-gen|unlock.*potential|transform.*digital|innovative solutions|streamline.*workflow|leverage.*power|cutting-edge|seamless.*experience",
+                    " ".join(h1_tags).lower(),
+                )
+            ),
+            "unlinked_forms": unlinked_forms,
+            "has_custom_photos": same_origin_images > 0,
+            "has_retargeting_pixel": False,
+        }
+
+        has_ga4 = any(marker in html_lower for marker in ("googletagmanager.com/gtag/js", "gtag(", "gtm.js", "gtm-"))
+        has_meta_pixel = any(marker in html_lower for marker in ("connect.facebook.net", "fbevents.js", "fbq("))
+        retargeting = has_meta_pixel or any(
+            marker in html_lower for marker in ("googleadservices.com/pagead/conversion", "doubleclick.net", "aw-")
+        )
+        ai_flags["has_retargeting_pixel"] = retargeting
+        ai_score, ai_status = self._calculate_template_pattern_index(visible_text, ai_flags)
+        cms, cms_confidence = self._detect_cms_static(html_lower, probe.generator)
+
+        canonical_present = any("canonical" in str(link.get("rel", "")).lower() and bool(link.get("href")) for link in probe.links)
+        favicon_present = any(
+            "icon" in str(link.get("rel", "")).lower() and bool(link.get("href")) for link in probe.links
+        )
+
+        results.update(
+            {
+                "static_html_verified": True,
+                "static_html_error": "",
+                "metadata_evidence_status": "verified",
+                "image_evidence_status": "verified",
+                "tracking_evidence_status": "verified",
+                "form_evidence_status": "verified",
+                "technical_evidence_status": "verified",
+                "content_signal_status": "verified",
+                "title": title,
+                "meta_description": meta_description,
+                "page_text": visible_text,
+                "visible_word_count": len(re.findall(r"\b\w+[\w'’-]*\b", visible_text)),
+                "page_html_length": len(html_text),
+                "page_content_len": len(html_text),
+                "h1_tags": h1_tags,
+                "h1_dom_count": None,
+                "h1_dom_text": [],
+                "h1_source_count": len(h1_tags),
+                "h1_status": "present" if h1_tags else "unknown",
+                "image_count": image_count,
+                "total_images": image_count,
+                "missing_alt_images": missing_alt,
+                "images_with_alt": with_alt,
+                "lazy_image_count": lazy_count,
+                "lazy_loading_status": "NOT_APPLICABLE" if image_count == 0 else ("PASS" if lazy_count > 0 else "UNKNOWN"),
+                "custom_photography_signal": same_origin_images > 0,
+                "custom_photography_status": "UNKNOWN",
+                "favicon_present": favicon_present,
+                "html_lang_present": bool(probe.html_lang.strip()),
+                "canonical_present": canonical_present,
+                "mobile_viewport_configured": bool(viewport_content),
+                "schema_types": schema_types,
+                "schema_present": bool(schema_types or probe.schema_scripts or re.search(r"\bitemscope\b|\btypeof=", html_lower)),
+                "has_clarity": "clarity.ms" in html_lower,
+                "has_hotjar": "hotjar.com" in html_lower or "static.hotjar.com" in html_lower,
+                "has_ga4": has_ga4,
+                "has_meta_pixel": has_meta_pixel,
+                "retargeting_pixel_installed": retargeting,
+                "phone_number_visible": bool(detected_phones) or schema_phone,
+                "phone_visibility_status": "verified",
+                "detected_phone_numbers": detected_phones,
+                "click_to_call_present": tel_present,
+                "click_to_call_status": "verified",
+                "whatsapp_present": whatsapp_present,
+                "live_chat_present": self._detect_live_chat(html_lower, visible_text),
+                "forms_present": bool(probe.forms),
+                "form_action_valid": all(form_valid_flags) if form_valid_flags else None,
+                "form_functional_status": "UNKNOWN" if probe.forms else "NOT_APPLICABLE",
+                "form_payload_fired": False,
+                "mobile_primary_cta_present": bool(action_types),
+                # Static HTML cannot prove persistence/visibility after scrolling.
+                "mobile_sticky_cta_present": False,
+                "mobile_cta_visible": False,
+                "mobile_cta_status": "unknown",
+                "mobile_cta_types": action_types,
+                "mobile_cta_type": action_types[0] if action_types else "unknown",
+                "add_to_cart_visible": any(t in action_types for t in ("add_to_cart", "buy")),
+                "order_online_present": "order" in action_types,
+                "reservation_present": "reserve" in action_types or "book" in action_types,
+                "directions_present": "directions" in action_types,
+                "ai_flags": ai_flags,
+                "ai_spectrum_pct": ai_score,
+                "ai_spectrum_status": ai_status,
+                "cms_platform": cms,
+                "cms_confidence": cms_confidence,
+                **content_signals,
+            }
+        )
+        results["has_qualitative_analytics"] = bool(results["has_clarity"] or results["has_hotjar"])
+        return results
+
+    @staticmethod
+    def _extract_static_schema_types(raw_scripts: List[str]) -> List[str]:
+        found: List[str] = []
+
+        def walk(value: Any) -> None:
+            if isinstance(value, dict):
+                item_type = value.get("@type")
+                if isinstance(item_type, str):
+                    found.append(item_type)
+                elif isinstance(item_type, list):
+                    found.extend(str(x) for x in item_type)
+                for child in value.values():
+                    walk(child)
+            elif isinstance(value, list):
+                for child in value:
+                    walk(child)
+
+        for raw in raw_scripts:
+            try:
+                walk(json.loads(raw))
+            except Exception:
+                continue
+        return sorted(set(item.strip() for item in found if str(item).strip()))
+
+    @staticmethod
+    def _classify_action_text(text: str, href: str) -> str:
+        value = f"{text} {href}".lower()
+        patterns = (
+            (r"add\s*to\s*(?:cart|bag)", "add_to_cart"),
+            (r"buy\s*now|checkout|purchase", "buy"),
+            (r"order\s*(?:online|now)?|pickup|delivery", "order"),
+            (r"reserve|reservation", "reserve"),
+            (r"book\s*(?:now|appointment|consultation)?", "book"),
+            (r"tel:|call\s*(?:now|us|restaurant)?", "call"),
+            (r"directions|maps\.google|google\.com/maps", "directions"),
+            (r"get\s*a?\s*quote|request\s*quote|estimate", "quote"),
+            (r"start\s*(?:free\s*)?trial|free\s*trial", "trial"),
+            (r"book\s*demo|request\s*demo|demo", "demo"),
+            (r"contact\s*(?:us)?|get\s*in\s*touch", "contact"),
+            (r"chat|whatsapp|wa\.me", "chat"),
+        )
+        for pattern, action_type in patterns:
+            if re.search(pattern, value, re.I):
+                return action_type
+        return "other"
+
+    def _static_content_signals(
+        self,
+        visible_text: str,
+        links: List[Dict[str, str]],
+        schema_types: List[str],
+        probe: _StaticHTMLProbe,
+    ) -> Dict[str, Any]:
+        text_lower = visible_text.lower()
+        hrefs = [str(item.get("href") or "") for item in links]
+        link_text = [str(item.get("text") or "") for item in links]
+        schema_lower = " ".join(schema_types).lower()
+        address_visible = bool(
+            re.search(
+                r"\b\d{1,6}\s+[a-z0-9.'’\- ]+\s(?:street|st\.?|avenue|ave\.?|road|rd\.?|boulevard|blvd\.?|drive|dr\.?|lane|ln\.?|way|highway|hwy\.?|place|pl\.?|court|ct\.?)\b",
+                text_lower,
+                re.I,
+            )
+            or any("maps.google" in href or "google.com/maps" in href for href in hrefs)
+            or "postaladdress" in schema_lower
+        )
+        trust_badges = bool(re.search(r"\b(verified|secure checkout|bbb accredited|trustpilot|licensed|insured|certified)\b", text_lower))
+        reviews_visible = bool("aggregaterating" in schema_lower or re.search(r"\b(testimonials?|customer reviews?|client reviews?|reviews?)\b", text_lower))
+        guarantee_refund = bool(re.search(r"\b(money[- ]back|refund policy|satisfaction guarantee|guaranteed)\b", text_lower))
+        about_team = any(re.search(r"\b(about|our team|team|our story|who we are)\b", text) for text in link_text)
+        faq = "faqpage" in schema_lower or bool(re.search(r"\b(frequently asked questions|faqs?)\b", text_lower))
+        case_studies = any(re.search(r"\b(case studies|portfolio|our work|projects|success stories)\b", text) for text in link_text)
+        blog = any(re.search(r"\b(blog|insights|resources|articles|news)\b", text) for text in link_text)
+        social = any(any(domain in href for domain in SOCIAL_DOMAINS) for href in hrefs)
+        privacy = any("privacy" in text or "/privacy" in href for text, href in zip(link_text, hrefs))
+        terms = any(re.search(r"\bterms\b", text) or "/terms" in href or "terms-of" in href for text, href in zip(link_text, hrefs))
+        cookie_banner = bool(
+            probe.cookie_markup
+            or re.search(r"\b(cookie settings|cookie preferences|accept cookies|manage cookies)\b", text_lower)
+        )
+        bylines = bool(
+            probe.has_author_markup
+            or re.search(r"(?:^|\n|\s)by\s+[A-Z][A-Za-z.'’\-]+(?:\s+[A-Z][A-Za-z.'’\-]+)+", visible_text)
+        )
+        return {
+            "address_location_visible": address_visible,
+            "trust_badges_present": trust_badges,
+            "reviews_visible": reviews_visible,
+            "guarantee_refund_present": guarantee_refund,
+            "about_team_linked": about_team,
+            "social_proof_present": reviews_visible or trust_badges,
+            "faq_present": faq,
+            "case_studies_portfolio_present": case_studies,
+            "blog_present": blog,
+            "social_links_present": social,
+            "privacy_policy_linked": privacy,
+            "terms_linked": terms,
+            "privacy_terms_linked": privacy and terms,
+            "cookie_banner_present": cookie_banner,
+            "author_bylines_present": bylines,
+            "publication_dates_visible": probe.has_publication_date_markup,
+        }
+
+    @staticmethod
+    def _detect_cms_static(content_lower: str, generator: str) -> Tuple[str, str]:
+        joined = f"{content_lower}\n{(generator or '').lower()}"
+        checks = (
+            ("WordPress", ("wp-content", "wp-includes", "wordpress")),
+            ("Shopify", ("cdn.shopify.com", "myshopify", "shopify")),
+            ("Wix", ("wixstatic.com", "wix.com", "wix")),
+            ("Squarespace", ("static1.squarespace.com", "squarespace")),
+            ("Webflow", ("webflow.js", "webflow.css", "webflow")),
+            ("Next.js", ("/_next/", "__next_data__", "next.js")),
+        )
+        for name, markers in checks:
+            hits = sum(marker in joined for marker in markers)
+            if hits >= 2:
+                return name, "high"
+            if hits == 1:
+                return name, "medium"
+        if "id=\"root\"" in content_lower or "id='root'" in content_lower or "id=\"app\"" in content_lower:
+            return "Modern JavaScript Stack", "low"
+        return "Not confidently identified", "low"
+
+    @staticmethod
+    def _needs_browser_retry(dom: Dict[str, Any], static: Dict[str, Any]) -> bool:
+        if not dom.get("browser_loaded"):
+            return True
+        if dom.get("bot_challenge_suspected"):
+            return True
+        if len(str(dom.get("page_text") or "")) < 100 and bool(static.get("static_html_verified")):
+            return True
+        if str(dom.get("h1_status") or "unknown") == "unknown":
+            return True
+        if str(dom.get("mobile_cta_status") or "unknown") != "verified":
+            return True
+        return False
+
+    @staticmethod
+    def _dom_attempt_score(dom: Dict[str, Any]) -> int:
+        score = 0
+        if dom.get("browser_loaded"):
+            score += 4
+        if dom.get("dom_complete"):
+            score += 2
+        if str(dom.get("h1_status") or "unknown") in {"present", "missing"}:
+            score += 2
+        if str(dom.get("mobile_cta_status") or "unknown") == "verified":
+            score += 3
+        if len(str(dom.get("page_text") or "")) >= 100:
+            score += 2
+        if not dom.get("bot_challenge_suspected"):
+            score += 1
+        return score
+
+    def _merge_dom_attempts(self, first: Dict[str, Any], second: Dict[str, Any]) -> Dict[str, Any]:
+        primary, secondary = (second, first) if self._dom_attempt_score(second) > self._dom_attempt_score(first) else (first, second)
+        merged = dict(primary)
+        # Fill only genuinely absent/unknown values from the weaker attempt.
+        for key, value in secondary.items():
+            current = merged.get(key)
+            if current in (None, "", [], {}) and value not in (None, "", [], {}):
+                merged[key] = value
+            if isinstance(current, str) and current.lower() == "unknown" and isinstance(value, str) and value.lower() != "unknown":
+                merged[key] = value
+        # Mobile CTA evidence must come from the mobile viewport. A desktop retry may recover
+        # document evidence but must never masquerade as mobile sticky-CTA verification.
+        mobile_attempt = first if first.get("browser_mode", "mobile") == "mobile" else second
+        if str(mobile_attempt.get("mobile_cta_status") or "unknown") == "verified":
+            for key in (
+                "mobile_cta_visible", "mobile_primary_cta_present", "mobile_sticky_cta_present",
+                "mobile_cta_status", "mobile_cta_type", "mobile_cta_types", "mobile_cta_evidence",
+                "add_to_cart_visible", "order_online_present", "reservation_present", "directions_present",
+            ):
+                merged[key] = mobile_attempt.get(key)
+        else:
+            merged["mobile_cta_status"] = "unknown"
+            merged["mobile_sticky_cta_present"] = False
+            merged["mobile_cta_visible"] = False
+
+        merged["browser_retry_used"] = True
+        merged["browser_attempts"] = [first.get("browser_mode", "mobile"), second.get("browser_mode", "desktop")]
+        return merged
+
+    def _merge_static_and_dom(self, static: Dict[str, Any], dom: Dict[str, Any]) -> Dict[str, Any]:
+        """Browser evidence wins when verified; raw HTML fills gaps without overwriting certainty."""
+        merged = dict(static or {})
+        dom = dom or {}
+
+        # Always preserve browser-quality diagnostics.
+        for key in ("browser_loaded", "dom_complete", "browser_status_code", "browser_error", "bot_challenge_suspected", "browser_mode", "browser_retry_used", "browser_attempts"):
+            if key in dom:
+                merged[key] = dom.get(key)
+
+        # Fields with explicit status markers.
+        if str(dom.get("h1_status") or "unknown") in {"present", "missing"}:
+            for key in ("h1_tags", "h1_dom_count", "h1_dom_text", "h1_source_count", "h1_status"):
+                merged[key] = dom.get(key)
+        if str(dom.get("phone_visibility_status") or "unknown") == "verified":
+            for key in ("phone_number_visible", "phone_visibility_status", "detected_phone_numbers"):
+                merged[key] = dom.get(key)
+        if str(dom.get("click_to_call_status") or "unknown") == "verified":
+            for key in ("click_to_call_present", "click_to_call_status", "whatsapp_present", "live_chat_present"):
+                merged[key] = dom.get(key)
+        if str(dom.get("mobile_cta_status") or "unknown") == "verified":
+            for key in (
+                "mobile_cta_visible", "mobile_primary_cta_present", "mobile_sticky_cta_present",
+                "mobile_cta_status", "mobile_cta_type", "mobile_cta_types", "mobile_cta_evidence",
+                "add_to_cart_visible", "order_online_present", "reservation_present", "directions_present",
+            ):
+                merged[key] = dom.get(key)
+
+        # Browser content/metadata overrides static only if actually collected.
+        if len(str(dom.get("page_text") or "")) >= 20:
+            for key in ("title", "meta_description", "page_text", "visible_word_count", "page_html_length", "page_content_len"):
+                value = dom.get(key)
+                if value not in (None, ""):
+                    merged[key] = value
+            # A successful serialized DOM supports these technical/content facts, including negative results.
+            for key in (
+                "favicon_present", "html_lang_present", "canonical_present", "mobile_viewport_configured",
+                "schema_present", "schema_types", "has_clarity", "has_hotjar", "has_qualitative_analytics",
+                "has_ga4", "has_meta_pixel", "retargeting_pixel_installed", "forms_present", "form_action_valid",
+                "form_functional_status", "form_payload_fired", "address_location_visible", "trust_badges_present",
+                "reviews_visible", "guarantee_refund_present", "about_team_linked", "social_proof_present",
+                "faq_present", "case_studies_portfolio_present", "blog_present", "social_links_present",
+                "privacy_policy_linked", "terms_linked", "privacy_terms_linked", "cookie_banner_present",
+                "author_bylines_present", "publication_dates_visible",
+            ):
+                if key in dom and dom.get(key) is not None:
+                    merged[key] = dom.get(key)
+            merged.update(
+                {
+                    "metadata_evidence_status": "verified",
+                    "tracking_evidence_status": "verified",
+                    "form_evidence_status": "verified",
+                    "technical_evidence_status": "verified",
+                    "content_signal_status": "verified",
+                }
+            )
+
+        if int(dom.get("total_images") or 0) > 0 or (dom.get("browser_loaded") and dom.get("missing_alt_images") is not None):
+            for key in (
+                "image_count", "total_images", "missing_alt_images", "images_with_alt", "lazy_image_count",
+                "lazy_loading_status", "custom_photography_signal", "custom_photography_status",
+            ):
+                if key in dom:
+                    merged[key] = dom.get(key)
+            merged["image_evidence_status"] = "verified"
+
+        if dom.get("ai_spectrum_status") == "heuristic":
+            merged["ai_spectrum_pct"] = dom.get("ai_spectrum_pct")
+            merged["ai_spectrum_status"] = "heuristic"
+            merged["ai_flags"] = dom.get("ai_flags") or merged.get("ai_flags") or {}
+
+        if str(dom.get("cms_platform") or "") and dom.get("cms_platform") != "Not confidently identified":
+            merged["cms_platform"] = dom.get("cms_platform")
+            merged["cms_confidence"] = dom.get("cms_confidence", "low")
+
+        return merged
+
     def _empty_dom_meta(self, error: str = "") -> Dict[str, Any]:
         return {
             "browser_loaded": False,
@@ -404,6 +1005,14 @@ class HybridScanner:
             "browser_status_code": None,
             "browser_error": error,
             "bot_challenge_suspected": False,
+            "static_html_verified": False,
+            "static_html_error": "",
+            "metadata_evidence_status": "unknown",
+            "image_evidence_status": "unknown",
+            "tracking_evidence_status": "unknown",
+            "form_evidence_status": "unknown",
+            "technical_evidence_status": "unknown",
+            "content_signal_status": "unknown",
             "title": "",
             "meta_description": "",
             "h1_tags": [],
@@ -479,7 +1088,7 @@ class HybridScanner:
             "custom_photography_signal": False,
         }
 
-    async def _run_targeted_playwright(self, url: str, psi_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _run_targeted_playwright(self, url: str, psi_data: Dict[str, Any], mode: str = "mobile") -> Dict[str, Any]:
         results = self._empty_dom_meta()
         audits = (psi_data.get("lighthouseResult") or {}).get("audits") or {}
         tap_items = ((audits.get("tap-targets") or {}).get("details") or {}).get("items")
@@ -495,13 +1104,20 @@ class HybridScanner:
                 headless=True,
                 args=["--no-sandbox", "--disable-setuid-sandbox"],
             )
-            context = await browser.new_context(
-                viewport={"width": 390, "height": 844},
-                user_agent=(
+            if mode == "desktop":
+                viewport = {"width": 1365, "height": 900}
+                user_agent = (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
+                )
+            else:
+                viewport = {"width": 390, "height": 844}
+                user_agent = (
                     "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
                     "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
-                ),
-            )
+                )
+            context = await browser.new_context(viewport=viewport, user_agent=user_agent)
+            results["browser_mode"] = mode
             page = await context.new_page()
 
             try:
@@ -1161,15 +1777,20 @@ class HybridScanner:
 
     @staticmethod
     def _evidence_coverage(data: Dict[str, Any]) -> Dict[str, Any]:
+        document_verified = bool(data.get("browser_loaded") or data.get("static_html_verified"))
         evidence_fields = {
             "http": data.get("status_code") not in (None, 0),
-            "dom": bool(data.get("browser_loaded")),
+            "document": document_verified,
             "h1": data.get("h1_status") in {"present", "missing"},
             "cta": data.get("mobile_cta_status") == "verified",
             "phone": data.get("phone_visibility_status") == "verified",
+            "technical": str(data.get("technical_evidence_status") or "").lower() == "verified",
+            "content": str(data.get("content_signal_status") or "").lower() == "verified",
+            "tracking": str(data.get("tracking_evidence_status") or "").lower() == "verified",
+            "images": str(data.get("image_evidence_status") or "").lower() == "verified",
+            "forms": str(data.get("form_evidence_status") or "").lower() == "verified",
             "pagespeed": data.get("pagespeed_api_status") == "success",
             "crux": bool(data.get("crux_available")),
-            "metadata": bool(data.get("browser_loaded")),
         }
         verified = sum(bool(v) for v in evidence_fields.values())
         return {

@@ -6,19 +6,17 @@ hard-coded passes and title-substring remediation with evidence-backed logic.
 
 from __future__ import annotations
 
+import base64
 import datetime
 import html
 import json
 import os
+import re
 from typing import Any, Dict, List, Optional
 
 import requests
 
-
-PASS = "PASS"
-FAIL = "FAIL"
-UNKNOWN = "UNKNOWN"
-NA = "NOT_APPLICABLE"
+from checkpoint_engine import PASS, FAIL, UNKNOWN, NA, build_50_checkpoints, checkpoint_summary
 
 
 class ReportGenerator:
@@ -33,20 +31,24 @@ class ReportGenerator:
         scan = scan_data or {}
         business_profile = audit.get("business_profile") or scan.get("business_profile") or {"vertical": audit.get("business_type", "general")}
 
+        checkpoints = audit.get("full_50_checkpoint_basis") or build_50_checkpoints(scan, audit)
+        summary = audit.get("checkpoint_summary") or checkpoint_summary(checkpoints)
+
         packages = audit.get("tiered_remediation_packages") or {}
         leaks = packages.get("all_scoring_leaks") or packages.get("tier_10_arch10") or []
         sorted_leaks = sorted(
             [item for item in leaks if isinstance(item, dict)],
-            key=lambda item: float(item.get("severity_score") or 0.0),
+            key=lambda item: float(item.get("severity_score") or item.get("final_score_loss") or 0.0),
             reverse=True,
         )
 
         enriched: List[Dict[str, Any]] = []
-        for leak in sorted_leaks[:6]:
+        for leak in sorted_leaks[:10]:
             severity_factor = leak.get("severity_factor")
             enriched.append(
                 {
                     **leak,
+                    "finding_type": "VERIFIED_LEAK",
                     "severity_label": self._get_severity_label(severity_factor),
                     "solutions_3_angles": self._build_3_angle_solutions(
                         str(leak.get("rule_key") or ""),
@@ -57,14 +59,13 @@ class ReportGenerator:
                 }
             )
 
-        checkpoints = self._build_50_checkpoints(scan, audit)
-        summary = self._checkpoint_summary(checkpoints)
-        overall = audit.get("overall_health_score", audit.get("overall_score", 0.0))
+        # The attachment always contains 10 actionable priorities. Never fabricate a failure:
+        # if fewer than 10 verified leaks exist, fill remaining slots with explicitly-labelled
+        # optimization opportunities selected from verified PASS checkpoints.
+        findings = self._fill_to_ten_findings(enriched, checkpoints, scan, business_profile)
 
-        revenue_display = (
-            (audit.get("revenue_leak") or {}).get("est_annual_revenue_leak")
-            or "Not measured"
-        )
+        overall = audit.get("overall_health_score", audit.get("overall_score", 0.0))
+        revenue_display = (audit.get("revenue_leak") or {}).get("est_annual_revenue_leak") or "Not measured"
 
         return {
             "report_type": "ADMIN_LEAD_ALERT",
@@ -79,7 +80,10 @@ class ReportGenerator:
             "revenue_exposure": audit.get("revenue_leak") or {},
             "scoring_methodology": self._build_scoring_methodology_explanation(audit),
             "score_level_impact": self._build_score_level_impact_explanation(float(overall or 0.0)),
-            "top_6_financial_leaks": enriched,
+            "top_10_financial_leaks": findings,
+            # Backward-compatible alias for any old template/client code.
+            "top_6_financial_leaks": findings[:6],
+            "verified_financial_leak_count": len(enriched),
             "full_50_checkpoint_basis": checkpoints,
             "checkpoint_summary": summary,
             "behavioral_diagnostics": audit.get("behavioral_diagnostics", {}),
@@ -91,6 +95,101 @@ class ReportGenerator:
             "scoring_ledger": audit.get("scoring_ledger") or [],
             "overlap_adjustments": audit.get("overlap_adjustments") or [],
             "score_formula": audit.get("score_formula") or {},
+        }
+
+    def _fill_to_ten_findings(
+        self,
+        verified_leaks: List[Dict[str, Any]],
+        checkpoints: List[Dict[str, Any]],
+        scan: Dict[str, Any],
+        business_profile: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        findings = list(verified_leaks[:10])
+        if len(findings) >= 10:
+            return findings
+
+        used_names = {str(item.get("leak_name") or "") for item in findings}
+        # Prefer verified PASS checks that represent mature commercial dimensions. They are not
+        # reclassified as failures; they simply become next-step opportunities in the action file.
+        preferred_ids = [26, 28, 29, 30, 32, 33, 35, 11, 14, 21, 27, 44, 45, 46, 47, 48, 13, 10, 9, 15]
+        by_id = {int(cp.get("id")): cp for cp in checkpoints if isinstance(cp, dict) and cp.get("id") is not None}
+        for cp_id in preferred_ids:
+            if len(findings) >= 10:
+                break
+            cp = by_id.get(cp_id)
+            if not cp or cp.get("status") != PASS:
+                continue
+            name = str(cp.get("check") or "Verified strength")
+            display = f"Optimization Opportunity — {name}"
+            if display in used_names:
+                continue
+            leak = {
+                "rule_key": f"opportunity_{cp_id:02d}",
+                "checkpoint_id": cp_id,
+                "leak_name": display,
+                "impact_summary": "This checkpoint passed the minimum readiness test. It is included as a next-step optimization opportunity, not as a verified failure or score deduction.",
+                "category": cp.get("category", ""),
+                "evidence": cp.get("evidence"),
+                "source": "Verified 50-point checkpoint evidence",
+                "confidence": "high",
+                "severity_factor": 0.0,
+                "severity_score": 0.0,
+                "final_score_loss": 0.0,
+                "finding_type": "OPTIMIZATION_OPPORTUNITY",
+                "severity_label": "VERIFIED STRENGTH — NEXT OPTIMIZATION",
+            }
+            leak["solutions_3_angles"] = self._build_opportunity_solution(cp, scan, business_profile)
+            findings.append(leak)
+            used_names.add(display)
+
+        # If there still are not ten items, use UNKNOWNs only as verification actions, never as
+        # revenue failures. This keeps the file complete while preserving evidence integrity.
+        for cp in checkpoints:
+            if len(findings) >= 10:
+                break
+            if cp.get("status") != UNKNOWN:
+                continue
+            name = str(cp.get("check") or "Telemetry")
+            display = f"Verification Priority — {name}"
+            if display in used_names:
+                continue
+            leak = {
+                "rule_key": f"verification_{int(cp.get('id') or 0):02d}",
+                "checkpoint_id": cp.get("id"),
+                "leak_name": display,
+                "impact_summary": "The scanner could not verify this checkpoint from available evidence. It is not scored as a failure; the action is to improve/verifiably expose the signal before making a revenue claim.",
+                "category": cp.get("category", ""),
+                "evidence": cp.get("evidence"),
+                "source": "Unresolved checkpoint telemetry",
+                "confidence": "unknown",
+                "severity_factor": None,
+                "severity_score": 0.0,
+                "final_score_loss": 0.0,
+                "finding_type": "VERIFICATION_PRIORITY",
+                "severity_label": "NOT SCORED — VERIFICATION REQUIRED",
+                "solutions_3_angles": {
+                    "technical": "Expose or verify this signal through accessible markup, browser-rendered evidence, Google telemetry or the relevant platform integration; do not hard-code a PASS/FAIL value.",
+                    "cro_ux": "Do not redesign the customer journey solely because this signal is unknown. Preserve working conversion paths until evidence confirms a real issue.",
+                    "systems": "Add a repeatable validation check so future scans can classify this checkpoint as PASS, FAIL or N/A with confidence.",
+                    "why_recommend": "This item is included to complete the 10-priority action file, but it is explicitly not treated as a leak because evidence is incomplete.",
+                    "cadence_title": "Next verification cycle",
+                    "cadence_text": "Resolve the evidence source, re-scan, and only then decide whether remediation is required.",
+                },
+            }
+            findings.append(leak)
+            used_names.add(display)
+        return findings[:10]
+
+    @staticmethod
+    def _build_opportunity_solution(checkpoint: Dict[str, Any], scan: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, str]:
+        name = str(checkpoint.get("check") or "verified strength")
+        return {
+            "technical": f"Preserve the implementation that allowed '{name}' to pass, then benchmark it against the stronger/elite threshold where one exists.",
+            "cro_ux": "Use controlled iteration rather than redesign: improve clarity, prominence or response time only if analytics show a customer-friction opportunity.",
+            "systems": "Track the relevant event/metric over time so optimization is based on observed change rather than a one-time scan score.",
+            "why_recommend": "This checkpoint is already a verified strength. It is presented only as a next optimization priority and contributes zero score loss.",
+            "cadence_title": "After verified leaks",
+            "cadence_text": "Fix genuine leaks first, establish a baseline, then test incremental improvement without weakening the passing implementation.",
         }
 
     @staticmethod
@@ -175,7 +274,7 @@ class ReportGenerator:
         scan_data: Dict[str, Any],
         business_profile: Dict[str, Any],
     ) -> Dict[str, str]:
-        vertical = str(business_profile.get("vertical") or "general")
+        vertical = str(business_profile.get("inferred_subtype") or business_profile.get("vertical") or "general")
         evidence = leak.get("evidence") or {}
 
         if rule_key == "core_web_vitals":
@@ -301,6 +400,10 @@ class ReportGenerator:
                 "cadence_text": "Prioritize verified generic messaging first, then re-scan after meaningful brand-specific content changes.",
             }
 
+        checkpoint_solution = self._checkpoint_specific_solution(rule_key, leak, vertical)
+        if checkpoint_solution:
+            return checkpoint_solution
+
         return {
             "technical": f"Verify the evidence attached to {leak.get('leak_name') or rule_key} and correct the affected implementation without changing unrelated systems.",
             "cro_ux": "Preserve working conversion paths and change only the user-facing friction supported by the evidence.",
@@ -308,6 +411,213 @@ class ReportGenerator:
             "why_recommend": "Trilloka remediation follows the exact rule key and evidence rather than guessing from words in the leak title.",
             "cadence_title": "Weeks 1–2",
             "cadence_text": "Fix the verified issue, re-scan, then evaluate any remaining dependent findings.",
+        }
+
+    @staticmethod
+    def _checkpoint_specific_solution(rule_key: str, leak: Dict[str, Any], vertical: str) -> Optional[Dict[str, str]]:
+        plans: Dict[str, tuple[str, str, str]] = {
+            "https_redirect": (
+                "Force every HTTP request to the equivalent HTTPS URL at the CDN/server layer and verify there is no redirect loop or mixed final destination.",
+                "Keep every landing and conversion URL on the secure canonical path so visitors never see inconsistent secure/non-secure variants.",
+                "Add redirect/TLS monitoring and recheck after DNS, CDN or hosting changes.",
+            ),
+            "retargeting_telemetry": (
+                "Install the appropriate advertising/retargeting pixel only for channels the business actually uses and validate consent-aware event firing.",
+                "Track high-intent actions rather than firing conversion events on generic page views.",
+                "Document pixel IDs, consent conditions and conversion-event ownership so duplicate tags do not accumulate.",
+            ),
+            "phone_visibility": (
+                "Expose the primary business phone number in accessible text/schema where calling is a supported customer path.",
+                "Place the phone signal near contact/location intent without displacing the stronger primary conversion action.",
+                "Keep the number consistent across the site, business listings and call routing.",
+            ),
+            "location_visibility": (
+                "Expose the service/location address or service-area signal in visible content and valid LocalBusiness/PostalAddress schema where appropriate.",
+                "Put location/directions information where local-intent visitors naturally look for it.",
+                "Keep address/service-area data consistent across the site and Google Business Profile.",
+            ),
+            "trust_credentials": (
+                "Add only real, verifiable licence/certification/security/association credentials and link to validation where possible.",
+                "Place proof next to the decision it supports instead of creating a decorative badge wall.",
+                "Create an owner/renewal process so expired credentials are removed or updated.",
+            ),
+            "reviews_social_proof": (
+                "Surface real review/testimonial evidence with source attribution or structured AggregateRating data when valid.",
+                "Place the strongest relevant proof near the offer/CTA it supports.",
+                "Create a review collection and moderation workflow so proof remains current.",
+            ),
+            "guarantee_refund_clarity": (
+                "Publish the actual guarantee/refund terms in a clearly linked policy; do not promise terms the business cannot honour.",
+                "Summarize the reassurance near purchase/booking intent and link to the full conditions.",
+                "Keep checkout, support and policy language synchronized when terms change.",
+            ),
+            "about_team_signal": (
+                "Add a clear About/Team path with real business identity, ownership/team information and relevant credentials.",
+                "Use the page to answer 'who am I buying from?' rather than filling it with generic company language.",
+                "Maintain team/ownership details as staff and roles change.",
+            ),
+            "social_proof_signal": (
+                "Expose at least one verifiable proof source such as reviews, credentials, client outcomes or transaction trust signals.",
+                "Position proof beside the highest-friction decision point.",
+                "Define which proof source is authoritative and keep it current.",
+            ),
+            "instant_query_channel": (
+                "Add chat/WhatsApp only if the business can reliably respond; otherwise strengthen the existing contact path rather than installing an unattended widget.",
+                "Make the instant-query option secondary to the primary conversion action and avoid covering mobile content/CTAs.",
+                "Set response ownership, hours and event tracking before launch.",
+            ),
+            "meta_description_missing": (
+                "Add a unique meta description that accurately summarizes the page and primary offer without keyword stuffing.",
+                "Write it as search-result persuasion: clear service/product, differentiator and intent match.",
+                "Add metadata validation to the publishing template so new pages cannot ship blank descriptions.",
+            ),
+            "meta_description_length": (
+                "Rewrite the description into the scanner's concise range while preserving the strongest offer information.",
+                "Put the differentiator and intent match early so truncation does not remove the key message.",
+                "Validate metadata length automatically during publishing.",
+            ),
+            "h1_topic_relevance": (
+                "Align the verified H1 to the page's primary topic/service/product without creating duplicate keyword headings.",
+                "State the customer outcome/value clearly before secondary messaging.",
+                "Measure hero CTA engagement after the wording change.",
+            ),
+            "title_length": (
+                "Tighten or expand the title so the main topic and brand remain clear within the preferred search-result range.",
+                "Front-load the page's strongest intent term instead of filler text.",
+                "Add title-length validation to the page template/CMS.",
+            ),
+            "structured_data_missing": (
+                "Add valid schema types that describe the actual entity/page and validate the JSON-LD; do not add irrelevant rich-result markup.",
+                "Use structured data to reinforce business/entity clarity rather than as a substitute for visible content.",
+                "Revalidate schema after theme, CMS or product-template deployments.",
+            ),
+            "canonical_missing": (
+                "Add a self-referential or intentionally consolidated rel=canonical URL and verify it resolves to the preferred indexable page.",
+                "Avoid exposing visitors/search engines to competing URL variants for the same offer.",
+                "Enforce canonical generation in templates and test parameterized URLs.",
+            ),
+            "sitemap_missing": (
+                "Generate a valid XML sitemap containing canonical indexable URLs and expose it at a standard URL and/or in robots.txt.",
+                "Keep non-indexable utility URLs out so search discovery focuses on revenue-bearing content.",
+                "Regenerate/update the sitemap automatically as pages are published or removed.",
+            ),
+            "robots_missing": (
+                "Publish a syntactically valid robots.txt that does not accidentally block important crawling and declare the sitemap where useful.",
+                "Protect search visibility by keeping revenue pages crawlable.",
+                "Version-control and test robots changes before deployment.",
+            ),
+            "pagespeed_below_60": (
+                "Use the PageSpeed audit to remove the largest blocking/script/media bottlenecks first; do not optimize blindly.",
+                "Keep the primary value proposition and CTA usable before secondary visual assets finish loading.",
+                "Set a mobile performance budget and test major releases against it.",
+            ),
+            "pagespeed_below_90": (
+                "Work through the highest remaining PageSpeed opportunities until gains become low-value or risk functionality.",
+                "Protect conversion clarity while reducing non-critical visual/interaction cost.",
+                "Treat 90+ as an elite optimization target, not a reason to break working functionality.",
+            ),
+            "seo_score_below_80": (
+                "Open the Lighthouse SEO audit and correct the specific failed audits rather than chasing the aggregate number.",
+                "Preserve human-readable navigation and page intent while fixing technical discoverability.",
+                "Add the failed SEO audits to release QA.",
+            ),
+            "lcp_poor": (
+                "Identify the LCP element, optimize its asset/server delivery and remove work blocking its render.",
+                "Ensure the LCP element contains useful above-the-fold value rather than decorative weight.",
+                "Track field/lab LCP after deployment and enforce a performance budget.",
+            ),
+            "inp_poor": (
+                "Profile long main-thread tasks and event handlers, split heavy JavaScript work and reduce blocking third-party code.",
+                "Keep primary buttons/forms responsive under real mobile load.",
+                "Monitor INP field data where CrUX/analytics coverage exists.",
+            ),
+            "cls_poor": (
+                "Reserve dimensions for images/embeds/ads, avoid late layout injection and stabilize web-font/component sizing.",
+                "Prevent buttons, forms and primary copy from shifting while a user is trying to act.",
+                "Add CLS checks to visual/performance regression testing.",
+            ),
+            "viewport_missing": (
+                "Add a valid responsive viewport meta tag and test actual mobile breakpoints.",
+                "Verify text, controls and forms remain readable/tappable without horizontal zoom.",
+                "Make viewport configuration part of the shared document template.",
+            ),
+            "tap_target_friction": (
+                "Fix the exact Lighthouse-flagged controls by increasing target area/spacing without claiming a fabricated universal size requirement.",
+                "Prioritize high-intent buttons, navigation and form controls first.",
+                "Add mobile tap-target QA to component regression tests.",
+            ),
+            "render_blocking": (
+                "Defer/inline/split only the resources identified as blocking above-the-fold rendering and verify no functional regression.",
+                "Protect first-view copy and conversion controls from delayed rendering.",
+                "Track bundle/third-party growth in release performance budgets.",
+            ),
+            "lazy_loading_gap": (
+                "Lazy-load below-the-fold images/embeds while keeping the real LCP/hero asset eager enough to render quickly.",
+                "Avoid blank content jumps by reserving image dimensions/placeholders.",
+                "Bake loading behavior into reusable image components/CMS templates.",
+            ),
+            "author_bylines_missing": (
+                "Add real author identity to relevant editorial/expert content and connect it to an author profile where appropriate.",
+                "Show expertise where it helps trust; do not add fake personas to commercial copy.",
+                "Make authorship a publishing requirement for applicable content types.",
+            ),
+            "publication_dates_missing": (
+                "Expose publication/updated dates on applicable editorial content using visible markup and machine-readable dates.",
+                "Help users judge freshness where timeliness affects trust.",
+                "Update dates only when content materially changes and keep CMS date fields consistent.",
+            ),
+            "thin_visible_content": (
+                "Add only the missing decision-support content: offer clarity, proof, objections, process, pricing/context or next steps.",
+                "Increase useful information density rather than padding the page to satisfy a word count.",
+                "Measure whether added sections improve engagement/conversion before expanding further.",
+            ),
+            "generic_headline": (
+                "Replace generic/template language with a concrete business-specific outcome, audience and differentiator.",
+                "Use customer language and proof rather than broad claims such as 'innovative solutions'.",
+                "Test the new headline against primary CTA engagement and qualified lead/order behavior.",
+            ),
+            "unlinked_form_structure": (
+                "Connect the form to a valid server action or complete SPA submit handler with validation, success and error states.",
+                "Keep fields minimal and make the post-submit outcome obvious.",
+                "Test the form safely in staging and monitor successful submissions in production.",
+            ),
+            "faq_missing": (
+                "Add a concise FAQ only for real recurring objections/questions and mark up FAQ schema only when eligible/appropriate.",
+                "Place answers near the decision stage they unblock instead of creating filler content.",
+                "Update FAQs from actual sales/support/search-query data.",
+            ),
+            "case_studies_missing": (
+                "Publish verifiable proof-of-work with problem, work performed and outcome where confidentiality permits.",
+                "Link the most relevant case study near the corresponding service/solution CTA.",
+                "Create a process for collecting outcomes and approvals from future clients/projects.",
+            ),
+            "content_hub_missing": (
+                "Create a focused expertise/resource hub only if the business model benefits from ongoing informational demand.",
+                "Organize content around customer questions and buying stages rather than generic posting cadence.",
+                "Track assisted conversions/search demand so the content program is accountable.",
+            ),
+            "social_links_missing": (
+                "Link only maintained official social profiles with correct rel/security attributes.",
+                "Keep social links secondary to onsite conversion so users are not unnecessarily sent away.",
+                "Remove abandoned channels and keep profile branding/contact data consistent.",
+            ),
+            "privacy_terms_missing": (
+                "Publish accessible Privacy and Terms pages appropriate to the site's actual data collection/commerce behavior and link them consistently.",
+                "Expose policy links near forms/checkout/footer without overwhelming the primary action.",
+                "Review policies when tracking, payment, data collection or service terms change.",
+            ),
+        }
+        plan = plans.get(rule_key)
+        if not plan:
+            return None
+        technical, cro, systems = plan
+        return {
+            "technical": technical,
+            "cro_ux": cro,
+            "systems": systems,
+            "why_recommend": f"This recommendation is tied to the verified '{leak.get('checkpoint_name') or leak.get('leak_name') or rule_key}' evidence and is ranked by its weighted revenue-readiness impact.",
+            "cadence_title": "Weeks 1–2",
+            "cadence_text": "Implement the technical correction, verify the customer-facing result, then re-scan and compare the scoring ledger before further optimization.",
         }
 
     @staticmethod
@@ -343,132 +653,20 @@ class ReportGenerator:
         return prefix + "Make the hero communicate the primary customer outcome and align it to the site's verified primary action."
 
     def _build_50_checkpoints(self, scan_data: Dict[str, Any], audit_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-        scan = scan_data or {}
-        profile = audit_data.get("business_profile") or scan.get("business_profile") or {}
-        vertical = str(profile.get("vertical") or audit_data.get("business_type") or "general")
-        browser_verified = bool(scan.get("browser_loaded")) and not bool((scan.get("scan_quality") or {}).get("bot_challenge_suspected"))
-        psi_available = scan.get("pagespeed_api_status") == "success"
-        ai_available = scan.get("ai_spectrum_status") == "heuristic" and scan.get("ai_spectrum_pct") is not None
-        checkpoints: List[Dict[str, Any]] = []
-
-        def add(cp_id: int, name: str, status: str, category: str, evidence: Any = None) -> None:
-            checkpoints.append({"id": cp_id, "check": name, "status": status, "category": category, "evidence": evidence})
-
-        def bool_status(value: Any, verified: bool = True) -> str:
-            if not verified or value is None:
-                return UNKNOWN
-            return PASS if bool(value) else FAIL
-
-        # Trust & Conversion 1-15
-        add(1, "SSL Certificate Active", bool_status(scan.get("has_ssl"), bool(scan.get("is_reachable"))), "trust_conversion", scan.get("final_url"))
-        add(2, "HTTPS Redirect Enforced", bool_status(scan.get("https_redirect_enforced")), "trust_conversion", scan.get("redirect_chain"))
-        add(3, "Mobile Click-to-Call Present", bool_status(scan.get("click_to_call_present"), scan.get("click_to_call_status") == "verified"), "trust_conversion")
-        add(4, "Mobile Sticky CTA Visible", bool_status(scan.get("mobile_sticky_cta_present"), scan.get("mobile_cta_status") == "verified"), "trust_conversion", scan.get("mobile_cta_types"))
-        add(5, "Form Action / SPA Structure Valid", NA if not scan.get("forms_present") else bool_status(scan.get("form_action_valid"), browser_verified), "trust_conversion")
-        add(6, "Retargeting Pixel Installed", bool_status(scan.get("retargeting_pixel_installed"), browser_verified), "trust_conversion")
-        add(7, "Custom Photography Used", scan.get("custom_photography_status") if scan.get("custom_photography_status") in {PASS, FAIL, UNKNOWN, NA} else UNKNOWN, "trust_conversion", {"same_origin_signal": scan.get("custom_photography_signal")})
-        add(8, "Phone Number Visible", bool_status(scan.get("phone_number_visible"), scan.get("phone_visibility_status") == "verified"), "trust_conversion", scan.get("detected_phone_numbers"))
-        add(9, "Address/Location Visible", bool_status(scan.get("address_location_visible"), browser_verified), "trust_conversion")
-        add(10, "Trust Badges / Credential Signals Present", bool_status(scan.get("trust_badges_present"), browser_verified), "trust_conversion")
-        add(11, "Testimonials/Reviews Visible", bool_status(scan.get("reviews_visible"), browser_verified), "trust_conversion")
-        guarantee_na = vertical in {"restaurant", "legal", "saas"}
-        add(12, "Guarantee/Refund Policy Clear", NA if guarantee_na else bool_status(scan.get("guarantee_refund_present"), browser_verified), "trust_conversion")
-        add(13, "Team/About Page Linked", bool_status(scan.get("about_team_linked"), browser_verified), "trust_conversion")
-        add(14, "Social Proof Signals Active", bool_status(scan.get("social_proof_present"), browser_verified), "trust_conversion")
-        add(15, "Live Chat / WhatsApp Query Channel", bool_status(bool(scan.get("live_chat_present") or scan.get("whatsapp_present")), browser_verified), "trust_conversion")
-
-        # SEO & Technical 16-35
-        meta = str(scan.get("meta_description") or "")
-        title = str(scan.get("title") or "")
-        h1_status = str(scan.get("h1_status") or "unknown").lower()
-        h1_tags = scan.get("h1_tags") or []
-        perf = scan.get("performance_score")
-        seo = scan.get("google_seo_score")
-        add(16, "Meta Description Present", bool_status(bool(meta), browser_verified), "seo_technical")
-        add(17, "Meta Description Length Optimal (120-158 chars)", UNKNOWN if not browser_verified or not meta else (PASS if 120 <= len(meta) <= 158 else FAIL), "seo_technical", len(meta) if meta else None)
-        add(18, "Single H1 Tag Per Page", UNKNOWN if h1_status == "unknown" else (PASS if h1_status == "present" and len(h1_tags) == 1 else FAIL), "seo_technical", h1_tags)
-        add(19, "H1 Supports Inferred Primary Topic", scan.get("h1_relevance_status") if scan.get("h1_relevance_status") in {PASS, FAIL, UNKNOWN} else UNKNOWN, "seo_technical")
-        add(20, "Title Tag Optimal Length (50-60 chars)", UNKNOWN if not browser_verified or not title else (PASS if 50 <= len(title) <= 60 else FAIL), "seo_technical", len(title) if title else None)
-        add(21, "Schema.org Structured Data", bool_status(scan.get("schema_present"), browser_verified), "seo_technical", scan.get("schema_types"))
-        add(22, "Canonical URL Set", bool_status(scan.get("canonical_present"), browser_verified), "seo_technical")
-        add(23, "XML Sitemap Present", bool_status(scan.get("sitemap_present")), "seo_technical", scan.get("sitemap_status_code"))
-        add(24, "Robots.txt Valid", bool_status(scan.get("robots_valid")), "seo_technical", scan.get("robots_status_code"))
-        add(25, "Google PageSpeed Performance > 60", UNKNOWN if not psi_available or perf is None else (PASS if float(perf) >= 60 else FAIL), "seo_technical", perf)
-        add(26, "Google PageSpeed Performance > 90", UNKNOWN if not psi_available or perf is None else (PASS if float(perf) >= 90 else FAIL), "seo_technical", perf)
-        add(27, "Google SEO Score > 80", UNKNOWN if not psi_available or seo is None else (PASS if float(seo) >= 80 else FAIL), "seo_technical", seo)
-
-        lcp = scan.get("crux_lcp_ms") if scan.get("crux_available") else scan.get("psi_lcp_ms")
-        inp = scan.get("crux_inp_ms") if scan.get("crux_available") else None
-        cls_value = scan.get("crux_cls") if scan.get("crux_available") else scan.get("psi_cls")
-        add(28, "LCP (Largest Contentful Paint) ≤ 2.5s", UNKNOWN if lcp is None else (PASS if float(lcp) <= 2500 else FAIL), "seo_technical", lcp)
-        add(29, "INP (Interaction to Next Paint) ≤ 200ms", UNKNOWN if inp is None else (PASS if float(inp) <= 200 else FAIL), "seo_technical", inp)
-        add(30, "CLS (Cumulative Layout Shift) ≤ 0.1", UNKNOWN if cls_value is None else (PASS if float(cls_value) <= 0.1 else FAIL), "seo_technical", cls_value)
-        add(31, "Mobile Viewport Configured", bool_status(scan.get("mobile_viewport_configured"), browser_verified), "seo_technical")
-        tap_count = scan.get("psi_tap_targets_flagged")
-        if tap_count is None:
-            tap_list = scan.get("tap_targets_flagged")
-            tap_status = UNKNOWN if not isinstance(tap_list, list) else (PASS if len(tap_list) == 0 and psi_available else (FAIL if len(tap_list) > 0 else UNKNOWN))
-        else:
-            tap_status = PASS if int(tap_count) == 0 else FAIL
-        add(32, "Tap Targets Properly Sized", tap_status, "seo_technical", tap_count if tap_count is not None else scan.get("tap_targets_flagged"))
-        blocking = scan.get("psi_render_blocking_count")
-        add(33, "No Material Render-Blocking Resources", UNKNOWN if blocking is None else (PASS if int(blocking) == 0 else FAIL), "seo_technical", blocking)
-        missing_alt = scan.get("missing_alt_images")
-        add(34, "Images Have Accessibility Text", UNKNOWN if not browser_verified or missing_alt is None else (PASS if int(missing_alt) == 0 else FAIL), "seo_technical", {"missing": missing_alt, "total": scan.get("total_images")})
-        lazy_status = scan.get("lazy_loading_status")
-        add(35, "Lazy Loading on Relevant Images", lazy_status if lazy_status in {PASS, FAIL, UNKNOWN, NA} else UNKNOWN, "seo_technical", scan.get("lazy_image_count"))
-
-        # Content & E-E-A-T 36-50
-        add(36, "Original Photography (Not Stock)", scan.get("custom_photography_status") if scan.get("custom_photography_status") in {PASS, FAIL, UNKNOWN, NA} else UNKNOWN, "content_eeat")
-        editorial_relevant = bool(scan.get("blog_present")) or vertical in {"legal", "medspa", "professional_service", "saas"}
-        add(37, "Author Bylines Present", NA if not editorial_relevant else bool_status(scan.get("author_bylines_present"), browser_verified), "content_eeat")
-        add(38, "Publication Dates Visible", NA if not editorial_relevant else bool_status(scan.get("publication_dates_visible"), browser_verified), "content_eeat")
-        word_count = int(scan.get("visible_word_count") or 0)
-        word_relevant = vertical not in {"restaurant"}
-        add(39, "Visible Content Length > 300 Words", NA if not word_relevant else (UNKNOWN if not browser_verified else (PASS if word_count > 300 else FAIL)), "content_eeat", word_count)
-        ai_pct = scan.get("ai_spectrum_pct")
-        add(40, "AI / Template Pattern Index < 30", UNKNOWN if not ai_available else (PASS if float(ai_pct) < 30 else FAIL), "content_eeat", ai_pct)
-        add(41, "AI / Template Pattern Index < 60", UNKNOWN if not ai_available else (PASS if float(ai_pct) < 60 else FAIL), "content_eeat", ai_pct)
-        generic = (scan.get("ai_flags") or {}).get("generic_headline")
-        add(42, "No Generic Template Headlines", bool_status(not bool(generic), browser_verified), "content_eeat")
-        unlinked = (scan.get("ai_flags") or {}).get("unlinked_forms")
-        add(43, "No Structurally Unlinked Forms", NA if not scan.get("forms_present") else (UNKNOWN if unlinked is None else (PASS if int(unlinked) == 0 else FAIL)), "content_eeat", unlinked)
-        faq_relevant = vertical not in {"restaurant"}
-        add(44, "FAQ Section Present", NA if not faq_relevant else bool_status(scan.get("faq_present"), browser_verified), "content_eeat")
-        portfolio_relevant = vertical in {"local_service", "professional_service", "legal", "medspa", "saas"}
-        add(45, "Case Studies/Portfolio Linked", NA if not portfolio_relevant else bool_status(scan.get("case_studies_portfolio_present"), browser_verified), "content_eeat")
-        blog_relevant = vertical not in {"restaurant"}
-        add(46, "Blog/Content Hub Active", NA if not blog_relevant else bool_status(scan.get("blog_present"), browser_verified), "content_eeat")
-        add(47, "Social Media Links Active", bool_status(scan.get("social_links_present"), browser_verified), "content_eeat")
-        add(48, "Privacy Policy & Terms Linked", bool_status(scan.get("privacy_terms_linked"), browser_verified), "content_eeat")
-        cookie = scan.get("cookie_banner_present")
-        add(49, "Cookie Consent/Preference Interface", PASS if cookie is True else UNKNOWN, "content_eeat", "Absence is jurisdiction/context dependent and is not auto-failed")
-        form_status = str(scan.get("form_functional_status") or "UNKNOWN").upper()
-        add(50, "Contact Form Functional", NA if not scan.get("forms_present") else (form_status if form_status in {PASS, FAIL, UNKNOWN} else UNKNOWN), "content_eeat", "No destructive live submission performed")
-
-        return checkpoints
+        return build_50_checkpoints(scan_data, audit_data)
 
     @staticmethod
     def _checkpoint_summary(checkpoints: List[Dict[str, Any]]) -> Dict[str, int]:
-        counts = {PASS: 0, FAIL: 0, UNKNOWN: 0, NA: 0}
-        for cp in checkpoints:
-            status = cp.get("status")
-            if status in counts:
-                counts[status] += 1
-        return {
-            "verified": counts[PASS] + counts[FAIL],
-            "passed": counts[PASS],
-            "failed": counts[FAIL],
-            "unknown": counts[UNKNOWN],
-            "not_applicable": counts[NA],
-            "total": len(checkpoints),
-        }
+        return checkpoint_summary(checkpoints)
 
     def send_admin_alert_email(self, admin_report: Dict[str, Any]) -> bool:
         if not self.resend_api_key:
             print("[Email] RESEND_API_KEY not configured — skipping email")
             return False
         html_body = self._build_email_html(admin_report)
+        domain_safe = re.sub(r"[^A-Za-z0-9._-]+", "_", str(admin_report.get("target_domain") or "site")).strip("_") or "site"
+        attachment_name = f"Trilloka_Revenue_Audit_{domain_safe}.html"
+        attachment_content = base64.b64encode(html_body.encode("utf-8")).decode("ascii")
         try:
             response = requests.post(
                 "https://api.resend.com/emails",
@@ -481,6 +679,12 @@ class ReportGenerator:
                     "to": self.admin_email,
                     "subject": f"🚨 New Lead Alert — {admin_report.get('target_domain', 'Unknown')} scored {admin_report.get('overall_health_score', 'N/A')}",
                     "html": html_body,
+                    "attachments": [
+                        {
+                            "filename": attachment_name,
+                            "content": attachment_content,
+                        }
+                    ],
                 },
                 timeout=15,
             )
@@ -509,7 +713,7 @@ class ReportGenerator:
 
         score_color = "#22C55E" if score >= 75 else "#D8B66A" if score >= 50 else "#EF4444"
         leaks_html = ""
-        for idx, leak in enumerate(report.get("top_6_financial_leaks") or [], 1):
+        for idx, leak in enumerate(report.get("top_10_financial_leaks") or report.get("top_6_financial_leaks") or [], 1):
             if not isinstance(leak, dict):
                 continue
             angles = leak.get("solutions_3_angles") or {}
@@ -519,6 +723,7 @@ class ReportGenerator:
             <div style="margin-bottom:32px; border-left:4px solid #D8B66A; padding-left:16px;">
                 <h3 style="font-family:Georgia,serif; font-size:18px; color:#090B12; margin:0 0 6px 0; font-weight:700;">{idx}. {html.escape(str(leak.get('leak_name','')))}</h3>
                 <p style="font-family:Inter,sans-serif; font-size:13px; color:#555; margin:0 0 8px 0; line-height:1.5;">{html.escape(str(leak.get('impact_summary','')))}</p>
+                <p style="font-family:Inter,sans-serif; font-size:10px; color:#6B7280; margin:0 0 6px 0; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">{html.escape(str(leak.get('finding_type','VERIFIED_LEAK')).replace('_',' '))}</p>
                 <p style="font-family:Inter,sans-serif; font-size:11px; color:#C85A5A; margin:0 0 12px 0; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">{html.escape(str(leak.get('severity_label','SEVERITY UNKNOWN')))} &nbsp;|&nbsp; Severity Scale: {factor_display} &nbsp;|&nbsp; Score Loss: -{float(leak.get('severity_score') or 0):.2f} pts</p>
                 <div style="background:#fdfdfd; border:1px solid #f0f0f0; border-radius:8px; padding:16px; margin-top:10px;">
                     <p style="font-family:Inter,sans-serif; font-size:12px; color:#111; font-weight:700; margin:0 0 10px 0; text-transform:uppercase; letter-spacing:0.5px;">The 3-Angle Remediation Plan:</p>
@@ -565,7 +770,7 @@ class ReportGenerator:
         <p style="font-family:Inter,sans-serif; font-size:12px; color:#D1D5DB; margin:0; line-height:1.5;">• <strong>Hygiene:</strong> {html.escape(str(methodology.get('hygiene_gatekeeping','')))}</p>
     </div>
 
-    <h2 style="font-family:Georgia,serif; font-size:22px; color:#090B12; margin:32px 0 20px 0; font-weight:700;">🎯 Top 6 Financial Leaks & 3-Angle Solutions</h2>
+    <h2 style="font-family:Georgia,serif; font-size:22px; color:#090B12; margin:32px 0 20px 0; font-weight:700;">🎯 10 Highest-Priority Revenue Findings & 3-Angle Fixes</h2>
     {leaks_html}
 
     <div style="background:#121621; color:#F2F0E8; border-radius:12px; padding:20px; margin:24px 0;">
@@ -600,5 +805,12 @@ class ReportGenerator:
         }
         with open(filename, "w", encoding="utf-8") as handle:
             json.dump(vault_entry, handle, indent=2, ensure_ascii=False, default=str)
+
+        # Also persist the customer-readable action report as a standalone HTML file.
+        html_filename = f"{self.vault_dir}/{sanitized}_{timestamp}_report.html"
+        with open(html_filename, "w", encoding="utf-8") as handle:
+            handle.write(self._build_email_html(admin_report))
+
         print(f"[Vault] Archived scan snapshot to {filename}")
+        print(f"[Vault] Archived customer-readable report to {html_filename}")
         return filename

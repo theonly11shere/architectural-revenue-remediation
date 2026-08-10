@@ -20,6 +20,7 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
 from behavioural_engine import BehaviouralEngine
+from checkpoint_engine import FAIL, build_50_checkpoints, checkpoint_summary
 
 
 CATEGORY_WEIGHTS_BY_BIZ: Dict[str, Dict[str, float]] = {
@@ -131,8 +132,18 @@ class RevenueScorer:
 
         if not scan_data.get("browser_loaded") and not scan_data.get("response_ok"):
             raise ValueError("Insufficient evidence: neither browser nor HTTP preflight produced usable telemetry")
-        if float(coverage.get("ratio") or 0.0) < 0.25:
-            raise ValueError("Insufficient evidence coverage to produce a defensible score")
+
+        checkpoints = build_50_checkpoints(
+            scan_data,
+            {"business_profile": profile, "business_type": biz_type},
+        )
+        cp_summary = checkpoint_summary(checkpoints)
+        # Do not issue a confident commercial score when almost nothing was actually inspected.
+        # Static HTML + browser fallback should normally push verified coverage well above this floor.
+        if int(cp_summary.get("verified") or 0) < 10:
+            raise ValueError(
+                f"Insufficient evidence coverage: only {cp_summary.get('verified', 0)} of 50 checkpoints were verified after fallback extraction"
+            )
 
         try:
             behavioral = self.behavioral_engine.analyze_behavioral_friction(scan_data, biz_type)
@@ -144,6 +155,13 @@ class RevenueScorer:
             biz_type,
             profile,
             competitor_data_present is True,
+        )
+        raw_leaks.extend(
+            self._checkpoint_failure_leaks(
+                checkpoints=checkpoints,
+                existing_leaks=raw_leaks,
+                biz_type=biz_type,
+            )
         )
         leaks, overlap_adjustments = self._apply_family_deduplication(raw_leaks)
 
@@ -193,7 +211,7 @@ class RevenueScorer:
         ai_pct = scan_data.get("ai_spectrum_pct")
         perf = scan_data.get("performance_score")
         seo = scan_data.get("google_seo_score")
-        exposure = self._revenue_exposure(overall)
+        exposure = self._revenue_exposure(overall, biz_type, total_loss)
 
         # Preserve existing public surface metric keys. Add availability flags so unknown data is never scored as zero.
         surface_metrics = {
@@ -228,9 +246,13 @@ class RevenueScorer:
             "surface_metrics": surface_metrics,
             "key_friction_insight": key_friction,
             "revenue_leak": {
-                # Legacy key retained; value is now explicitly a model-based exposure label.
+                # Legacy key retained; the customer again receives a dollar range, explicitly model-based.
                 "est_annual_revenue_leak": exposure["display"],
+                "estimated_annual_range": exposure["range"],
+                "estimated_annual_min": exposure["min"],
+                "estimated_annual_max": exposure["max"],
                 "exposure_level": exposure["level"],
+                "method_note": exposure["method_note"],
                 "model_based": True,
                 "measured_revenue_loss": False,
             },
@@ -243,6 +265,8 @@ class RevenueScorer:
             "vault_id": self._get_vault_id(overall),
             "cms_platform": str(scan_data.get("cms_platform") or "Not confidently identified"),
             "scan_quality": scan_quality,
+            "checkpoint_summary": cp_summary,
+            "full_50_checkpoint_basis": checkpoints,
             "scoring_ledger": [self._ledger_row(leak) for leak in sorted_leaks],
             "strength_ledger": strength_ledger,
             "elite_strength_ledger": elite_ledger,
@@ -269,8 +293,21 @@ class RevenueScorer:
         requested_norm = self._normalize_business_type(requested)
         requested_raw = str(requested or "auto").strip().lower()
 
-        # Explicit known types win. "auto", blank and generic placeholders allow inference.
-        if requested_raw not in {"", "auto", "unknown", "none", "general"} and requested_norm != "general":
+        # Explicit known types win. If the frontend intentionally sends GENERAL, preserve it.
+        if requested_raw == "general":
+            profile = automatic
+            inferred_subtype = auto_vertical if auto_vertical != "general" and auto_conf >= 0.55 else "general"
+            profile.update(
+                {
+                    "vertical": "general",
+                    "inferred_subtype": inferred_subtype,
+                    "inferred_subtype_confidence": auto_conf if inferred_subtype != "general" else 0.0,
+                    "confidence": 1.0,
+                    "source": "explicit_request",
+                }
+            )
+            return profile, "general"
+        if requested_raw not in {"", "auto", "unknown", "none"} and requested_norm != "general":
             profile = automatic
             profile.update({"vertical": requested_norm, "confidence": 1.0, "source": "explicit_request"})
             return profile, requested_norm
@@ -948,6 +985,115 @@ class RevenueScorer:
 
         return leaks
 
+    def _checkpoint_failure_leaks(
+        self,
+        checkpoints: List[Dict[str, Any]],
+        existing_leaks: List[Dict[str, Any]],
+        biz_type: str,
+    ) -> List[Dict[str, Any]]:
+        """Promote verified checkpoint failures into scoring/report leaks without duplicating dedicated rules."""
+        existing_rules = {str(item.get("rule_key") or "") for item in existing_leaks}
+        promoted: List[Dict[str, Any]] = []
+        for checkpoint in checkpoints:
+            if checkpoint.get("status") != FAIL or checkpoint.get("dedicated_rule"):
+                continue
+            rule_key = str(checkpoint.get("rule_key") or "")
+            if not rule_key or rule_key in existing_rules:
+                continue
+            base_weight = float(checkpoint.get("report_weight") or 0.0)
+            severity = float(checkpoint.get("severity_factor") or 0.0)
+            if base_weight <= 0 or severity <= 0:
+                continue
+
+            category = str(checkpoint.get("category") or "seo_technical")
+            category_multiplier = CATEGORY_WEIGHTS_BY_BIZ[biz_type].get(category, 1.0)
+            matrix = BUSINESS_MODEL_MATRIX[biz_type]
+            business_multiplier = {
+                "trust_conversion": matrix["conversion"],
+                "seo_technical": matrix["seo"],
+                "content_eeat": matrix["trust"],
+                "measurement": matrix["measurement"],
+            }.get(category, 1.0)
+            pre_dedupe = base_weight * category_multiplier * business_multiplier * severity
+            title, impact = self._checkpoint_failure_copy(checkpoint)
+            promoted.append(
+                {
+                    "rule_key": rule_key,
+                    "family": str(checkpoint.get("family") or rule_key),
+                    "checkpoint_id": checkpoint.get("id"),
+                    "checkpoint_name": checkpoint.get("check"),
+                    "title": title,
+                    "description": impact,
+                    "category": category,
+                    "base_impact_weight": round(base_weight, 2),
+                    "category_multiplier": round(category_multiplier, 3),
+                    "business_multiplier": round(business_multiplier, 3),
+                    "severity_factor": round(severity, 2),
+                    "confidence": "high",
+                    "confidence_multiplier": 1.0,
+                    "substitution_factor": 1.0,
+                    "competitor_advantage_bonus": 0.0,
+                    "pre_dedupe_penalty": round(pre_dedupe, 2),
+                    "family_adjustment": 1.0,
+                    "final_score_loss": round(pre_dedupe, 2),
+                    "final_severity_score": round(pre_dedupe, 2),
+                    "evidence": {
+                        "checkpoint_id": checkpoint.get("id"),
+                        "checkpoint": checkpoint.get("check"),
+                        "evidence": checkpoint.get("evidence"),
+                    },
+                    "source": "Verified 50-point checkpoint evidence",
+                }
+            )
+            existing_rules.add(rule_key)
+        return promoted
+
+    @staticmethod
+    def _checkpoint_failure_copy(checkpoint: Dict[str, Any]) -> Tuple[str, str]:
+        rule_key = str(checkpoint.get("rule_key") or "")
+        name = str(checkpoint.get("check") or "Verified checkpoint failure")
+        copy_map = {
+            "https_redirect": ("HTTPS Redirect Gap", "The secure site is available, but HTTP-to-HTTPS enforcement was not verified as correctly implemented."),
+            "retargeting_telemetry": ("Retargeting Measurement Gap", "No verified retargeting/marketing pixel signal was found, limiting campaign attribution and remarketing readiness."),
+            "phone_visibility": ("Phone Visibility Gap", "A visible phone contact signal was not detected even though the page was successfully inspected."),
+            "location_visibility": ("Location Confidence Gap", "The page did not expose a clear address/location signal, which can weaken local intent and trust."),
+            "trust_credentials": ("Credential / Trust Signal Gap", "No clear credential, certification, secure-purchase or comparable trust signal was detected."),
+            "reviews_social_proof": ("Review Proof Gap", "No clear testimonial/review proof was detected in the inspected page evidence."),
+            "guarantee_refund_clarity": ("Guarantee / Refund Clarity Gap", "A relevant guarantee/refund reassurance signal was not found for this business model."),
+            "about_team_signal": ("Identity / About Signal Gap", "No clear About/Team identity path was detected, reducing business transparency."),
+            "social_proof_signal": ("Social Proof Gap", "The inspected page did not expose a strong review, credential or comparable proof signal."),
+            "instant_query_channel": ("Instant Query Channel Gap", "No live-chat or WhatsApp-style instant query option was detected."),
+            "meta_description_missing": ("Missing Search Description", "The page did not expose a meta description, weakening search-result message control."),
+            "meta_description_length": ("Weak Search Snippet Length", "The verified meta description exists but falls outside the scanner's preferred concise search-snippet range."),
+            "h1_topic_relevance": ("Hero Topic Relevance Gap", "The verified H1 does not strongly support the inferred primary topic/value proposition."),
+            "title_length": ("Title Tag Clarity Gap", "The verified title length falls outside the scanner's preferred search-title range."),
+            "structured_data_missing": ("Structured Data Gap", "No verified Schema.org structured-data signal was detected."),
+            "canonical_missing": ("Canonical Signal Missing", "No canonical URL declaration was detected in the verified document evidence."),
+            "sitemap_missing": ("XML Sitemap Gap", "The scanner could not find a valid XML sitemap at the standard/declarative locations it checked."),
+            "robots_missing": ("Robots.txt Gap", "A valid robots.txt file was not found at the standard site location."),
+            "pagespeed_below_60": ("Severe Mobile Performance Drag", "Google PageSpeed mobile performance measured below the scanner's minimum readiness threshold."),
+            "pagespeed_below_90": ("Performance Headroom Remaining", "Google PageSpeed performance is usable but remains below the scanner's elite-performance threshold."),
+            "seo_score_below_80": ("Technical SEO Readiness Gap", "Google Lighthouse SEO evidence measured below the scanner's readiness threshold."),
+            "lcp_poor": ("Slow Largest Contentful Paint", "Measured LCP exceeded the scanner's good-performance threshold."),
+            "inp_poor": ("Interaction Responsiveness Gap", "Measured INP exceeded the scanner's good responsiveness threshold."),
+            "cls_poor": ("Layout Stability Gap", "Measured CLS exceeded the scanner's good visual-stability threshold."),
+            "viewport_missing": ("Mobile Viewport Foundation Missing", "A valid mobile viewport configuration was not detected."),
+            "tap_target_friction": ("Mobile Tap-Target Friction", "Google telemetry flagged one or more tap-target sizing/spacing issues."),
+            "render_blocking": ("Render-Blocking Resource Drag", "Google telemetry identified resources that materially block rendering."),
+            "lazy_loading_gap": ("Image Loading Efficiency Gap", "Relevant image loading behavior did not meet the scanner's optimization requirement."),
+            "author_bylines_missing": ("Content Authorship Signal Gap", "Relevant editorial content lacks a verified author/byline signal."),
+            "publication_dates_missing": ("Content Freshness Signal Gap", "Relevant editorial content lacks a visible publication/date signal."),
+            "thin_visible_content": ("Thin Visible Content Depth", "The verified visible page content is below the scanner's minimum depth threshold for this business model."),
+            "generic_headline": ("Generic Template Headline", "The verified headline language matched generic/template-style phrasing that can weaken differentiation."),
+            "unlinked_form_structure": ("Structurally Unlinked Form", "A verified form lacks a complete action or SPA-style submission structure."),
+            "faq_missing": ("FAQ / Objection-Handling Gap", "No FAQ-style objection-handling section was detected where it is relevant to the business model."),
+            "case_studies_missing": ("Proof-of-Work Gap", "No case-study/portfolio proof path was detected for a business model where proof-of-work is commercially relevant."),
+            "content_hub_missing": ("Content Authority Gap", "No blog/content-hub path was detected for a model where ongoing expertise content is relevant."),
+            "social_links_missing": ("Social Identity Link Gap", "No verified outbound social-profile links were detected."),
+            "privacy_terms_missing": ("Policy Trust Gap", "Privacy and Terms links were not both detected in the verified site evidence."),
+        }
+        return copy_map.get(rule_key, (name, f"Verified checkpoint failure: {name}."))
+
     def _build_leak(
         self,
         rule_key: str,
@@ -1153,7 +1299,13 @@ class RevenueScorer:
         return f"Low Template Pattern — {cms}"
 
     @staticmethod
-    def _revenue_exposure(score: float) -> Dict[str, str]:
+    def _revenue_exposure(score: float, biz_type: str, total_loss: float) -> Dict[str, Any]:
+        """Return a transparent model-based annual dollar exposure range.
+
+        This is intentionally an exposure model, not a claim about measured revenue loss.
+        It gives prospects a financially legible range while preserving the disclaimer that
+        traffic, conversion rate and customer value were not supplied.
+        """
         if score >= 90:
             level = "VERY LOW"
         elif score >= 80:
@@ -1164,7 +1316,34 @@ class RevenueScorer:
             level = "HIGH"
         else:
             level = "CRITICAL"
-        return {"level": level, "display": f"{level} — model-based revenue exposure"}
+
+        multipliers = {
+            "general": (280.0, 650.0),
+            "restaurant": (220.0, 520.0),
+            "local_service": (420.0, 950.0),
+            "professional_service": (500.0, 1150.0),
+            "medspa": (650.0, 1450.0),
+            "legal": (800.0, 1800.0),
+            "ecommerce": (450.0, 1100.0),
+            "saas": (550.0, 1300.0),
+        }
+        low_mult, high_mult = multipliers.get(biz_type, multipliers["general"])
+        readiness_gap = max(0.0, 82.0 - float(score))
+        exposure_units = max(0.0, readiness_gap + min(18.0, float(total_loss) * 0.55))
+        annual_min = int(round(exposure_units * low_mult / 100.0) * 100)
+        annual_max = int(round(exposure_units * high_mult / 100.0) * 100)
+        if score >= 90:
+            annual_min = 0
+        annual_max = max(annual_max, annual_min)
+        range_text = f"${annual_min:,} – ${annual_max:,} / year"
+        return {
+            "level": level,
+            "min": annual_min,
+            "max": annual_max,
+            "range": range_text,
+            "display": f"{range_text} — {level} model-based exposure",
+            "method_note": "Model-based exposure derived from Revenue Readiness gap and verified weighted leak severity; not measured accounting loss.",
+        }
 
     @staticmethod
     def _safe_float(value: Any) -> Optional[float]:
