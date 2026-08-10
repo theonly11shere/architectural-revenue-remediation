@@ -1,0 +1,31 @@
+# Trilloka V6 tiered scan access + owner/admin controls
+SCAN_ACCESS_CONTROL_ENABLED=true
+
+# IMPORTANT: put this SQLite file on persistent storage.
+# For multiple app replicas, replace SQLite with a shared database/store before scaling horizontally.
+SCAN_ACCESS_DB_PATH=/persistent/path/trilloka_scan_access.sqlite3
+
+# Long random owner/admin secret. Never expose this in frontend JavaScript.
+TRILLOKA_ADMIN_API_KEY=REPLACE_WITH_A_LONG_RANDOM_SECRET
+
+# Stable keyed-hash secret. Keep it secret and persistent across deployments.
+SCAN_ACCESS_SECRET=REPLACE_WITH_ANOTHER_LONG_RANDOM_SECRET
+
+# Free preview abuse protection
+FREE_SCAN_LIMIT=1
+FREE_SCAN_WINDOW_HOURS=24
+FREE_SCAN_CACHE_HOURS=24
+
+# Paid duplicate-click protection; a recent paid scan may reuse the cached result instead of
+# consuming another daily fresh-scan allowance unless force_refresh=true.
+PAID_DUPLICATE_GRACE_SECONDS=180
+SCAN_RESERVATION_TTL_SECONDS=1200
+
+# Daily paid limits reset at midnight in this timezone.
+PLAN_TIMEZONE=America/Vancouver
+
+# Turn on ONLY when your host/CDN sanitizes forwarding headers.
+TRUST_PROXY_HEADERS=true
+
+SCAN_COOKIE_SECURE=true
+SCAN_COOKIE_SAMESITE=lax
