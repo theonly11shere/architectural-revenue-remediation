@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import hmac
 import json
 import os
 from typing import Any, Dict, List, Optional
@@ -30,9 +29,11 @@ from urllib.parse import urlparse
 
 import uvicorn
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request as FastAPIRequest, Response
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 
+from admin_auth import AdminAuthError, AdminAuthManager
 from hybrid_scanner import HybridScanner
 from scan_access import AccessDenied, AccessTicket, PLAN_CATALOG, ScanAccessManager
 from scorer import RevenueScorer
@@ -48,23 +49,33 @@ except Exception as exc:
     REPORT_ENGINE_AVAILABLE = False
 
 
+_ALLOWED_ORIGINS = [
+    item.strip() for item in os.environ.get(
+        "TRILLOKA_ALLOWED_ORIGINS", "https://trilloka.com,https://www.trilloka.com"
+    ).split(",") if item.strip()
+]
+
 app = FastAPI(
     title="Trilloka Architect Engine API",
     description="Evidence-weighted Revenue Readiness Diagnostic & Tiered Report Gateway",
-    version="6.3.0",
+    version="6.4.0",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Trilloka-System-Key", "X-Trilloka-Admin-Session"],
 )
 
 scanner = HybridScanner()
 scorer = RevenueScorer()
 access_manager = ScanAccessManager()
+admin_auth = AdminAuthManager()
 
 
 class AuditRequest(BaseModel):
@@ -134,9 +145,55 @@ class GuidanceCallAdminRequest(BaseModel):
     delta: int = 1
 
 
-def _admin_key_valid(value: Optional[str]) -> bool:
+class AdminOtpVerifyRequest(BaseModel):
+    code: str
+
+
+def _legacy_admin_key_valid(value: Optional[str]) -> bool:
+    """Emergency compatibility only. Disabled by default so human admin access requires emailed OTP."""
+    enabled = os.environ.get("TRILLOKA_ALLOW_LEGACY_ADMIN_KEY", "false").strip().lower() in {"1", "true", "yes", "on"}
+    if not enabled:
+        return False
     configured = os.environ.get("TRILLOKA_ADMIN_API_KEY", "").strip()
-    return bool(configured and value and hmac.compare_digest(value.strip(), configured))
+    if not configured or not value:
+        return False
+    import hmac as _hmac
+    return _hmac.compare_digest(value.strip(), configured)
+
+
+def _system_key_valid(value: Optional[str]) -> bool:
+    """Machine-to-machine key for a verified payment backend; never used by the owner browser."""
+    configured = os.environ.get("TRILLOKA_PLAN_ACTIVATION_KEY", "").strip()
+    if not configured or not value:
+        return False
+    import hmac as _hmac
+    return _hmac.compare_digest(value.strip(), configured)
+
+
+def _admin_session_token(request: FastAPIRequest, header_value: Optional[str] = None) -> Optional[str]:
+    return (header_value or request.cookies.get(admin_auth.cookie_name) or "").strip() or None
+
+
+def _is_admin_session(request: FastAPIRequest, header_value: Optional[str] = None, legacy_key: Optional[str] = None) -> bool:
+    token = _admin_session_token(request, header_value)
+    return admin_auth.validate_session(token) or _legacy_admin_key_valid(legacy_key)
+
+
+def _require_admin_session(request: FastAPIRequest, header_value: Optional[str] = None, legacy_key: Optional[str] = None) -> None:
+    if _is_admin_session(request, header_value, legacy_key):
+        return
+    raise HTTPException(status_code=401, detail="Fresh Trilloka owner sign-in required")
+
+
+def _require_admin_or_system(
+    request: FastAPIRequest,
+    admin_session: Optional[str] = None,
+    system_key: Optional[str] = None,
+    legacy_key: Optional[str] = None,
+) -> None:
+    if _system_key_valid(system_key):
+        return
+    _require_admin_session(request, admin_session, legacy_key)
 
 
 def _set_device_cookie(response: Response, device_id: str) -> None:
@@ -221,9 +278,14 @@ def handle_trilloka_guardrail(target_domain: str) -> Optional[Dict[str, Any]]:
 def health_check() -> Dict[str, Any]:
     return {
         "status": "online",
-        "system": "Trilloka Architect Engine v6.3",
+        "system": "Trilloka Architect Engine v6.4",
         "google_api_configured": bool(os.environ.get("PAGESPEED_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
         "report_engine": REPORT_ENGINE_AVAILABLE,
+        "owner_otp_auth": {
+            "enabled": admin_auth.configured,
+            "locked_owner_email": True,
+            "session_minutes": round(admin_auth.session_ttl_seconds / 60, 1),
+        },
         "scan_access_control": {
             "enabled": access_manager.enabled,
             "free_limit": access_manager.free_limit,
@@ -248,6 +310,133 @@ def public_plans() -> Dict[str, Any]:
         },
         "plans": access_manager.public_plans(),
     }
+
+
+
+def _admin_console_html() -> str:
+    # Private owner console. Authentication is enforced by HttpOnly OTP session cookie on every API call.
+    return r"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trilloka Owner Console</title>
+<style>
+:root{color-scheme:dark}body{margin:0;background:#071018;color:#eef3f4;font:15px/1.45 system-ui,-apple-system,Segoe UI,Arial,sans-serif}main{max-width:1080px;margin:0 auto;padding:36px 20px}.card{background:#0d1821;border:1px solid #263743;border-radius:16px;padding:20px;margin:14px 0;box-shadow:0 12px 36px #0005}h1,h2{margin:0 0 12px}.muted{color:#aebdc6}.ok{color:#a5e7bf}.err{color:#ffb4ab}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}input,select,button,textarea{width:100%;box-sizing:border-box;border-radius:10px;border:1px solid #354b58;background:#09141c;color:#eef3f4;padding:11px 12px;margin:6px 0}button{cursor:pointer;background:#d8c29b;color:#111;border:none;font-weight:700}button.secondary{background:#18303e;color:#eef3f4}.actions{display:flex;gap:8px;flex-wrap:wrap}.actions button{width:auto}pre{white-space:pre-wrap;word-break:break-word;background:#071018;padding:14px;border-radius:10px;max-height:420px;overflow:auto}.hidden{display:none}.code{font-size:25px;letter-spacing:4px;text-align:center}.danger{background:#7f1d1d;color:white}
+</style>
+</head>
+<body><main>
+<h1>Trilloka Owner Console</h1>
+<p class="muted">Private administration. Every new owner session requires a one-time code sent only to the configured owner email.</p>
+<div id="login" class="card">
+  <h2>Owner sign-in</h2>
+  <p id="loginMsg" class="muted">Request a one-time code. No email address can be entered or changed here.</p>
+  <button id="sendCode">Email my code</button>
+  <input id="otp" class="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000">
+  <button id="verifyCode" class="secondary">Verify code</button>
+</div>
+<div id="console" class="hidden">
+  <div class="card"><div class="actions"><button id="refresh">Refresh usage</button><button id="listEnt" class="secondary">List entitlements</button><button id="logout" class="danger">Log out</button></div><pre id="output">Authenticated.</pre></div>
+  <div class="card"><h2>Activate / complimentary plan</h2><div class="grid"><input id="aEmail" placeholder="customer@email.com"><input id="aDomain" placeholder="example.com"><select id="aPlan"><option value="essential_350">$350 Essential</option><option value="advanced_550">$550 Advanced</option><option value="architect_850">$850 Architect</option></select><input id="aRef" placeholder="purchase reference"></div><button id="activate">Activate plan</button></div>
+  <div class="card"><h2>Manage customer</h2><div class="grid"><input id="mEmail" placeholder="customer@email.com"><input id="mDomain" placeholder="example.com"><select id="mPlan"><option value="">Keep current plan</option><option value="essential_350">$350 Essential</option><option value="advanced_550">$550 Advanced</option><option value="architect_850">$850 Architect</option></select><input id="extendDays" type="number" placeholder="extend days (+/-)"><input id="newDomain" placeholder="new domain if changing"></div><div class="actions"><button data-act="status">Status</button><button data-act="update">Update plan/expiry</button><button data-act="reset">Reset daily scans</button><button data-act="callplus">Call +1</button><button data-act="callminus">Call -1</button><button data-act="rotate">Rotate pass</button><button data-act="domain">Change domain</button><button data-act="restore">Restore</button><button data-act="revoke" class="danger">Revoke</button></div></div>
+</div>
+<script>
+const $=id=>document.getElementById(id), out=$('output');
+async function api(path,opts={}){opts.credentials='same-origin';opts.headers={'Content-Type':'application/json',...(opts.headers||{})};const r=await fetch(path,opts);let j={};try{j=await r.json()}catch{}if(!r.ok)throw new Error(j.detail||('HTTP '+r.status));return j}
+function showConsole(on){$('login').classList.toggle('hidden',on);$('console').classList.toggle('hidden',!on)}
+async function status(){try{const j=await api('/api/admin/auth/status');showConsole(!!j.authenticated);if(j.authenticated)out.textContent='Owner session active. Expires in '+Math.ceil(j.expires_in_seconds/60)+' min.'}catch{showConsole(false)}}
+$('sendCode').onclick=async()=>{try{const j=await api('/api/admin/auth/request-code',{method:'POST'});$('loginMsg').className='ok';$('loginMsg').textContent='Code sent to '+j.destination+'. It expires in '+Math.ceil(j.expires_in_seconds/60)+' minutes.'}catch(e){$('loginMsg').className='err';$('loginMsg').textContent=e.message}};
+$('verifyCode').onclick=async()=>{try{await api('/api/admin/auth/verify-code',{method:'POST',body:JSON.stringify({code:$('otp').value})});$('otp').value='';await status()}catch(e){$('loginMsg').className='err';$('loginMsg').textContent=e.message}};
+$('logout').onclick=async()=>{await api('/api/admin/auth/logout',{method:'POST'});showConsole(false)};
+function print(j){out.textContent=JSON.stringify(j,null,2)}
+$('refresh').onclick=async()=>{try{print(await api('/api/admin/scan-usage'))}catch(e){out.textContent=e.message}};
+$('listEnt').onclick=async()=>{try{print(await api('/api/admin/entitlements?limit=100'))}catch(e){out.textContent=e.message}};
+$('activate').onclick=async()=>{try{print(await api('/api/admin/activate-plan',{method:'POST',body:JSON.stringify({email:$('aEmail').value,domain:$('aDomain').value,plan_id:$('aPlan').value,purchase_ref:$('aRef').value})}))}catch(e){out.textContent=e.message}};
+document.querySelectorAll('[data-act]').forEach(b=>b.onclick=async()=>{const email=$('mEmail').value,domain=$('mDomain').value,ref={email,domain};let path='',body=ref;switch(b.dataset.act){case'status':path='/api/admin/entitlement/status';break;case'update':path='/api/admin/entitlement/update';body={...ref,plan_id:$('mPlan').value||null,extend_days:$('extendDays').value?Number($('extendDays').value):null};break;case'reset':path='/api/admin/entitlement/reset-daily-usage';break;case'callplus':path='/api/admin/entitlement/guidance-call';body={...ref,delta:1};break;case'callminus':path='/api/admin/entitlement/guidance-call';body={...ref,delta:-1};break;case'rotate':path='/api/admin/entitlement/rotate-pass';break;case'domain':path='/api/admin/entitlement/change-domain';body={...ref,new_domain:$('newDomain').value};break;case'restore':path='/api/admin/entitlement/restore';break;case'revoke':path='/api/admin/entitlement/revoke';break}try{print(await api(path,{method:'POST',body:JSON.stringify(body)}))}catch(e){out.textContent=e.message}});
+status();
+</script>
+</main></body></html>"""
+
+
+def _admin_auth_error(exc: AdminAuthError) -> HTTPException:
+    headers = {"X-Trilloka-Admin-Auth-Reason": exc.reason}
+    if exc.retry_after:
+        headers["Retry-After"] = str(int(exc.retry_after))
+    status = 429 if exc.reason in {"OTP_COOLDOWN", "OTP_RATE_LIMIT"} else 401
+    if exc.reason in {"ADMIN_EMAIL_NOT_CONFIGURED", "OTP_EMAIL_NOT_CONFIGURED", "OTP_EMAIL_DELIVERY_FAILED"}:
+        status = 503
+    return HTTPException(status_code=status, detail=str(exc), headers=headers)
+
+
+@app.get("/admin", response_class=HTMLResponse, include_in_schema=False)
+def admin_console() -> str:
+    return _admin_console_html()
+
+
+@app.post("/api/admin/auth/request-code", include_in_schema=False)
+def admin_request_code(http_request: FastAPIRequest, response: Response) -> Dict[str, Any]:
+    try:
+        challenge = admin_auth.request_code(access_manager.client_ip(http_request))
+    except AdminAuthError as exc:
+        raise _admin_auth_error(exc) from exc
+    response.set_cookie(
+        key=admin_auth.challenge_cookie_name,
+        value=challenge.token,
+        max_age=admin_auth.otp_ttl_seconds,
+        httponly=True,
+        secure=admin_auth.cookie_secure,
+        samesite="strict",
+        path="/",
+    )
+    return {
+        "success": True,
+        "sent": True,
+        "destination": challenge.destination,
+        "expires_in_seconds": admin_auth.otp_ttl_seconds,
+    }
+
+
+@app.post("/api/admin/auth/verify-code", include_in_schema=False)
+def admin_verify_code(payload: AdminOtpVerifyRequest, http_request: FastAPIRequest, response: Response) -> Dict[str, Any]:
+    try:
+        session = admin_auth.verify_code(
+            payload.code,
+            http_request.cookies.get(admin_auth.challenge_cookie_name),
+            access_manager.client_ip(http_request),
+        )
+    except AdminAuthError as exc:
+        raise _admin_auth_error(exc) from exc
+    response.delete_cookie(admin_auth.challenge_cookie_name, path="/", samesite="strict")
+    response.set_cookie(
+        key=admin_auth.cookie_name,
+        value=session.token,
+        max_age=admin_auth.session_ttl_seconds,
+        httponly=True,
+        secure=admin_auth.cookie_secure,
+        samesite="strict",
+        path="/",
+    )
+    return {"success": True, "authenticated": True, "expires_at": session.expires_at}
+
+
+@app.get("/api/admin/auth/status", include_in_schema=False)
+def admin_auth_status(
+    http_request: FastAPIRequest,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
+) -> Dict[str, Any]:
+    return admin_auth.session_status(_admin_session_token(http_request, x_trilloka_admin_session))
+
+
+@app.post("/api/admin/auth/logout", include_in_schema=False)
+def admin_logout(
+    http_request: FastAPIRequest,
+    response: Response,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
+) -> Dict[str, Any]:
+    admin_auth.revoke_session(_admin_session_token(http_request, x_trilloka_admin_session))
+    response.delete_cookie(admin_auth.cookie_name, path="/", samesite="strict")
+    response.delete_cookie(admin_auth.challenge_cookie_name, path="/", samesite="strict")
+    return {"success": True, "authenticated": False}
 
 
 @app.get("/diagnostic")
@@ -278,6 +467,9 @@ def diagnostic() -> Dict[str, Any]:
 @app.post("/api/admin/activate-plan")
 def activate_plan(
     payload: PlanActivationRequest,
+    http_request: FastAPIRequest,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
+    x_trilloka_system_key: Optional[str] = Header(default=None, alias="X-Trilloka-System-Key"),
     x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
 ) -> Dict[str, Any]:
     """Called only after your payment backend has independently verified a successful purchase.
@@ -285,8 +477,7 @@ def activate_plan(
     The plaintext purchase pass is returned once. Store/deliver it through the payment success
     flow; only its HMAC hash is retained by Trilloka.
     """
-    if not _admin_key_valid(x_trilloka_admin_key):
-        raise HTTPException(status_code=403, detail="Admin authorization required")
+    _require_admin_or_system(http_request, x_trilloka_admin_session, x_trilloka_system_key, x_trilloka_admin_key)
     try:
         result = access_manager.activate_plan(
             email=str(payload.email),
@@ -304,11 +495,13 @@ def activate_plan(
 @app.post("/api/admin/grant-scan-package")
 def grant_scan_package(
     payload: PackageGrantRequest,
+    http_request: FastAPIRequest,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
+    x_trilloka_system_key: Optional[str] = Header(default=None, alias="X-Trilloka-System-Key"),
     x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
 ) -> Dict[str, Any]:
     """Backward-compatible endpoint name. It now activates one of the three 30-day plans."""
-    if not _admin_key_valid(x_trilloka_admin_key):
-        raise HTTPException(status_code=403, detail="Admin authorization required")
+    _require_admin_or_system(http_request, x_trilloka_admin_session, x_trilloka_system_key, x_trilloka_admin_key)
     try:
         result = access_manager.grant_package(
             email=str(payload.email),
@@ -323,10 +516,11 @@ def grant_scan_package(
 
 @app.get("/api/admin/scan-usage")
 def scan_usage(
+    http_request: FastAPIRequest,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
     x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
 ) -> Dict[str, Any]:
-    if not _admin_key_valid(x_trilloka_admin_key):
-        raise HTTPException(status_code=403, detail="Admin authorization required")
+    _require_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
     return {"success": True, **access_manager.admin_metrics()}
 
 
@@ -347,23 +541,25 @@ def customer_plan_status(payload: CustomerPlanStatusRequest) -> Dict[str, Any]:
 
 @app.get("/api/admin/entitlements")
 def admin_list_entitlements(
+    http_request: FastAPIRequest,
     active_only: bool = False,
     limit: int = 100,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
     x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
 ) -> Dict[str, Any]:
-    if not _admin_key_valid(x_trilloka_admin_key):
-        raise HTTPException(status_code=403, detail="Admin authorization required")
+    _require_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
     return {"success": True, **access_manager.list_entitlements(active_only=active_only, limit=limit)}
 
 
 @app.post("/api/admin/entitlement/status")
 def admin_entitlement_lookup(
     payload: EntitlementAdminRef,
+    http_request: FastAPIRequest,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
     x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
 ) -> Dict[str, Any]:
     """Owner lookup uses a POST body so customer email/domain are not placed in the URL."""
-    if not _admin_key_valid(x_trilloka_admin_key):
-        raise HTTPException(status_code=403, detail="Admin authorization required")
+    _require_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
     status = access_manager.entitlement_status(str(payload.email), payload.domain)
     if not status.get("exists"):
         raise HTTPException(status_code=404, detail="No entitlement exists for this email/domain")
@@ -373,11 +569,12 @@ def admin_entitlement_lookup(
 @app.post("/api/admin/entitlement/update")
 def admin_update_entitlement(
     payload: EntitlementUpdateRequest,
+    http_request: FastAPIRequest,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
     x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
 ) -> Dict[str, Any]:
     """Upgrade/downgrade, extend/shorten expiry, or change payment reference without changing the pass."""
-    if not _admin_key_valid(x_trilloka_admin_key):
-        raise HTTPException(status_code=403, detail="Admin authorization required")
+    _require_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
     try:
         result = access_manager.update_entitlement(
             email=str(payload.email),
@@ -395,10 +592,11 @@ def admin_update_entitlement(
 @app.post("/api/admin/entitlement/revoke")
 def admin_revoke_entitlement(
     payload: EntitlementAdminRef,
+    http_request: FastAPIRequest,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
     x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
 ) -> Dict[str, Any]:
-    if not _admin_key_valid(x_trilloka_admin_key):
-        raise HTTPException(status_code=403, detail="Admin authorization required")
+    _require_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
     try:
         result = access_manager.revoke_entitlement(email=str(payload.email), domain=payload.domain)
     except ValueError as exc:
@@ -409,10 +607,11 @@ def admin_revoke_entitlement(
 @app.post("/api/admin/entitlement/restore")
 def admin_restore_entitlement(
     payload: EntitlementAdminRef,
+    http_request: FastAPIRequest,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
     x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
 ) -> Dict[str, Any]:
-    if not _admin_key_valid(x_trilloka_admin_key):
-        raise HTTPException(status_code=403, detail="Admin authorization required")
+    _require_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
     try:
         result = access_manager.restore_entitlement(email=str(payload.email), domain=payload.domain)
     except ValueError as exc:
@@ -423,11 +622,12 @@ def admin_restore_entitlement(
 @app.post("/api/admin/entitlement/rotate-pass")
 def admin_rotate_pass(
     payload: EntitlementAdminRef,
+    http_request: FastAPIRequest,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
     x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
 ) -> Dict[str, Any]:
     """Issue a replacement pass. The old pass stops working immediately."""
-    if not _admin_key_valid(x_trilloka_admin_key):
-        raise HTTPException(status_code=403, detail="Admin authorization required")
+    _require_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
     try:
         result = access_manager.rotate_access_pass(email=str(payload.email), domain=payload.domain)
     except ValueError as exc:
@@ -438,10 +638,11 @@ def admin_rotate_pass(
 @app.post("/api/admin/entitlement/change-domain")
 def admin_change_domain(
     payload: EntitlementDomainChangeRequest,
+    http_request: FastAPIRequest,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
     x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
 ) -> Dict[str, Any]:
-    if not _admin_key_valid(x_trilloka_admin_key):
-        raise HTTPException(status_code=403, detail="Admin authorization required")
+    _require_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
     try:
         result = access_manager.change_entitlement_domain(
             email=str(payload.email), domain=payload.domain, new_domain=payload.new_domain
@@ -454,10 +655,11 @@ def admin_change_domain(
 @app.post("/api/admin/entitlement/reset-daily-usage")
 def admin_reset_daily_usage(
     payload: EntitlementAdminRef,
+    http_request: FastAPIRequest,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
     x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
 ) -> Dict[str, Any]:
-    if not _admin_key_valid(x_trilloka_admin_key):
-        raise HTTPException(status_code=403, detail="Admin authorization required")
+    _require_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
     try:
         result = access_manager.reset_daily_usage(email=str(payload.email), domain=payload.domain)
     except ValueError as exc:
@@ -468,10 +670,11 @@ def admin_reset_daily_usage(
 @app.post("/api/admin/entitlement/guidance-call")
 def admin_record_guidance_call(
     payload: GuidanceCallAdminRequest,
+    http_request: FastAPIRequest,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
     x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
 ) -> Dict[str, Any]:
-    if not _admin_key_valid(x_trilloka_admin_key):
-        raise HTTPException(status_code=403, detail="Admin authorization required")
+    _require_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
     try:
         result = access_manager.record_guidance_call(
             email=str(payload.email), domain=payload.domain, delta=payload.delta
@@ -642,6 +845,7 @@ async def _run_audit_impl(
     background_tasks: BackgroundTasks,
     http_request: FastAPIRequest,
     response: Response,
+    x_trilloka_admin_session: Optional[str],
     x_trilloka_admin_key: Optional[str],
 ) -> Dict[str, Any]:
     guardrail_response = handle_trilloka_guardrail(payload.domain)
@@ -658,7 +862,7 @@ async def _run_audit_impl(
     client_ip = access_manager.client_ip(http_request)
     email = str(payload.email) if payload.email else None
     access_pass = str(payload.access_pass or "").strip() or None
-    admin_bypass = _admin_key_valid(x_trilloka_admin_key)
+    admin_bypass = _is_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
 
     # Only a valid paid pass can invoke paid duplicate protection.
     try:
@@ -811,9 +1015,12 @@ async def run_audit(
     background_tasks: BackgroundTasks,
     http_request: FastAPIRequest,
     response: Response,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
     x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
 ) -> Dict[str, Any]:
-    return await _run_audit_impl(payload, background_tasks, http_request, response, x_trilloka_admin_key)
+    return await _run_audit_impl(
+        payload, background_tasks, http_request, response, x_trilloka_admin_session, x_trilloka_admin_key
+    )
 
 
 @app.post("/api/scan")
@@ -822,9 +1029,12 @@ async def run_scan(
     background_tasks: BackgroundTasks,
     http_request: FastAPIRequest,
     response: Response,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
     x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
 ) -> Dict[str, Any]:
-    return await _run_audit_impl(payload, background_tasks, http_request, response, x_trilloka_admin_key)
+    return await _run_audit_impl(
+        payload, background_tasks, http_request, response, x_trilloka_admin_session, x_trilloka_admin_key
+    )
 
 
 if __name__ == "__main__":

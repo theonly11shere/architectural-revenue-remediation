@@ -1,77 +1,60 @@
-Trilloka Architect Engine V6.3 — tiered paid access + owner/admin control validation
+Trilloka Architect Engine V6.4 — locked owner email OTP admin validation
 
 Python compile: PASS
-Full regression/access/admin suite: 50 passed
+Full regression/access/admin/auth suite: 57 passed
 
-Scanner/report foundation retained:
-- original V6 scanner/scorer/checkpoint/report regression suite remains green
-- revenue-first ranking and family deduplication retained
-- 50-checkpoint evidence engine retained
-- free/paid visibility is a wrapper around the same V6 scan result
+V6 engine integrity:
+- hybrid_scanner.py: byte-for-byte identical to clean V6
+- checkpoint_engine.py: byte-for-byte identical to clean V6
+- scorer.py: byte-for-byte identical to clean V6
+- report_engine.py: byte-for-byte identical to clean V6
+- behavioural_engine.py: byte-for-byte identical to clean V6
+- scraper.py: byte-for-byte identical to clean V6
 
-Commercial access behavior tested:
-- free preview: 1 successful scan per IP/device per rolling 24 hours
-- failed free scan does not consume allowance
-- paid entitlement requires matching email + purchased domain + secure purchase pass
-- Essential $350: 2 successful fresh scans/day, Top 3 detailed remediation, full 50-check data
-- Advanced $550: 3 successful fresh scans/day, Top 6 detailed remediation, full 50-check data, 1 guidance call
-- Architect $850: 4 successful fresh scans/day, Top 10 detailed remediation, full 50-check data, 2 guidance calls, 15-hour email response target
-- failed paid scan does not consume daily allowance
-- free preview strips full 50-check data and detailed patch instructions
-- paid report visibility is exactly Top 3 / Top 6 / Top 10 according to tier
-- domain cache behavior retained
+Commercial access behavior retained:
+- free preview limit and cache behavior retained
+- $350 Essential: Top 3, 2 successful fresh scans/day, full 50-check data
+- $550 Advanced: Top 6, 3 successful fresh scans/day, full 50-check data, 1 guidance call
+- $850 Architect: Top 10, 4 successful fresh scans/day, full 50-check data, 2 guidance calls, 15-hour response target
+- failed scans do not consume allowance
+- paid access remains email + purchased-domain + secure-pass bound
 
-Owner/admin controls tested:
-- admin key is required for private owner endpoints
-- activate paid plan after verified purchase
-- complimentary/custom-duration plan activation
-- upgrade/downgrade tier without rotating customer pass
-- extend/shorten expiry and set exact expiry
-- revoke customer access immediately
-- restore customer access
-- rotate lost/compromised pass; previous pass becomes invalid
-- change purchased domain while preserving paid usage history
-- reset today's scan usage without deleting history (rows become admin_reset)
-- record/undo included guidance-call usage
-- list entitlements without raw customer email
-- admin route set is present
-- admin API lifecycle authorization/activation/update/revoke tested through FastAPI TestClient
+Owner OTP behavior tested:
+- owner address locked to onlyonearpit@gmail.com
+- build rejects configuration attempting to redirect OTP to another email
+- OTP is not stored in plaintext
+- owner email is not stored in auth database
+- OTP is single-use
+- OTP requires the browser challenge that requested it
+- OTP request is network-bound by default
+- admin session validation/revocation works
+- protected admin API lifecycle works using OTP session cookie
+- logout removes owner authorization
+- /docs, /redoc and /openapi.json are not public
 
-Privacy/security checks:
-- raw customer email is not stored in access SQLite database
-- raw client IP is not stored in access SQLite database
-- plaintext purchase pass is not stored; only HMAC hash is retained
-- customer plan status uses POST body rather than query string for purchase pass
-- admin API secret is server-side header only
+Owner security defaults:
+- code TTL: 10 minutes
+- owner session TTL: 15 minutes
+- max wrong attempts: 5
+- request cooldown: 60 seconds in production example
+- per-requester and global hourly request limits
+- Secure + HttpOnly + SameSite=Strict owner session/challenge cookies
+- legacy human admin API-key access disabled by default
+- separate machine-to-machine plan activation key supported for verified payment webhooks
 
-Core public routes retained:
+Core routes retained:
   POST /api/audit
   POST /api/scan
   GET  /health
   GET  /diagnostic
   GET  /api/plans
-
-Customer plan route:
   POST /api/plan/status
 
-Private owner routes:
-  POST /api/admin/activate-plan
-  POST /api/admin/grant-scan-package
-  GET  /api/admin/scan-usage
-  GET  /api/admin/entitlements
-  POST /api/admin/entitlement/status
-  POST /api/admin/entitlement/update
-  POST /api/admin/entitlement/revoke
-  POST /api/admin/entitlement/restore
-  POST /api/admin/entitlement/rotate-pass
-  POST /api/admin/entitlement/change-domain
-  POST /api/admin/entitlement/reset-daily-usage
-  POST /api/admin/entitlement/guidance-call
+Private owner entry point:
+  GET /admin
 
-Operational requirements:
-- SCAN_ACCESS_DB_PATH must use persistent storage.
-- TRILLOKA_ADMIN_API_KEY must be a long random server-side secret.
-- SCAN_ACCESS_SECRET must remain stable across deployments.
-- TRUST_PROXY_HEADERS=true only behind a proxy/CDN that sanitizes forwarded client-IP headers.
-- For multi-replica horizontal scaling, move access state from per-replica SQLite to a shared transactional database/store.
-- Payment verification remains external. A trusted server/webhook should call /api/admin/activate-plan only after payment settlement is verified.
+Owner auth routes:
+  POST /api/admin/auth/request-code
+  POST /api/admin/auth/verify-code
+  GET  /api/admin/auth/status
+  POST /api/admin/auth/logout

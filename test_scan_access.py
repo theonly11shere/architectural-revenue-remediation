@@ -301,6 +301,11 @@ def test_main_exposes_owner_admin_control_routes(monkeypatch, tmp_path):
     main_module = importlib.reload(main_module)
     paths = {route.path for route in main_module.app.routes}
     expected = {
+        "/admin",
+        "/api/admin/auth/request-code",
+        "/api/admin/auth/verify-code",
+        "/api/admin/auth/status",
+        "/api/admin/auth/logout",
         "/api/admin/activate-plan",
         "/api/admin/scan-usage",
         "/api/admin/entitlements",
@@ -375,27 +380,44 @@ def test_report_visibility_is_exactly_free_preview_or_paid_top_3_6_10(monkeypatc
         assert paid["report_access"]["remediation_findings_unlocked"] == expected
 
 
-def test_admin_api_key_protects_and_controls_entitlement(monkeypatch, tmp_path):
+def test_owner_otp_session_protects_and_controls_entitlement(monkeypatch, tmp_path):
     monkeypatch.setenv("SCAN_ACCESS_DB_PATH", str(tmp_path / "api.sqlite3"))
     monkeypatch.setenv("SCAN_ACCESS_SECRET", "unit-test-secret")
-    monkeypatch.setenv("TRILLOKA_ADMIN_API_KEY", "owner-secret-key")
+    monkeypatch.setenv("ADMIN_AUTH_SECRET", "unit-test-admin-auth-secret")
+    monkeypatch.setenv("RESEND_API_KEY", "test-resend-key")
+    monkeypatch.setenv("ADMIN_COOKIE_SECURE", "false")
+    monkeypatch.setenv("ADMIN_OTP_REQUEST_COOLDOWN_SECONDS", "15")
+    monkeypatch.delenv("TRILLOKA_ALLOW_LEGACY_ADMIN_KEY", raising=False)
     import importlib
     import main as main_module
     from fastapi.testclient import TestClient
 
     main_module = importlib.reload(main_module)
+    sent = {}
+    main_module.admin_auth._send_code_email = lambda code: sent.setdefault("code", code)
     client = TestClient(main_module.app)
+
     body = {
         "email": "api-buyer@example.com",
         "domain": "api.example",
         "plan_id": "essential_350",
         "purchase_ref": "ORDER-API",
     }
-    denied = client.post("/api/admin/activate-plan", json=body)
-    assert denied.status_code == 403
 
-    headers = {"X-Trilloka-Admin-Key": "owner-secret-key"}
-    created = client.post("/api/admin/activate-plan", json=body, headers=headers)
+    denied = client.post("/api/admin/activate-plan", json=body)
+    assert denied.status_code == 401
+
+    requested = client.post("/api/admin/auth/request-code")
+    assert requested.status_code == 200
+    assert requested.json()["destination"].endswith("@gmail.com")
+    assert main_module.admin_auth.admin_email == "onlyonearpit@gmail.com"
+    assert len(sent["code"]) == 6
+
+    verified = client.post("/api/admin/auth/verify-code", json={"code": sent["code"]})
+    assert verified.status_code == 200
+    assert verified.json()["authenticated"] is True
+
+    created = client.post("/api/admin/activate-plan", json=body)
     assert created.status_code == 200
     payload = created.json()
     assert payload["plan"]["plan_id"] == "essential_350"
@@ -404,15 +426,29 @@ def test_admin_api_key_protects_and_controls_entitlement(monkeypatch, tmp_path):
     upgraded = client.post(
         "/api/admin/entitlement/update",
         json={"email": body["email"], "domain": body["domain"], "plan_id": "architect_850"},
-        headers=headers,
     )
     assert upgraded.status_code == 200
     assert upgraded.json()["plan"]["plan_id"] == "architect_850"
 
-    revoked = client.post(
+    logout = client.post("/api/admin/auth/logout")
+    assert logout.status_code == 200
+    denied_again = client.post(
         "/api/admin/entitlement/revoke",
         json={"email": body["email"], "domain": body["domain"]},
-        headers=headers,
     )
-    assert revoked.status_code == 200
-    assert revoked.json()["revoked"] is True
+    assert denied_again.status_code == 401
+
+
+def test_production_docs_are_not_public(monkeypatch, tmp_path):
+    monkeypatch.setenv("SCAN_ACCESS_DB_PATH", str(tmp_path / "docs.sqlite3"))
+    monkeypatch.setenv("SCAN_ACCESS_SECRET", "unit-test-secret")
+    monkeypatch.setenv("ADMIN_AUTH_SECRET", "unit-test-admin-auth-secret")
+    import importlib
+    import main as main_module
+    from fastapi.testclient import TestClient
+
+    main_module = importlib.reload(main_module)
+    client = TestClient(main_module.app)
+    assert client.get("/docs").status_code == 404
+    assert client.get("/redoc").status_code == 404
+    assert client.get("/openapi.json").status_code == 404
