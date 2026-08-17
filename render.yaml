@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: trilloka-api-production
+    env: docker
+    region: oregon 
+    plan: starter # Note: Playwright can consume significant RAM; Render's free tier may experience Out-Of-Memory (OOM) crashes.
+    envVars:
+      - key: PAGESPEED_API_KEY
+        sync: false # Add your key securely in the Render dashboard
+      - key: PORT
+        value: 8000
