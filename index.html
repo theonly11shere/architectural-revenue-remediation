@@ -4,8 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
 <meta name="theme-color" content="#090B12">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Trilloka | Architectural Revenue Remediation</title>
 <meta name="description" content="Most websites look fine but hemorrhage conversions. We audit your architecture, identify the exact holes where money escapes, and hand you the blueprint to patch them.">
+<link rel="canonical" href="https://trilloka.com/">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -270,10 +274,26 @@ footer {
   width: 100%;
   max-width: 900px;
   max-height: 92vh;
-  overflow-y: auto;
+  overflow: hidden;
   position: relative;
+  display: flex;
+  flex-direction: column;
   animation: modalSlide 0.3s ease;
   box-shadow: 0 24px 80px rgba(0,0,0,0.7);
+}
+.modal-inner {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 1.5rem;
 }
 @keyframes modalSlide {
   from { opacity: 0; transform: translateY(20px) scale(0.96); }
@@ -299,7 +319,6 @@ footer {
   background: rgba(242,240,232,0.08);
   color: var(--white);
 }
-.modal-body { padding: 1.5rem; }
 .phone-popup {
   text-align: center;
   padding: 2rem 1.5rem;
@@ -755,290 +774,53 @@ footer {
 .bottom-tag p {
   font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 0.15em;
-  color: var(--mist);
-  opacity: 0.5;
-}
-
-/* Scroll arrow */
-.scroll-arrow {
-  display: flex;
-  justify-content: center;
-  margin-top: 0.5rem;
-  margin-bottom: 2rem;
-  animation: bounce 2s infinite;
-}
-.scroll-arrow svg {
-  width: 24px;
-  height: 24px;
-  color: var(--copper);
-  opacity: 0.7;
-}
-@keyframes bounce {
-  0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
-  40% { transform: translateY(8px); }
-  60% { transform: translateY(4px); }
-}
-
-/* ── Modal Constellation Metrics ── */
-.constellation-stage {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 1.5rem 0;
-  position: relative;
-}
-
-.constellation-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1.5rem;
-  width: 100%;
-  max-width: 520px;
-}
-
-.metric-orb {
-  position: relative;
-  width: 130px;
-  height: 130px;
-  cursor: pointer;
-  z-index: 2;
-}
-
-.metric-orb .orb-circle {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.35s cubic-bezier(0.4,0,0.2,1);
-  position: relative;
-  overflow: hidden;
-}
-
-.metric-orb.bad .orb-circle {
-  background: rgba(239,68,68,0.08);
-  border: 2px solid var(--metric-red);
-  box-shadow: 0 0 24px var(--metric-red-glow);
-}
-.metric-orb.good .orb-circle {
-  background: rgba(34,197,94,0.08);
-  border: 2px solid var(--metric-green);
-  box-shadow: 0 0 24px var(--metric-green-glow);
-}
-
-.metric-orb:hover .orb-circle {
-  transform: scale(1.1);
-}
-.metric-orb.bad:hover .orb-circle {
-  box-shadow: 0 0 48px var(--metric-red-glow);
-}
-.metric-orb.good:hover .orb-circle {
-  box-shadow: 0 0 48px var(--metric-green-glow);
-}
-
-.orb-inner {
-  text-align: center;
-  z-index: 2;
-}
-
-.orb-inner .o-label {
-  font-size: 0.65rem;
-  text-transform: uppercase;
   letter-spacing: 0.12em;
-  margin-bottom: 0.3rem;
-  font-weight: 600;
-}
-.metric-orb.bad .o-label { color: #FCA5A5; }
-.metric-orb.good .o-label { color: #86EFAC; }
-
-.orb-inner .o-value {
-  font-family: 'Playfair Display', serif;
-  font-size: 1.6rem;
-  font-weight: 700;
-  line-height: 1;
-}
-.metric-orb.bad .o-value { color: #FEE2E2; }
-.metric-orb.good .o-value { color: #DCFCE7; }
-
-.orb-inner .o-sub {
-  font-size: 0.6rem;
-  margin-top: 0.25rem;
-  opacity: 0.8;
-}
-.metric-orb.bad .o-sub { color: #FCA5A5; }
-.metric-orb.good .o-sub { color: #86EFAC; }
-
-/* Ring inside orb */
-.orb-ring {
-  position: absolute;
-  inset: -8px;
-  pointer-events: none;
-}
-.orb-ring svg {
-  width: 100%;
-  height: 100%;
+  color: var(--sand);
 }
 
-/* Center score orb */
-.score-orb {
-  position: relative;
-  width: 170px;
-  height: 170px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.score-orb .score-ring-svg {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-}
-
-.score-orb .score-inner {
-  position: absolute;
-  width: 135px;
-  height: 135px;
-  border-radius: 50%;
-  background: #1A2030;
+/* Digital Twin UI */
+.twin-container {
+  margin: 1.5rem 0 1rem;
+  padding: 1.25rem;
+  background: rgba(18,22,33,0.8);
   border: 1px solid #2A3040;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-.score-orb .score-inner .s-value {
-  font-family: 'Playfair Display', serif;
-  font-size: 3.4rem;
-  font-weight: 700;
-  color: var(--white);
-  line-height: 1;
-  text-shadow: 0 0 30px rgba(242,240,232,0.1);
-}
-
-.score-orb .score-inner .s-label {
-  font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--mist);
-  margin-top: 0.35rem;
-  text-align: center;
-}
-
-/* Hover tooltip / overlay */
-.metric-tooltip {
-  position: absolute;
-  bottom: calc(100% + 14px);
-  left: 50%;
-  transform: translateX(-50%) scale(0.92);
-  width: 260px;
-  background: rgba(18,18,18,0.98);
-  border: 1px solid #40546A;
   border-radius: 12px;
-  padding: 0.875rem;
-  opacity: 0;
-  pointer-events: none;
-  transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
-  z-index: 100;
-  box-shadow: 0 16px 48px rgba(0,0,0,0.6);
 }
-.metric-orb:hover .metric-tooltip {
-  opacity: 1;
-  transform: translateX(-50%) scale(1);
-  pointer-events: auto;
-}
-
-.metric-tooltip::after {
-  content: "";
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  border: 6px solid transparent;
-  border-top-color: rgba(18,18,18,0.98);
-}
-
-.tooltip-title {
-  font-size: 0.7rem;
+.twin-title {
+  font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  margin-bottom: 0.6rem;
-  text-align: center;
-  font-weight: 600;
+  color: var(--copper);
+  margin-bottom: 0.25rem;
 }
-.tooltip-title.red { color: #FCA5A5; }
-.tooltip-title.green { color: #86EFAC; }
-
-/* Comparison bars */
-.comp-bar {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-bottom: 0.4rem;
-}
-.comp-bar .comp-label {
-  font-size: 0.65rem;
+.twin-sub {
+  font-size: 0.8rem;
   color: var(--mist);
-  width: 60px;
-  text-align: right;
-  flex-shrink: 0;
+  margin-bottom: 1rem;
 }
-.comp-bar .comp-track {
-  flex: 1;
-  height: 5px;
-  background: #1A2030;
-  border-radius: 3px;
-  overflow: hidden;
-}
-.comp-bar .comp-fill {
-  height: 100%;
-  border-radius: 3px;
-  transition: width 0.8s ease;
-}
-.comp-fill.you { background: linear-gradient(90deg, var(--copper), var(--copper-light)); }
-.comp-fill.avg { background: rgba(169,167,160,0.4); }
-.comp-fill.top-green { background: rgba(34,197,94,0.6); }
-.comp-fill.top-red { background: rgba(239,68,68,0.6); }
-
-.comp-legend {
-  display: flex;
-  justify-content: center;
-  gap: 1rem;
-  margin-top: 0.5rem;
-  font-size: 0.6rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-.comp-legend span { display: flex; align-items: center; gap: 0.35rem; }
-.comp-legend .dot { width: 6px; height: 6px; border-radius: 50%; }
-
-/* Visual Twin thumbnails */
 .twin-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.6rem;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
 }
 .twin-card {
-  background: #121621;
+  background: #090B12;
   border: 1px solid #2A3040;
   border-radius: 8px;
   overflow: hidden;
+  text-align: center;
 }
-.twin-card .twin-header {
-  height: 6px;
-  background: #1A2030;
+.twin-header {
+  padding: 0.4rem;
+  background: #121621;
+  font-size: 0.65rem;
+  color: var(--sand);
+  border-bottom: 1px solid #2A3040;
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 0 5px;
+  justify-content: center;
+  gap: 0.3rem;
 }
-.twin-header .dot-r { width: 3px; height: 3px; border-radius: 50%; background: #C85A5A; }
 .twin-header .dot-y { width: 3px; height: 3px; border-radius: 50%; background: #D8B66A; }
 .twin-header .dot-g { width: 3px; height: 3px; border-radius: 50%; background: #5A9E7A; }
 .twin-card .twin-body {
@@ -1055,7 +837,6 @@ footer {
 .twin-card.match { border-color: rgba(239,68,68,0.4); }
 .twin-card.yours .twin-body { background: rgba(216,182,106,0.06); }
 .twin-card.match .twin-body { background: rgba(239,68,68,0.06); }
-
 .twin-label {
   font-size: 0.55rem;
   text-align: center;
@@ -1067,119 +848,12 @@ footer {
 
 /* Modal scrollbar */
 .modal::-webkit-scrollbar { width: 6px; }
-.modal::-webkit-scrollbar-track { background: transparent; }
-.modal::-webkit-scrollbar-thumb { background: rgba(242,240,232,0.1); border-radius: 3px; }
+.modal::-webkit-scrollbar-track { background: var(--matte); }
+.modal::-webkit-scrollbar-thumb { background: #2A3040; border-radius: 3px; }
+.modal::-webkit-scrollbar-thumb:hover { background: var(--copper); }
 
-/* ── Mobile Metrics (vertical cards) ── */
-.metrics-mobile {
-  display: none;
-  gap: 0.75rem;
-  margin: 1.5rem 0;
-}
-.metric-card-mobile {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  background: #121621;
-  border: 1px solid #2A3040;
-  border-radius: 12px;
-  padding: 1rem 1.25rem;
-  transition: border-color 0.2s;
-}
-.metric-card-mobile.good {
-  border-left: 3px solid var(--metric-green);
-}
-.metric-card-mobile.bad {
-  border-left: 3px solid var(--metric-red);
-}
-.metric-card-mobile .mc-ring {
-  width: 56px;
-  height: 56px;
-  flex-shrink: 0;
-  position: relative;
-}
-.metric-card-mobile .mc-ring svg {
-  width: 100%;
-  height: 100%;
-}
-.metric-card-mobile .mc-info {
-  flex: 1;
-  min-width: 0;
-}
-.metric-card-mobile .mc-label {
-  font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-weight: 600;
-  margin-bottom: 0.15rem;
-}
-.metric-card-mobile.good .mc-label { color: #86EFAC; }
-.metric-card-mobile.bad .mc-label { color: #FCA5A5; }
-.metric-card-mobile .mc-value {
-  font-family: 'Playfair Display', serif;
-  font-size: 1.4rem;
-  font-weight: 700;
-  line-height: 1.1;
-}
-.metric-card-mobile.good .mc-value { color: #DCFCE7; }
-.metric-card-mobile.bad .mc-value { color: #FEE2E2; }
-.metric-card-mobile .mc-sub {
-  font-size: 0.75rem;
-  color: var(--mist);
-  margin-top: 0.15rem;
-}
-
-/* Mobile center score */
-.mobile-score-bar {
-  display: none;
-  text-align: center;
-  padding: 1.5rem 0;
-}
-.mobile-score-bar .ms-ring-wrap {
-  position: relative;
-  width: 140px;
-  height: 140px;
-  margin: 0 auto;
-}
-.mobile-score-bar .ms-ring-wrap svg {
-  width: 100%;
-  height: 100%;
-}
-.mobile-score-bar .ms-inner {
-  position: absolute;
-  inset: 12px;
-  border-radius: 50%;
-  background: #1A2030;
-  border: 1px solid #2A3040;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-.mobile-score-bar .ms-inner .ms-value {
-  font-family: 'Playfair Display', serif;
-  font-size: 2.6rem;
-  font-weight: 700;
-  color: var(--white);
-  line-height: 1;
-}
-.mobile-score-bar .ms-inner .ms-label {
-  font-size: 0.6rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--mist);
-  margin-top: 0.25rem;
-}
-
-.fade-in { animation: fadeIn 0.5s ease forwards; }
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* ── Focus Mode ── */
+/* Focus Mode CSS */
 .constellation-stage { position: relative; }
-
 .tap-hint-modal {
   text-align: center;
   font-size: 0.75rem;
@@ -1192,155 +866,129 @@ footer {
   opacity: 0.6;
 }
 .tap-hint-modal.hidden { display: none; }
-
 .constellation-stage.focus-mode .metric-orb:not(.focus-active),
 .constellation-stage.focus-mode .score-orb {
-  opacity: 0.1;
-  filter: blur(5px) saturate(0.2);
+  opacity: 0.08;
+  filter: blur(6px) saturate(0);
   pointer-events: none;
-  transform: scale(0.85);
+  transform: scale(0.75);
   transition: all 0.6s cubic-bezier(0.22, 1, 0.36, 1);
 }
-
 .constellation-stage.focus-mode .metric-orb.focus-active {
   position: absolute;
-  top: 35%;
-  left: 50%;
-  transform: translate(-50%, -50%) scale(1.4);
+  top: 28%; left: 50%;
+  transform: translate(-50%, -50%) scale(1.5);
   z-index: 30;
   opacity: 1;
   filter: none;
   pointer-events: auto;
   transition: all 0.6s cubic-bezier(0.22, 1, 0.36, 1);
 }
-
-.constellation-stage.focus-mode .metric-orb.focus-active .orb-circle {
-  box-shadow: 0 0 60px var(--metric-red-glow), 0 0 120px rgba(239,68,68,0.1);
-}
-.constellation-stage.focus-mode .metric-orb.focus-active.good .orb-circle {
-  box-shadow: 0 0 60px var(--metric-green-glow), 0 0 120px rgba(34,197,94,0.1);
-}
-
-.constellation-stage.focus-mode .metric-tooltip {
-  opacity: 0 !important;
-  pointer-events: none !important;
-}
-
-/* Focus Panel */
 .focus-panel {
+  display: none;
   position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: linear-gradient(180deg, rgba(18,22,33,0.98) 0%, #121621 100%);
-  border-radius: 20px 20px 0 0;
-  padding: 18px 24px 28px;
-  transform: translateY(110%);
-  transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+  bottom: 0; left: 0; right: 0;
   z-index: 40;
-  border-top: 1px solid rgba(255,255,255,0.06);
-  box-shadow: 0 -10px 40px rgba(0,0,0,0.5);
+  background: linear-gradient(180deg, rgba(18,22,33,0.98) 0%, rgba(9,11,18,0.99) 100%);
+  border-top: 1px solid rgba(216,182,106,0.25);
+  padding: 24px 28px 28px;
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -12px 40px rgba(0,0,0,0.6);
+  backdrop-filter: blur(12px);
+  transform: translateY(100%);
+  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .focus-panel.active {
+  display: block;
   transform: translateY(0);
 }
-
 .focus-handle {
-  width: 36px;
-  height: 4px;
-  background: rgba(255,255,255,0.12);
+  width: 36px; height: 4px;
+  background: rgba(242,240,232,0.2);
   border-radius: 2px;
   margin: 0 auto 16px;
 }
-
 .focus-header {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
+  justify-content: space-between;
   margin-bottom: 16px;
 }
-
 .focus-title {
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 1.2px;
   text-transform: uppercase;
-  margin-bottom: 6px;
+  letter-spacing: 1.5px;
+  color: var(--copper);
+  margin-bottom: 2px;
 }
 .focus-value {
   font-family: 'Playfair Display', serif;
-  font-size: 36px;
+  font-size: 32px;
   font-weight: 700;
-  line-height: 1;
   color: var(--white);
+  line-height: 1.1;
 }
 .focus-sub {
-  font-size: 13px;
-  color: var(--mist);
-  margin-top: 4px;
-  font-weight: 500;
+  font-size: 12px;
+  color: var(--sand);
 }
-
 .focus-close {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  border: 1px solid rgba(255,255,255,0.1);
-  background: rgba(255,255,255,0.03);
+  background: rgba(242,240,232,0.06);
+  border: 1px solid rgba(242,240,232,0.1);
   color: var(--mist);
-  font-size: 22px;
-  line-height: 1;
+  width: 28px; height: 28px;
+  border-radius: 50%;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
   transition: all 0.2s;
-  font-weight: 300;
 }
 .focus-close:hover {
-  background: rgba(255,255,255,0.08);
+  background: rgba(242,240,232,0.15);
   color: var(--white);
-  border-color: rgba(255,255,255,0.18);
 }
-
 .focus-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   margin: 16px 0;
+  padding: 14px 16px;
+  background: rgba(0,0,0,0.3);
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.05);
 }
-
 .focus-bar-row {
   display: flex;
   align-items: center;
-  margin-bottom: 10px;
   gap: 10px;
 }
-
-.focus-bar-label {
+.focus-bar-lbl {
   font-size: 11px;
-  color: var(--mist);
+  color: var(--sand);
   width: 80px;
   flex-shrink: 0;
-  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
-
 .focus-bar-track {
   flex: 1;
   height: 6px;
-  background: rgba(255,255,255,0.05);
+  background: rgba(242,240,232,0.08);
   border-radius: 3px;
   overflow: hidden;
+  position: relative;
 }
-
 .focus-bar-fill {
   height: 100%;
   border-radius: 3px;
-  transition: width 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: width 0.8s cubic-bezier(0.22, 1, 0.36, 1);
   width: 0%;
 }
 .focus-bar-fill.green { background: var(--metric-green); }
 .focus-bar-fill.red { background: var(--metric-red); }
-.focus-bar-fill.gray { background: var(--gray); }
+.focus-bar-fill.gray { background: var(--sand); }
 .focus-bar-fill.copper { background: var(--copper); }
-
 .focus-bar-num {
   font-size: 11px;
   font-weight: 600;
@@ -1349,14 +997,12 @@ footer {
   flex-shrink: 0;
   color: var(--white);
 }
-
 .focus-insight {
   font-size: 12.5px;
   color: var(--mist);
   line-height: 1.65;
   margin: 14px 0 16px;
 }
-
 .focus-cta {
   display: inline-flex;
   align-items: center;
@@ -1373,237 +1019,172 @@ footer {
 .focus-cta span { transition: transform 0.25s; display: inline-block; }
 .focus-cta:hover span { transform: translateX(3px); }
 
-/* Mobile focus */
-@media (max-width: 639px) {
-  .focus-panel {
-    padding: 16px 20px 24px;
-    border-radius: 16px 16px 0 0;
-  }
-  .focus-value { font-size: 32px; }
-  .constellation-stage.focus-mode .metric-orb.focus-active {
-    transform: translate(-50%, -50%) scale(1.25);
-  }
-}
-
-/* ── Responsive ── */
-@media (min-width: 640px) {
-  .container { padding: 0 2rem; }
-  .scan-input-wrap { flex-direction: row; align-items: stretch; }
-  .scan-input-wrap input { flex: 2.5; min-width: 0; font-size: 1.05rem; }
-  .scan-input-wrap select { flex: 1; min-width: 0; }
-  .rings-grid { grid-template-columns: repeat(4, 1fr); }
-  .ring-svg { width: 100px; height: 100px; }
-  .pricing-grid { grid-template-columns: repeat(3, 1fr); }
-  .footer-grid { grid-template-columns: repeat(2, 1fr); }
-  .modal-body { padding: 2rem; }
-  section { padding: 5rem 0; }
-  .contact-grid { grid-template-columns: repeat(3, 1fr); }
-  .scan-btn { width: auto; }
-  .copy-btn { width: auto; }
-  .problem-boxes { grid-template-columns: repeat(3, 1fr); max-width: none; }
-  .modal { max-width: 900px; }
-  .modal-body { padding: 2.5rem; }
-}
-
-@media (min-width: 1024px) {
+/* Responsive adjustments */
+@media (min-width: 768px) {
   .nav-links { display: flex; }
   .hamburger { display: none; }
-  .footer-grid { grid-template-columns: 2fr 1fr 1fr 1fr; }
-  .footer-bottom { flex-direction: row; justify-content: space-between; }
-  .scanner-box { padding: 2rem; }
+  .footer-grid { grid-template-columns: repeat(3, 1fr); }
+  .pricing-grid { grid-template-columns: repeat(2, 1fr); }
+  .contact-grid { grid-template-columns: repeat(3, 1fr); }
+  .scan-input-wrap { flex-direction: row; }
+  .scan-input-wrap input { flex: 1; }
+  .problem-boxes { grid-template-columns: repeat(2, 1fr); }
 }
-
-/* Mobile: hide constellation, show cards */
 @media (max-width: 639px) {
-  .constellation-stage { display: none !important; }
-  .metrics-mobile { display: flex; flex-direction: column; }
-  .mobile-score-bar { display: block; }
-  .score-hero { padding-bottom: 0.5rem; }
+  .focus-panel { padding: 16px 20px 24px; border-radius: 12px 12px 0 0; }
+  .focus-value { font-size: 26px; }
+  .focus-bar-lbl { width: 70px; font-size: 10px; }
   .score-hero .big-score { font-size: clamp(3rem, 12vw, 4rem); }
   .modal { max-width: 100%; border-radius: 12px; }
   .modal-body { padding: 1.25rem; }
-  .metric-orb { width: 100px; height: 100px; }
-  .metric-orb .orb-inner .o-value { font-size: 1.2rem; }
-  .score-orb { width: 130px; height: 130px; }
-  .score-orb .score-inner { width: 105px; height: 105px; }
-  .score-orb .score-inner .s-value { font-size: 2.6rem; }
-  .constellation-row { gap: 0.75rem; }
 }
 </style>
 </head>
 <body>
 
-<div class="mobile-menu" id="mobileMenu">
-  <a href="/" onclick="closeMenu()">Home</a>
-  <a href="/solutions" onclick="closeMenu()">Solutions</a>
-  <a href="/why-us" onclick="closeMenu()">Why Us</a>
-  <a href="/vlog" onclick="closeMenu()">Vlog</a>
-</div>
-
 <nav>
   <div class="container nav-inner">
-    <a href="/" class="logo">
-      <img src="logo-dark.png" alt="Trilloka">
-      <span>Trilloka</span>
+    <a href="#" class="logo">
+      <span>TRILLOKA</span>
     </a>
     <ul class="nav-links">
-      <li><a href="/" class="active">Home</a></li>
-      <li><a href="/solutions">Solutions</a></li>
-      <li><a href="/why-us">Why Us</a></li>
-      <li><a href="/vlog">Vlog</a></li>
+      <li><a href="#" class="active">Home</a></li>
+      <li><a href="#scanner">Diagnostic Scanner</a></li>
+      <li><a href="#about">Philosophy</a></li>
+      <li><a href="disclaimer.html">Disclaimer & Legal</a></li>
     </ul>
-    <button class="hamburger" id="hamburger" onclick="toggleMenu()" aria-label="Menu">
-      <span></span><span></span><span></span>
+    <button class="btn btn-outline" onclick="showPhonePopup()">Contact Architect</button>
+    <button class="hamburger" id="hamburger" onclick="toggleMenu()" aria-label="Toggle Navigation">
+      <span></span>
+      <span></span>
+      <span></span>
     </button>
   </div>
 </nav>
 
-<section class="page-hero">
-  <div class="container">
-    <p class="subtitle">Non CS AI Architect</p>
-    <h1>Your business doesn't need just a website.<br>It needs a structure that wins the fight.</h1>
-    <div class="scroll-arrow">
-      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path fill-rule="evenodd" clip-rule="evenodd" d="M11.386 21.6387C11.7378 21.988 12.3059 21.987 12.6565 21.6364L18.1949 16.098C18.5464 15.7465 18.5464 15.1766 18.1949 14.8252C17.8434 14.4737 17.2736 14.4737 16.9221 14.8252L12.9201 18.8272V3.00002C12.9201 2.50297 12.5171 2.10003 12.0201 2.10003C11.523 2.10003 11.1201 2.50297 11.1201 3.00002V18.8383L7.07554 14.8229C6.7228 14.4727 6.15295 14.4747 5.80275 14.8275C5.45255 15.1802 5.45461 15.7501 5.80735 16.1003L11.386 21.6387Z" fill="currentColor"/>
-      </svg>
-    </div>
-  </div>
-</section>
+<div class="mobile-menu" id="mobileMenu">
+  <a href="#" onclick="closeMenu()">Home</a>
+  <a href="#scanner" onclick="closeMenu()">Diagnostic Scanner</a>
+  <a href="#about" onclick="closeMenu()">Philosophy</a>
+  <a href="disclaimer.html" onclick="closeMenu()">Disclaimer & Legal</a>
+  <button class="btn btn-primary" onclick="closeMenu(); showPhonePopup();">Contact Architect</button>
+</div>
 
-<section style="padding-top:0;">
-  <div class="container">
-    <div class="problem-boxes">
-      <div class="problem-box">
-        <h4>AI Sameness</h4>
-        <ul>
-          <li>AI makes every site look identical. Same layout, same font, same gradient. Visitors spot it instantly and bounce.</li>
-        </ul>
+<main>
+  <section class="page-hero">
+    <div class="container">
+      <div class="subtitle">Architectural Revenue Remediation</div>
+      <h1>Stop Hemorrhaging Revenue.</h1>
+      <p>Most sites look polished but quietly bleed high-value conversions. We audit the underlying infrastructure, expose exact leakage points, and hand you the architectural blueprint to remediate them.</p>
+      
+      <div class="problem-boxes">
+        <div class="problem-box">
+          <h4>The Surface Fallacy</h4>
+          <p>Slick animations and high-resolution templates can easily mask severe underlying flaws:</p>
+          <ul>
+            <li>Missing conversion triggers and dead CTA paths</li>
+            <li>Fragile mobile rendering and viewport bugs</li>
+            <li>Zero behavioral tracking or analytic evidence</li>
+          </ul>
+        </div>
+        <div class="problem-box">
+          <h4>Invisible Conversion Friction</h4>
+          <p>When potential clients run into micro-friction, they leave without notifying you:</p>
+          <ul>
+            <li>Over 70% of digital funnel drop-offs happen unmonitored</li>
+            <li>Page speed dips directly penalize paid campaign ROI</li>
+            <li>Generic templates erode trust before your pitch starts</li>
+          </ul>
+        </div>
       </div>
-      <div class="problem-box">
-        <h4>Visual Twin</h4>
-        <ul>
-          <li>AI gives you a Fortune 500 look with zero authority. No reviews, no mentions, no trust. Polished surface, empty foundation.</li>
-        </ul>
-      </div>
-      <div class="problem-box">
-        <h4>The Real Threats</h4>
-        <ul>
-          <li>Scanners show green scores while carts empty. 70% abandon checkout. Speed badges don't fix 39 friction points Baymard found.</li>
-        </ul>
-      </div>
     </div>
-  </div>
-</section>
+  </section>
 
-<section style="padding-top:0;">
-  <div class="container" style="max-width:640px;">
-    <div class="scanner-heading">
-      <h3>Your site is leaking. You just can't see it yet.</h3>
-      <p>Losing revenue despite the large footprint on your website? Don't lose another customer because of a slow site that looks like everyone else's.</p>
-    </div>
-    <div class="scanner-box">
-      <div class="scan-input-wrap">
-        <input type="text" id="domainInput" placeholder="example.com" autocomplete="off">
-
-        <select id="businessTypeSelect" style="padding: 1rem 1.25rem; font-size: 1rem; background: #121621; border: 1px solid #40546A; border-radius: 8px; color: var(--white); outline: none; min-height: 48px; cursor: pointer;">
-          <option value="general" style="background: var(--charcoal); color: var(--white);">General Business</option>
-          <option value="medspa" style="background: var(--charcoal); color: var(--white);">MedSpa / Aesthetics</option>
-          <option value="legal" style="background: var(--charcoal); color: var(--white);">Legal / Law Firm</option>
-          <option value="ecommerce" style="background: var(--charcoal); color: var(--white);">E-Commerce / Store</option>
-          <option value="saas" style="background: var(--charcoal); color: var(--white);">SaaS / Software</option>
-        </select>
-
-        <button class="btn btn-primary scan-btn" id="scanBtn" onclick="runScan()">
-          <span id="btnText">Know Your Leaks</span>
-        </button>
+  <section id="scanner" style="padding-top:0;">
+    <div class="container" style="max-width:640px;">
+      <div class="scanner-heading">
+        <h3>Instant Architectural Scan</h3>
+        <p>Enter your domain below to run a real-time revenue readiness diagnostic.</p>
       </div>
 
-      <div class="guardrail-box" id="guardrailBox">
-        <h4>Nice try, Neo.</h4>
-        <p>You want to audit the Architect's own construct? How delightfully recursive. As the Oracle once noted: <em>"You've already made the choice. Now you have to understand it."</em> We built this scanner because we already mapped every leak in our own code. Point it at a site that hasn't been architected yet.</p>
+      <div class="scanner-box">
+        <div class="scan-input-wrap">
+          <input type="text" id="domainInput" placeholder="example.com" autocomplete="off" spellcheck="false">
+          <select id="businessTypeSelect" style="padding: 1rem; background: #121621; border: 1px solid #40546A; color: var(--white); border-radius: 8px; outline: none;">
+            <option value="general">General Business</option>
+            <option value="local_service">Local Service</option>
+            <option value="professional_service">Professional Service</option>
+            <option value="medspa">MedSpa / Aesthetics</option>
+            <option value="legal">Legal Practice</option>
+            <option value="restaurant">Restaurant / Hospitality</option>
+            <option value="ecommerce">E-Commerce</option>
+            <option value="saas">SaaS / Software</option>
+          </select>
+          <button class="btn btn-primary scan-btn" onclick="runScan()">Run Audit</button>
+        </div>
+
+        <div class="analysis-panel" id="analysisPanel">
+          <div class="analysis-step" id="step-0"><div class="step-icon">1</div> Mapping site hierarchy &amp; mobile DOM...</div>
+          <div class="analysis-step" id="step-1"><div class="step-icon">2</div> Testing technical response &amp; protocols...</div>
+          <div class="analysis-step" id="step-2"><div class="step-icon">3</div> Evaluating trust signals &amp; CTA clarity...</div>
+          <div class="analysis-step" id="step-3"><div class="step-icon">4</div> Measuring telemetry &amp; analytics setup...</div>
+          <div class="analysis-step" id="step-4"><div class="step-icon">5</div> Calculating Revenue Readiness Index...</div>
+        </div>
       </div>
-
-      <div class="analysis-panel" id="analysisPanel">
-        <div id="analysisSteps"></div>
-      </div>
-
-      <p class="terms-notice">
-        By using this tool, you agree to our <a href="/disclaimer">Terms</a>. 
-        We do not guarantee sales or revenue outcomes. Our audit identifies structural gaps and fixes them — conversion depends on your market, offer, and execution.
-      </p>
     </div>
-
-    <div class="hire-btn-wrap" style="text-align:center; margin-top:1.5rem;">
-      <button class="btn btn-outline" onclick="showPhonePopup()">Hire the Architect</button>
-    </div>
-  </div>
-</section>
-
-<section class="cta-section" style="padding-top:0;">
-  <div class="container text-center">
-    <div class="trust-row">
-      <span>Google PageSpeed API</span>
-      <span>Live Telemetry</span>
-      <span>Human Reviewed</span>
-    </div>
-  </div>
-</section>
+  </section>
+</main>
 
 <footer>
   <div class="container">
     <div class="footer-grid">
       <div class="footer-col">
-        <a href="/" class="logo" style="margin-bottom:1rem;">
-          <img src="logo-dark.png" alt="Trilloka">
-          <span>Trilloka</span>
-        </a>
-        <p style="font-size:0.85rem; max-width:280px;">Architectural revenue remediation for founders who want their website to convert, not just exist.</p>
+        <h4>Trilloka Architecture</h4>
+        <p style="font-size:0.85rem; color:var(--mist);">Precision revenue remediation, technical auditing, and high-converting web infrastructure.</p>
       </div>
       <div class="footer-col">
-        <h4>Navigate</h4>
-        <a href="/">Home</a>
-        <a href="/solutions">Solutions</a>
-        <a href="/why-us">Why Us</a>
-        <a href="/vlog">Vlog</a>
+        <h4>Navigation</h4>
+        <a href="#">Home</a>
+        <a href="#scanner">Diagnostic Tool</a>
+        <a href="disclaimer.html">Disclaimer & Legal</a>
       </div>
       <div class="footer-col">
-        <h4>Legal</h4>
-        <a href="/disclaimer">Disclaimer &amp; Terms</a>
-      </div>
-      <div class="footer-col">
-        <h4>Contact</h4>
-        <a href="#" onclick="showPhonePopup(); return false;">Hire the Architect</a>
+        <h4>Direct Line</h4>
+        <a href="tel:+17787659232">+1 778-765-9232</a>
+        <a href="mailto:arpitt22@trilloka.com">arpitt22@trilloka.com</a>
+        <a href="https://instagram.com/theonlyone.arpit" target="_blank">@THEONLYONE.ARPIT</a>
       </div>
     </div>
     <div class="footer-bottom">
-      <span style="font-size:0.75rem; color:var(--mist);">&copy; 2026 Trilloka. All rights reserved.</span>
-      <a href="/disclaimer">Disclaimer &amp; Legal</a>
-    </div>
-    <div class="bottom-tag">
-      <p>Architectural Revenue Remediation</p>
+      <div class="architect-handle">@THEONLYONE.ARPIT &middot; Arpit Sharma</div>
+      <p style="font-size:0.75rem; color:var(--mist);">&copy; 2026 Trilloka. All rights reserved.</p>
+      <a href="disclaimer.html">Terms, Privacy &amp; Legal Disclaimers</a>
     </div>
   </div>
 </footer>
 
 <div class="modal-overlay" id="resultsModal">
   <div class="modal">
-    <button class="modal-close" onclick="closeModal()">&times;</button>
-    <div class="modal-body" id="modalBody"></div>
-    <div class="focus-panel" id="focusPanel">
-      <div class="focus-handle"></div>
-      <div class="focus-header">
-        <div>
-          <div class="focus-title" id="focusTitle">METRIC</div>
-          <div class="focus-value" id="focusValue">0</div>
-          <div class="focus-sub" id="focusSub">Label</div>
+    <button class="modal-close" onclick="closeResultsModal()">&times;</button>
+    <div class="modal-inner">
+      <div class="modal-body" id="modalBody"></div>
+      
+      <div class="focus-panel" id="focusPanel">
+        <div class="focus-handle"></div>
+        <div class="focus-header">
+          <div>
+            <div class="focus-title" id="focusTitle">METRIC</div>
+            <div class="focus-value" id="focusValue">0</div>
+            <div class="focus-sub" id="focusSub">Label</div>
+          </div>
+          <button class="focus-close" onclick="closeFocusMode()">&times;</button>
         </div>
-        <button class="focus-close" onclick="closeFocusMode()">&times;</button>
+        <div class="focus-bars" id="focusBars"></div>
+        <p class="focus-insight" id="focusInsight"></p>
+        <a class="focus-cta" onclick="event.preventDefault(); alert('Opening full diagnostic...')">
+          View full diagnostic <span>&rarr;</span>
+        </a>
       </div>
-      <div class="focus-bars" id="focusBars"></div>
-      <p class="focus-insight" id="focusInsight"></p>
-      <a class="focus-cta" onclick="event.preventDefault(); alert('Opening full diagnostic...')">
-        View full diagnostic <span>&rarr;</span>
-      </a>
     </div>
   </div>
 </div>
@@ -1613,7 +1194,7 @@ footer {
     <button class="modal-close" onclick="closePhoneModal()">&times;</button>
     <div class="phone-popup">
       <div class="architect-handle">@THEONLYONE.ARPIT</div>
-      <h3 style="font-size:1.3rem;">Hire the Architect</h3>
+      <h3>Hire the Architect</h3>
       <p style="color:var(--mist); font-size:0.9rem;">Direct line to discuss your audit, roadmap, or monthly engagement.</p>
       <div class="contact-grid">
         <a href="tel:+17787659232" class="contact-item">
@@ -1629,88 +1210,111 @@ footer {
           <div class="value">@THEONLYONE.ARPIT</div>
         </a>
       </div>
-      <p style="font-size:0.8rem; color:var(--mist); margin-top:1.25rem;">Available 10 AM &mdash; 7 PM EST</p>
+      <p style="font-size:0.8rem; color:var(--mist); margin-top:1.25rem;">Available 10 AM — 7 PM EST</p>
     </div>
   </div>
 </div>
 
 <script>
-const API_URL = 'https://trilloka.up.railway.app/api/scan';
-let scanRunning = false;
-let currentDevKit = '';
+/* Global Scope Declarations */
+var currentDevKit = null;
+var currentFocusData = {};
+var activeFocusId = null;
 
 function toggleMenu() {
-  document.getElementById('mobileMenu').classList.toggle('open');
-  document.getElementById('hamburger').classList.toggle('active');
+  const menu = document.getElementById('mobileMenu');
+  const ham = document.getElementById('hamburger');
+  if (menu) menu.classList.toggle('open');
+  if (ham) ham.classList.toggle('active');
 }
+
 function closeMenu() {
-  document.getElementById('mobileMenu').classList.remove('open');
-  document.getElementById('hamburger').classList.remove('active');
+  const menu = document.getElementById('mobileMenu');
+  const ham = document.getElementById('hamburger');
+  if (menu) menu.classList.remove('open');
+  if (ham) ham.classList.remove('active');
 }
 
-const analysisMessages = [
-  "Connecting to Google PageSpeed Telemetry...",
-  "Simulating 4G cellular connection to target domain...",
-  "Measuring Core Web Vitals and render performance...",
-  "Analyzing mobile usability and layout stability...",
-  "Evaluating SEO signals and resource optimization...",
-  "Compiling revenue readiness score and leak prioritization..."
-];
+function showPhonePopup() {
+  const phoneModal = document.getElementById('phoneModal');
+  if (phoneModal) phoneModal.classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
 
-function isTrilloka(domain) {
-  const d = domain.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-  return d === 'trilloka.com' || d.endsWith('.trilloka.com');
+function closePhoneModal() {
+  const phoneModal = document.getElementById('phoneModal');
+  if (phoneModal) phoneModal.classList.remove('active');
+  document.body.style.overflow = '';
+}
+
+function closeResultsModal() {
+  const resultsModal = document.getElementById('resultsModal');
+  if (resultsModal) resultsModal.classList.remove('active');
+  document.body.style.overflow = '';
+  closeFocusMode();
+}
+
+function copyDevKit(btn, devKitText) {
+  if (!devKitText) return;
+  navigator.clipboard.writeText(devKitText).then(function() {
+    if (btn) {
+      btn.textContent = 'Copied to Clipboard!';
+      btn.classList.add('copied');
+      setTimeout(function() {
+        btn.textContent = 'Copy Developer Handoff Email';
+        btn.classList.remove('copied');
+      }, 3000);
+    }
+  }).catch(function(err) {
+    alert('Failed to copy text. Please select manually.');
+  });
 }
 
 async function runScan() {
-  if (scanRunning) return;
-  const domain = document.getElementById('domainInput').value.trim();
-  if (!domain) { alert('Please enter a domain'); return; }
-
-  if (isTrilloka(domain)) {
-    document.getElementById('guardrailBox').classList.add('active');
-    document.getElementById('analysisPanel').classList.remove('active');
+  const domainInput = document.getElementById('domainInput');
+  if (!domainInput) return;
+  let domain = domainInput.value.trim();
+  if (!domain) {
+    alert('Please enter a domain name.');
     return;
-  } else {
-    document.getElementById('guardrailBox').classList.remove('active');
   }
+  
+  domain = domain.replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
 
-  scanRunning = true;
-  const btn = document.getElementById('scanBtn');
-  const btnText = document.getElementById('btnText');
   const panel = document.getElementById('analysisPanel');
-  const stepsContainer = document.getElementById('analysisSteps');
+  if (panel) panel.classList.add('active');
 
-  btn.disabled = true;
-  btnText.textContent = 'Connecting...';
-  panel.classList.add('active');
-  stepsContainer.innerHTML = '';
-
-  analysisMessages.forEach((msg, i) => {
-    const div = document.createElement('div');
-    div.className = 'analysis-step' + (i === 0 ? ' active' : '');
-    div.id = 'step-' + i;
-    div.innerHTML = '<div class="step-icon">' + (i+1) + '</div><div><div style="font-size:0.85rem; color:var(--white);">' + msg + '</div></div>';
-    stepsContainer.appendChild(div);
-  });
+  const analysisMessages = [
+    "Mapping site hierarchy & mobile DOM...",
+    "Testing technical response & protocols...",
+    "Evaluating trust signals & CTA clarity...",
+    "Measuring telemetry & analytics setup...",
+    "Calculating Revenue Readiness Index..."
+  ];
 
   let currentStep = 0;
-  const stepInterval = setInterval(() => {
-    if (currentStep < analysisMessages.length - 1) {
-      document.getElementById('step-' + currentStep).classList.remove('active');
-      document.getElementById('step-' + currentStep).classList.add('done');
-      document.getElementById('step-' + currentStep).querySelector('.step-icon').innerHTML = '&#10003;';
+  const stepInterval = setInterval(function() {
+    if (currentStep < analysisMessages.length) {
+      const el = document.getElementById('step-' + currentStep);
+      if (el) el.classList.add('active');
+      if (currentStep > 0) {
+        const prev = document.getElementById('step-' + (currentStep - 1));
+        if (prev) {
+          prev.classList.remove('active');
+          prev.classList.add('done');
+        }
+      }
       currentStep++;
-      document.getElementById('step-' + currentStep).classList.add('active');
-      btnText.textContent = analysisMessages[currentStep].replace('...', '');
     }
-  }, 4800);
+  }, 700);
 
   try {
+    const API_URL = "http://127.0.0.1:8000/api/scan";
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 35000);
+    const timeoutId = setTimeout(function() { controller.abort(); }, 35000);
 
-    const bizType = document.getElementById('businessTypeSelect')?.value || "general";
+    const bizTypeSelect = document.getElementById('businessTypeSelect');
+    const bizType = bizTypeSelect ? bizTypeSelect.value : "general";
 
     const response = await fetch(API_URL, {
       method: 'POST',
@@ -1718,551 +1322,216 @@ async function runScan() {
       body: JSON.stringify({ domain: domain, business_type: bizType }),
       signal: controller.signal
     });
+
     clearTimeout(timeoutId);
     clearInterval(stepInterval);
 
-    if (!response.ok) throw new Error('Scan failed');
+    if (!response.ok) throw new Error('Scan request failed');
+
     const data = await response.json();
 
-    analysisMessages.forEach((_, i) => {
+    analysisMessages.forEach(function(_, i) {
       const el = document.getElementById('step-' + i);
-      if (el) { el.classList.remove('active'); el.classList.add('done'); el.querySelector('.step-icon').innerHTML = '&#10003;'; }
+      if (el) {
+        el.classList.remove('active');
+        el.classList.add('done');
+      }
     });
 
-    showResults(data);
+    setTimeout(function() {
+      if (panel) panel.classList.remove('active');
+      displayResults(data);
+    }, 400);
+
   } catch (err) {
     clearInterval(stepInterval);
-    analysisMessages.forEach((_, i) => {
-      const el = document.getElementById('step-' + i);
-      if (el) { el.classList.remove('active'); el.classList.add('done'); el.querySelector('.step-icon').innerHTML = '&#10003;'; }
-    });
-    console.error(err);
-    alert(err.name === 'AbortError' 
-      ? 'The scan timed out. Google PageSpeed analysis can take up to 30 seconds on slow domains. Please try again.'
-      : 'Unable to connect to the audit service.');
-  } finally {
-    scanRunning = false;
-    btn.disabled = false;
-    btnText.textContent = 'Know Your Leaks';
+    if (panel) panel.classList.remove('active');
+    alert('Audit failed or timed out. Please check the domain and try again.');
   }
 }
 
-function showResults(data) {
-  const surface = data.surface_metrics || {};
-  const overall = data.overall_score != null ? data.overall_score : (surface.mobile_performance_score != null ? surface.mobile_performance_score : 50);
-  const seo = surface.seo_health_index != null ? surface.seo_health_index : Math.round(overall * 0.9);
-  const aiPct = surface.ai_spectrum_pct != null ? surface.ai_spectrum_pct : 15;
-  const presence = surface.online_presence_index != null ? surface.online_presence_index : Math.round(overall * 0.85);
-  const conversion = surface.conversion_efficiency != null ? surface.conversion_efficiency : Math.round(overall * 0.8);
-  const gap = surface.competitor_gap_score != null ? surface.competitor_gap_score : Math.max(10, 100 - Math.round(overall));
-  const classification = surface.classification || (data.cms_platform ? data.cms_platform + ' Detected' : 'Modern Stack');
+function displayResults(data) {
+  const modalBody = document.getElementById('modalBody');
+  const resultsModal = document.getElementById('resultsModal');
+  if (!modalBody || !resultsModal) return;
 
-  const friction = data.key_friction_insight || {};
-  const revenue = data.revenue_leak || {};
-  const cms = data.cms_platform || '';
-  const devKit = data.dev_handoff_kit || '';
-  currentDevKit = typeof devKit === 'string' ? devKit : JSON.stringify(devKit, null, 2);
+  const score = data.score || 0;
+  const speed = data.speed_score || 50;
+  const gap = data.gap_score || 50;
+  const conversion = data.conversion_score || 50;
+  const overall = data.revenue_readiness || score;
+  const cms = data.cms_detected || null;
+  const devKit = data.dev_handoff || null;
+  currentDevKit = devKit;
 
-  let reasonText = "Solid foundation, minor leaks detected.";
-  if (overall < 30) reasonText = "Severe mobile rendering friction detected.";
-  else if (overall < 50) reasonText = "Core Web Vitals failing mobile speed benchmarks.";
-  else if (overall < 70) reasonText = "Performance bottlenecks present — optimization needed.";
-  else if (overall < 85) reasonText = "Good structure with specific leak points.";
-  else reasonText = "Strong architecture. Minor optimization available.";
-
-  // ── DYNAMIC COLOR LOGIC ──
-  // AI metrics: LOWER is BETTER (green when low)
-  // Presence/Funnel: HIGHER is BETTER (green when high)
-  const aiGood = aiPct <= 25;
-  const gapGood = gap <= 30;
-  const presGood = presence >= 50;
-  const convGood = conversion >= 50;
-
-  const aiCls = aiGood ? 'good' : 'bad';
-  const gapCls = gapGood ? 'good' : 'bad';
-  const presCls = presGood ? 'good' : 'bad';
-  const convCls = convGood ? 'good' : 'bad';
-
-  const aiTipCls = aiGood ? 'green' : 'red';
-  const gapTipCls = gapGood ? 'green' : 'red';
-  const presTipCls = presGood ? 'green' : 'red';
-  const convTipCls = convGood ? 'green' : 'red';
-
-  const aiStroke = aiGood ? '#22C55E' : '#EF4444';
-  const gapStroke = gapGood ? '#22C55E' : '#EF4444';
-  const presStroke = presGood ? '#22C55E' : '#EF4444';
-  const convStroke = convGood ? '#22C55E' : '#EF4444';
-
-  const aiRingBg = aiGood ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)';
-  const gapRingBg = gapGood ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)';
-  const presRingBg = presGood ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)';
-  const convRingBg = convGood ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)';
-
-  // Competitor comparison values
-  const avgAi = 35, topAi = 8;
-  const avgGap = 45, topGap = 12;
-  const avgConv = 52, topConv = 88;
-  const avgPres = 48, topPres = 82;
+  // Build Focus metrics cache
+  const speedGood = speed >= 70;
+  const gapGood = gap >= 70;
+  const convGood = conversion >= 70;
+  const avgSpeed = 62, topSpeed = 92;
+  const avgGap = 55, topGap = 88;
+  const avgConv = 48, topConv = 85;
 
   currentFocusData = {
-    'ai-parrot': {
-      title: 'AI PARROT',
-      value: Math.round(aiPct) + '%',
-      sub: classification,
-      color: aiGood ? 'green' : 'red',
+    'speed': {
+      title: 'SPEED SCORE', value: Math.round(speed) + '', sub: 'Mobile Performance',
+      color: speedGood ? 'green' : 'red',
       bars: [
-        { label: 'Your Site', val: Math.min(aiPct, 100), color: aiGood ? 'green' : 'red' },
-        { label: 'Industry Avg', val: avgAi, color: 'gray' },
-        { label: 'Top 10%', val: topAi, color: aiGood ? 'green' : 'red' }
+        { label: 'Your Site', val: Math.min(speed, 100), color: speedGood ? 'green' : 'red' },
+        { label: 'Industry Avg', val: avgSpeed, color: 'gray' },
+        { label: 'Top 10%', val: topSpeed, color: speedGood ? 'green' : 'red' }
       ],
-      insight: aiGood ? 'Low AI similarity. Strong brand voice.' : 'High AI similarity erodes trust. Differentiate with original perspective and human narrative.'
+      insight: speedGood ? 'Mobile page load is within healthy thresholds.' : 'Optimize heavy scripts and compressed images to prevent visitor drop-off.'
     },
-    'presence': {
-      title: 'PRESENCE',
-      value: Math.round(presence) + '%',
-      sub: 'Authority',
-      color: presGood ? 'green' : 'red',
-      bars: [
-        { label: 'Your Site', val: Math.min(presence, 100), color: presGood ? 'green' : 'red' },
-        { label: 'Industry Avg', val: avgPres, color: 'gray' },
-        { label: 'Top 10%', val: topPres, color: presGood ? 'green' : 'red' }
-      ],
-      insight: presGood ? 'Strong authority signals. Maintain momentum.' : 'Build backlinks & mentions to strengthen your online authority and increase visibility.'
-    },
-    'visual-twin': {
-      title: 'VISUAL TWIN',
-      value: Math.round(gap) + '%',
-      sub: 'Gap',
+    'gap': {
+      title: 'VISUAL GAP', value: Math.round(gap) + '', sub: 'Brand Differentiation',
       color: gapGood ? 'green' : 'red',
       bars: [
         { label: 'Your Site', val: Math.min(gap, 100), color: gapGood ? 'green' : 'red' },
         { label: 'Industry Avg', val: avgGap, color: 'gray' },
         { label: 'Top 10%', val: topGap, color: gapGood ? 'green' : 'red' }
       ],
-      insight: gapGood ? 'Strong brand differentiation.' : 'Close the visual gap by aligning your brand imagery with top-performing competitors.'
+      insight: gapGood ? 'Strong visual hierarchy.' : 'Align page architecture and CTA structures with top performers in your market.'
     },
     'funnel': {
-      title: 'FUNNEL SCORE',
-      value: Math.round(conversion) + '',
-      sub: 'Conversion',
+      title: 'FUNNEL SCORE', value: Math.round(conversion) + '', sub: 'Conversion Readiness',
       color: convGood ? 'green' : 'red',
       bars: [
         { label: 'Your Site', val: Math.min(conversion, 100), color: convGood ? 'green' : 'red' },
         { label: 'Industry Avg', val: avgConv, color: 'gray' },
         { label: 'Top 10%', val: topConv, color: convGood ? 'green' : 'red' }
       ],
-      insight: convGood ? 'Strong checkout-to-visit ratio.' : 'Improve landing page clarity and CTA placement to boost conversion rates across the funnel.'
+      insight: convGood ? 'Strong conversion path execution.' : 'Refine CTA hierarchy and form friction to increase conversion throughput.'
     },
     'revenue': {
-      title: 'REVENUE READINESS',
-      value: Math.round(overall) + '',
-      sub: 'Score',
-      color: overall >= 70 ? 'green' : (overall >= 50 ? 'gray' : 'red'),
+      title: 'REVENUE READINESS', value: Math.round(overall) + '', sub: 'Overall Index',
+      color: overall >= 70 ? 'green' : (overall >= 50 ? 'copper' : 'red'),
       bars: [
-        { label: 'Your Site', val: Math.min(overall, 100), color: overall >= 70 ? 'green' : (overall >= 50 ? 'gray' : 'red') },
+        { label: 'Your Site', val: Math.min(overall, 100), color: overall >= 70 ? 'green' : 'red' },
         { label: 'Industry Avg', val: 58, color: 'gray' },
-        { label: 'Top 10%', val: 88, color: 'green' }
+        { label: 'Top 10%', val: 90, color: 'green' }
       ],
-      insight: reasonText
+      insight: overall >= 70 ? 'Site infrastructure is operating above average.' : 'Identified architectural leaks are reducing visitor retention.'
     }
   };
 
-  // ── SVG ring helpers ──
-  const circ = (r, pct, stroke, delay, bgStroke) => {
-    const c = 2 * Math.PI * r;
-    return '<svg viewBox="0 0 126 126"><circle cx="63" cy="63" r="' + r + '" fill="none" stroke="' + (bgStroke || stroke) + '" stroke-opacity="0.15" stroke-width="2.5"/>' +
-      '<circle cx="63" cy="63" r="' + r + '" fill="none" stroke="' + stroke + '" stroke-width="2.5" ' +
-      'stroke-dasharray="' + c.toFixed(2) + '" stroke-dashoffset="' + (c * (1 - pct/100)).toFixed(2) + '" ' +
-      'stroke-linecap="round" transform="rotate(-90 63 63)" style="transition:stroke-dashoffset 1.2s ease ' + delay + 's;"/></svg>';
-  };
-
-  const scoreCirc = (r, pct, gradId) => {
-    const c = 2 * Math.PI * r;
-    return '<circle cx="75" cy="75" r="' + r + '" fill="none" stroke="#2A3040" stroke-width="4"/>' +
-      '<circle cx="75" cy="75" r="' + r + '" fill="none" stroke="url(#' + gradId + ')" stroke-width="4" ' +
-      'stroke-dasharray="' + c.toFixed(2) + '" stroke-dashoffset="' + (c * (1 - pct/100)).toFixed(2) + '" ' +
-      'stroke-linecap="round" transform="rotate(-90 75 75)" style="transition:stroke-dashoffset 1.5s ease 0.1s; filter:drop-shadow(0 0 8px rgba(216,182,106,0.4));"/>';
-  };
-
-  const modalBody = document.getElementById('modalBody');
-  modalBody.innerHTML = `
+  let htmlContent = `
     <div class="score-hero">
-      <div style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.12em; color:var(--sand); margin-bottom:0.5rem;">Score assessed by the Architectural Revenue Remediator</div>
+      <div style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.12em; color:var(--sand); margin-bottom:0.5rem;">Score assessed by Architectural Remediation Engine</div>
       <div class="big-score">` + Math.round(overall) + `</div>
       <div class="score-label">Revenue Readiness Score</div>
-      <p style="margin-top:0.75rem; color:var(--mist); font-size:0.9rem;">` + reasonText + `</p>
+      <p style="margin-top:0.75rem; color:var(--mist); font-size:0.9rem;">` + (data.summary || 'Diagnostic complete.') + `</p>
     </div>
+  `;
 
-    ` + (cms ? '<div style="text-align:center; margin:1rem 0;"><span class="cms-badge">Detected Tech Stack: ' + cms + '</span></div>' : '') + `
+  if (cms) {
+    htmlContent += `<div style="text-align:center; margin:1rem 0;"><span class="cms-badge">Detected Tech Stack: ` + cms + `</span></div>`;
+  }
 
-    <!-- Mobile Score Ring -->
-    <div class="mobile-score-bar">
-      <div class="ms-ring-wrap">
-        <svg viewBox="0 0 150 150">
-          <defs>
-            <linearGradient id="scoreGradMobile" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" style="stop-color:#D8B66A;stop-opacity:0.6" />
-              <stop offset="100%" style="stop-color:#D8B66A;stop-opacity:0.3" />
-            </linearGradient>
-          </defs>
-          ` + scoreCirc(70, overall, 'scoreGradMobile') + `
-        </svg>
-        <div class="ms-inner">
-          <div class="ms-value">` + Math.round(overall) + `</div>
-          <div class="ms-label">Revenue<br>Readiness</div>
+  if (data.leaks && data.leaks.length > 0) {
+    htmlContent += `<h3 style="margin: 2rem 0 1rem;">Detected Revenue Leaks</h3>`;
+    data.leaks.forEach(function(leak) {
+      htmlContent += `
+        <div class="leak-item">
+          <h4>` + leak.title + `</h4>
+          <p>` + leak.description + `</p>
         </div>
+      `;
+    });
+  }
+
+  if (devKit) {
+    htmlContent += `
+      <div class="dev-handoff">
+        <p><strong>Developer Handoff Brief Generated:</strong> Copy and paste this brief directly to your engineering team.</p>
+        <button class="btn btn-primary copy-btn" onclick="copyDevKit(this, currentDevKit)">Copy Developer Handoff Email</button>
       </div>
-    </div>
+    `;
+  }
 
-    <div class="tap-hint-modal" id="tapHintModal"><span>👆</span><span>Tap any metric to view full details</span></div>
-    <!-- Desktop Constellation -->
-    <div class="constellation-stage">
-
-      <!-- TOP: AI Parrot -->
-      <div class="metric-orb ` + aiCls + `" data-focus-id="ai-parrot" onclick="focusMetric('ai-parrot')">
-        <div class="orb-circle">
-          <div class="orb-inner">
-            <div class="o-label">AI Parrot</div>
-            <div class="o-value">` + Math.round(aiPct) + `%</div>
-            <div class="o-sub">` + classification + `</div>
-          </div>
-          <div class="orb-ring">
-            ` + circ(56, aiPct, aiStroke, 0.2, aiStroke) + `
-          </div>
-        </div>
-        <div class="metric-tooltip">
-          <div class="tooltip-title ` + aiTipCls + `">AI Content Spectrum</div>
-          <div class="comp-bar"><div class="comp-label">Your Site</div><div class="comp-track"><div class="comp-fill you" style="width:` + Math.min(aiPct,100) + `%"></div></div></div>
-          <div class="comp-bar"><div class="comp-label">Industry Avg</div><div class="comp-track"><div class="comp-fill avg" style="width:` + avgAi + `%"></div></div></div>
-          <div class="comp-bar"><div class="comp-label">Top 10%</div><div class="comp-track"><div class="comp-fill ` + (aiGood ? 'top-green' : 'top-red') + `" style="width:` + topAi + `%"></div></div></div>
-          <div class="comp-legend">
-            <span><span class="dot" style="background:var(--copper)"></span> You</span>
-            <span><span class="dot" style="background:rgba(169,167,160,0.5)"></span> Avg</span>
-            <span><span class="dot" style="background:` + (aiGood ? 'rgba(34,197,94,0.6)' : 'rgba(239,68,68,0.6)') + `"></span> Top 10%</span>
-          </div>
-          <p style="font-size:0.65rem; color:var(--mist); margin-top:0.5rem; text-align:center;">` + (aiGood ? 'Low AI similarity. Strong brand voice.' : 'High AI similarity erodes trust.') + `</p>
-        </div>
-      </div>
-
-      <!-- MIDDLE ROW: Presence — Center — Visual Twin -->
-      <div class="constellation-row">
-
-        <!-- LEFT: Presence -->
-        <div class="metric-orb ` + presCls + `" data-focus-id="presence" onclick="focusMetric('presence')">
-          <div class="orb-circle">
-            <div class="orb-inner">
-              <div class="o-label">Presence</div>
-              <div class="o-value">` + Math.round(presence) + `%</div>
-              <div class="o-sub">Authority</div>
-            </div>
-            <div class="orb-ring">
-              ` + circ(56, presence, presStroke, 0.4, presStroke) + `
-            </div>
-          </div>
-          <div class="metric-tooltip">
-            <div class="tooltip-title ` + presTipCls + `">Online Presence Index</div>
-            <div class="comp-bar"><div class="comp-label">Your Site</div><div class="comp-track"><div class="comp-fill you" style="width:` + Math.min(presence,100) + `%"></div></div></div>
-            <div class="comp-bar"><div class="comp-label">Industry Avg</div><div class="comp-track"><div class="comp-fill avg" style="width:` + avgPres + `%"></div></div></div>
-            <div class="comp-bar"><div class="comp-label">Top 10%</div><div class="comp-track"><div class="comp-fill ` + (presGood ? 'top-green' : 'top-red') + `" style="width:` + topPres + `%"></div></div></div>
-            <div class="comp-legend">
-              <span><span class="dot" style="background:var(--copper)"></span> You</span>
-              <span><span class="dot" style="background:rgba(169,167,160,0.5)"></span> Avg</span>
-              <span><span class="dot" style="background:` + (presGood ? 'rgba(34,197,94,0.6)' : 'rgba(239,68,68,0.6)') + `"></span> Top 10%</span>
-            </div>
-            <p style="font-size:0.65rem; color:var(--mist); margin-top:0.5rem; text-align:center;">` + (presGood ? 'Strong authority signals.' : 'Build backlinks & mentions.') + `</p>
-          </div>
-        </div>
-
-        <!-- CENTER: Total Score -->
-        <div class="score-orb" data-focus-id="revenue" onclick="focusMetric('revenue')">
-          <svg class="score-ring-svg" viewBox="0 0 150 150">
-            <defs>
-              <linearGradient id="scoreGradDesktop" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" style="stop-color:#D8B66A;stop-opacity:0.6" />
-                <stop offset="100%" style="stop-color:#D8B66A;stop-opacity:0.3" />
-              </linearGradient>
-            </defs>
-            ` + scoreCirc(70, overall, 'scoreGradDesktop') + `
-          </svg>
-          <div class="score-inner">
-            <div class="s-value">` + Math.round(overall) + `</div>
-            <div class="s-label">Revenue<br>Readiness</div>
-          </div>
-        </div>
-
-        <!-- RIGHT: Visual Twin -->
-      <div class="metric-orb ` + gapCls + `" data-focus-id="visual-twin" onclick="focusMetric('visual-twin')">
-          <div class="orb-circle">
-            <div class="orb-inner">
-              <div class="o-label">Visual Twin</div>
-              <div class="o-value">` + Math.round(gap) + `%</div>
-              <div class="o-sub">Gap</div>
-            </div>
-            <div class="orb-ring">
-              ` + circ(56, gap, gapStroke, 0.3, gapStroke) + `
-            </div>
-          </div>
-          <div class="metric-tooltip">
-            <div class="tooltip-title ` + gapTipCls + `">Visual Twin Analysis</div>
-            <div class="twin-grid">
-              <div class="twin-card yours">
-                <div class="twin-header"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
-                <div class="twin-body">Your Site</div>
-                <div class="twin-label">Scanned</div>
-              </div>
-              <div class="twin-card match">
-                <div class="twin-header"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
-                <div class="twin-body">Closest Match</div>
-                <div class="twin-label">` + Math.round(gap) + `% Similar</div>
-              </div>
-            </div>
-            <p style="font-size:0.65rem; color:var(--mist); margin-top:0.5rem; text-align:center;">` + (gapGood ? 'Strong brand differentiation.' : 'Low similarity = stronger brand.') + `</p>
-          </div>
-        </div>
-
-      </div>
-
-      <!-- BOTTOM: Funnel Score -->
-      <div class="metric-orb ` + convCls + `" data-focus-id="funnel" onclick="focusMetric('funnel')">
-        <div class="orb-circle">
-          <div class="orb-inner">
-            <div class="o-label">Funnel Score</div>
-            <div class="o-value">` + Math.round(conversion) + `</div>
-            <div class="o-sub">Conversion</div>
-          </div>
-          <div class="orb-ring">
-            ` + circ(56, conversion, convStroke, 0.5, convStroke) + `
-          </div>
-        </div>
-        <div class="metric-tooltip">
-          <div class="tooltip-title ` + convTipCls + `">Conversion Efficiency</div>
-          <div class="comp-bar"><div class="comp-label">Your Site</div><div class="comp-track"><div class="comp-fill you" style="width:` + Math.min(conversion,100) + `%"></div></div></div>
-          <div class="comp-bar"><div class="comp-label">Industry Avg</div><div class="comp-track"><div class="comp-fill avg" style="width:` + avgConv + `%"></div></div></div>
-          <div class="comp-bar"><div class="comp-label">Top 10%</div><div class="comp-track"><div class="comp-fill ` + (convGood ? 'top-green' : 'top-red') + `" style="width:` + topConv + `%"></div></div></div>
-          <div class="comp-legend">
-            <span><span class="dot" style="background:var(--copper)"></span> You</span>
-            <span><span class="dot" style="background:rgba(169,167,160,0.5)"></span> Avg</span>
-            <span><span class="dot" style="background:` + (convGood ? 'rgba(34,197,94,0.6)' : 'rgba(239,68,68,0.6)') + `"></span> Top 10%</span>
-          </div>
-          <p style="font-size:0.65rem; color:var(--mist); margin-top:0.5rem; text-align:center;">` + (convGood ? 'Strong checkout-to-visit ratio.' : 'Friction points hurting conversions.') + `</p>
-        </div>
-      </div>
-
-    </div>
-
-    <!-- Mobile Metrics Cards -->
-    <div class="metrics-mobile">
-      <div class="metric-card-mobile ` + aiCls + `" onclick="focusMetric('ai-parrot')">
-        <div class="mc-ring">` + circ(24, aiPct, aiStroke, 0.2, aiStroke) + `</div>
-        <div class="mc-info">
-          <div class="mc-label">AI Parrot</div>
-          <div class="mc-value">` + Math.round(aiPct) + `%</div>
-          <div class="mc-sub">` + classification + `</div>
-        </div>
-      </div>
-      <div class="metric-card-mobile ` + presCls + `" onclick="focusMetric('presence')">
-        <div class="mc-ring">` + circ(24, presence, presStroke, 0.4, presStroke) + `</div>
-        <div class="mc-info">
-          <div class="mc-label">Presence</div>
-          <div class="mc-value">` + Math.round(presence) + `%</div>
-          <div class="mc-sub">Authority</div>
-        </div>
-      </div>
-      <div class="metric-card-mobile ` + gapCls + `" onclick="focusMetric('visual-twin')">
-        <div class="mc-ring">` + circ(24, gap, gapStroke, 0.3, gapStroke) + `</div>
-        <div class="mc-info">
-          <div class="mc-label">Visual Twin</div>
-          <div class="mc-value">` + Math.round(gap) + `%</div>
-          <div class="mc-sub">Gap</div>
-        </div>
-      </div>
-      <div class="metric-card-mobile ` + convCls + `" onclick="focusMetric('funnel')">
-        <div class="mc-ring">` + circ(24, conversion, convStroke, 0.5, convStroke) + `</div>
-        <div class="mc-info">
-          <div class="mc-label">Funnel Score</div>
-          <div class="mc-value">` + Math.round(conversion) + `</div>
-          <div class="mc-sub">Conversion</div>
-        </div>
-      </div>
-    </div>
-
-    ` + (revenue.est_annual_revenue_leak ? `
-    <div class="revenue-card fade-in" style="margin-top:1.5rem;">
-      <div style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--red-leak);">Est. Annual Mobile Revenue Leak</div>
-      <div class="amount">` + revenue.est_annual_revenue_leak + `</div>
-      <p style="font-size:0.8rem; color:var(--mist); margin-top:0.5rem;">Based on mobile bounce rate, load friction, and conversion drop-off signals.</p>
-    </div>
-    ` : '') + `
-
-    ` + (friction.reason ? `
-    <div class="friction-box fade-in">
-      <h4>Key Friction Point</h4>
-      <p style="font-size:0.9rem; color:var(--white); margin-bottom:0.5rem;">` + friction.reason + `</p>
-      ` + (friction.revenue_loss_pct ? '<div class="revenue-loss">~' + friction.revenue_loss_pct + '% estimated revenue loss</div>' : '') + `
-      <p style="font-size:0.8rem; color:var(--mist); margin-top:0.5rem;">Detailed fix strategy reserved for the full report.</p>
-    </div>
-    ` : '') + `
-
-    <h3 style="margin: 2rem 0 1rem;">Top Surface Insights</h3>
-    <div class="leak-item">
-      <h4>SEO Health Index &mdash; ` + Math.round(seo) + `/100</h4>
-      <p>Search visibility factors analyzed. Detailed technical audit reserved for the report.</p>
-    </div>
-    <div class="leak-item">
-      <h4>AI Content Classification &mdash; ` + classification + `</h4>
-      <p>Content originality and human-voice signals evaluated. Rewrite strategy in the report.</p>
-    </div>
-    <div class="leak-item">
-      <h4>Conversion Efficiency &mdash; ` + Math.round(conversion) + `/100</h4>
-      <p>Priority fix sequence reserved for the report.</p>
-    </div>
-    <div class="leak-item">
-      <h4>Competitor Gap &mdash; ` + Math.round(gap) + `%</h4>
-      <p>Gap-closure tactics in the report.</p>
-    </div>
-    <div class="leak-item">
-      <h4>Online Presence &mdash; ` + Math.round(presence) + `%</h4>
-      <p>Presence-building roadmap in the report.</p>
-    </div>
-
-    ` + (devKit ? `
-    <div class="dev-handoff fade-in">
-      <p>Ready-to-send brief for your developer. Copy and paste into an email.</p>
-      <button class="btn btn-primary copy-btn" onclick="copyDevKit(this, currentDevKit)">Copy Developer Handoff Email</button>
-    </div>
-    ` : '') + `
-
-    <h3 style="margin: 2rem 0 1rem;">Unlock the Full Report</h3>
+  htmlContent += `
+    <h3 style="margin: 2rem 0 1rem;">Unlock Remediation Roadmap</h3>
     <div class="pricing-grid">
       <div class="pricing-card">
         <div class="tier-name">The Recovery Report</div>
         <div class="tier-price">$350</div>
-        <div class="tier-desc">Top 4 biggest leaks fix</div>
+        <div class="tier-desc">Top 4 major leaks remediation plan</div>
         <ul>
           <li>Standard Solutions</li>
           <li>5 Scans / month</li>
           <li>Full 50-Point Audit</li>
-          <li>Frontend SEO Data — Free Instant Access</li>
+          <li>Frontend SEO Data Access</li>
         </ul>
-        <a href="https://paypal.me/trilloka/350" target="_blank" class="btn btn-primary" style="width:100%;">Get Report</a>
+        <a href="https://paypal.me/arpitsavyauk/350" target="_blank" class="btn btn-primary" style="width:100%;">Get Report</a>
       </div>
       <div class="pricing-card featured">
         <div class="tier-name">The First Mark Report</div>
         <div class="tier-price">$550</div>
-        <div class="tier-desc">Top 8 Leaks</div>
+        <div class="tier-desc">Complete end-to-end architectural patch</div>
         <ul>
-          <li>3-Angle Solutions (Tech, CRO, Copy)</li>
-          <li>10 Scans / month</li>
-          <li>Two 15-Min Calls</li>
-          <li>Full 50-Point Audit</li>
-          <li>Frontend SEO Data — Full Access</li>
+          <li>Priority Engineering Access</li>
+          <li>Unlimited Scans</li>
+          <li>Custom Code Patches</li>
+          <li>Direct Architect Consultation</li>
         </ul>
-        <a href="https://paypal.me/trilloka/550" target="_blank" class="btn btn-primary" style="width:100%;">Get Report</a>
+        <a href="https://paypal.me/arpitsavyauk/550" target="_blank" class="btn btn-primary" style="width:100%;">Get Complete Patch</a>
       </div>
-      <div class="pricing-card">
-        <div class="tier-name">The Master Class</div>
-        <div class="tier-price">$850</div>
-        <div class="tier-desc">Top 12 Biggest Financial Leaks</div>
-        <ul>
-          <li>3-Angle Solutions (Tech, CRO, Copy)</li>
-          <li>16 Scans / month</li>
-          <li>1-Month Implementation Roadmap</li>
-          <li>Two 15-Min Calls</li>
-          <li>Full 50-Point Audit</li>
-          <li>Frontend SEO Data — Full Access</li>
-        </ul>
-        <a href="https://paypal.me/trilloka/850" target="_blank" class="btn btn-primary" style="width:100%;">Get Report</a>
-      </div>
-    </div>
-
-    <div class="hire-btn-wrap" style="margin-top:2rem;">
-      <button class="btn btn-outline" onclick="showPhonePopup()">Or Hire the Architect Directly</button>
     </div>
   `;
 
-  document.getElementById('resultsModal').classList.add('active');
+  modalBody.innerHTML = htmlContent;
+  resultsModal.classList.add('active');
   document.body.style.overflow = 'hidden';
 }
 
-function copyDevKit(btn, textToCopy) {
-  navigator.clipboard.writeText(textToCopy).then(() => {
-    btn.classList.add('copied');
-    btn.textContent = 'Copied to Clipboard';
-    setTimeout(() => {
-      btn.classList.remove('copied');
-      btn.textContent = 'Copy Developer Handoff Email';
-    }, 2500);
-  });
-}
-
-function closeModal() {
-  closeFocusMode();
-  document.getElementById('resultsModal').classList.remove('active');
-  document.body.style.overflow = '';
-}
-
-function showPhonePopup() {
-  document.getElementById('phoneModal').classList.add('active');
-  document.body.style.overflow = 'hidden';
-}
-
-function closePhoneModal() {
-  document.getElementById('phoneModal').classList.remove('active');
-  document.body.style.overflow = '';
-}
-
-document.getElementById('resultsModal').addEventListener('click', (e) => {
-  if (e.target === document.getElementById('resultsModal')) closeModal();
-});
-document.getElementById('phoneModal').addEventListener('click', (e) => {
-  if (e.target === document.getElementById('phoneModal')) closePhoneModal();
-});
-
-document.getElementById('domainInput').addEventListener('keypress', (e) => {
-  if (e.key === 'Enter') runScan();
-});
-
-let currentFocusData = {};
-let activeFocusId = null;
-
-function focusMetric(id) {
-  if (activeFocusId === id) return;
-  activeFocusId = id;
+function openFocusMode(id) {
   const data = currentFocusData[id];
   if (!data) return;
 
+  activeFocusId = id;
   const stage = document.querySelector('.constellation-stage');
   const panel = document.getElementById('focusPanel');
   const hint = document.getElementById('tapHintModal');
-
   const titleEl = document.getElementById('focusTitle');
-  titleEl.textContent = data.title;
-  titleEl.style.color = data.color === 'green' ? 'var(--metric-green)' : (data.color === 'gray' ? 'var(--white)' : 'var(--metric-red)');
-
-  document.getElementById('focusValue').textContent = data.value;
-  document.getElementById('focusSub').textContent = data.sub;
-  document.getElementById('focusInsight').textContent = data.insight;
-
-  const cta = document.querySelector('.focus-cta');
-  if (cta) cta.style.color = titleEl.style.color;
-
-  const barsContainer = document.getElementById('focusBars');
-  barsContainer.innerHTML = '';
-  data.bars.forEach(function(b, i) {
-    const suffix = data.value.indexOf('%') !== -1 ? '%' : '';
-    const row = document.createElement('div');
-    row.className = 'focus-bar-row';
-    row.innerHTML = '<span class="focus-bar-label">' + b.label + '</span><div class="focus-bar-track"><div class="focus-bar-fill ' + b.color + '" id="focus-bar-' + id + '-' + i + '" style="width:0%"></div></div><span class="focus-bar-num">' + Math.round(b.val) + suffix + '</span>';
-    barsContainer.appendChild(row);
-  });
-
-  document.querySelectorAll('.metric-orb').forEach(function(el) { el.classList.remove('focus-active'); });
-  const activeOrb = document.querySelector('.metric-orb[data-focus-id="' + id + '"]');
-  if (activeOrb) activeOrb.classList.add('focus-active');
 
   if (stage) stage.classList.add('focus-mode');
   if (panel) panel.classList.add('active');
   if (hint) hint.classList.add('hidden');
+
+  document.querySelectorAll('.metric-orb').forEach(function(el) { el.classList.remove('focus-active'); });
+  const targetOrb = document.getElementById('orb-' + id);
+  if (targetOrb) targetOrb.classList.add('focus-active');
+
+  if (titleEl) {
+    titleEl.textContent = data.title;
+    titleEl.style.color = data.color === 'green' ? 'var(--metric-green)' : (data.color === 'copper' ? 'var(--copper)' : 'var(--metric-red)');
+  }
+  const focusVal = document.getElementById('focusValue');
+  const focusSub = document.getElementById('focusSub');
+  const focusInsight = document.getElementById('focusInsight');
+  if (focusVal) focusVal.textContent = data.value;
+  if (focusSub) focusSub.textContent = data.sub;
+  if (focusInsight) focusInsight.textContent = data.insight;
+
+  const cta = document.querySelector('.focus-cta');
+  if (cta && titleEl) cta.style.color = titleEl.style.color;
+
+  const barsContainer = document.getElementById('focusBars');
+  if (barsContainer) {
+    barsContainer.innerHTML = '';
+    data.bars.forEach(function(b, i) {
+      const row = document.createElement('div');
+      row.className = 'focus-bar-row';
+      row.innerHTML = `
+        <span class="focus-bar-lbl">` + b.label + `</span>
+        <div class="focus-bar-track">
+          <div class="focus-bar-fill ` + b.color + `" id="focus-bar-` + id + `-` + i + `"></div>
+        </div>
+        <span class="focus-bar-num">` + b.val + `%</span>
+      `;
+      barsContainer.appendChild(row);
+    });
+  }
 
   setTimeout(function() {
     data.bars.forEach(function(b, i) {
@@ -2281,11 +1550,12 @@ function closeFocusMode() {
   if (stage) stage.classList.remove('focus-mode');
   if (panel) panel.classList.remove('active');
   if (hint) hint.classList.remove('hidden');
+
   document.querySelectorAll('.metric-orb').forEach(function(el) { el.classList.remove('focus-active'); });
   document.querySelectorAll('.focus-bar-fill').forEach(function(b) { b.style.width = '0%'; });
 }
 
-// Close focus mode when clicking outside orb/panel
+/* Event Listeners */
 document.addEventListener('click', function(e) {
   const stage = document.querySelector('.constellation-stage');
   if (!stage || !stage.classList.contains('focus-mode')) return;
@@ -2294,13 +1564,20 @@ document.addEventListener('click', function(e) {
   if (!orb && !panel) closeFocusMode();
 });
 
-// Escape key handler
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
-    if (activeFocusId) { closeFocusMode(); e.stopPropagation(); }
-    else if (document.getElementById('resultsModal').classList.contains('active')) closeModal();
+    closeFocusMode();
+    closeResultsModal();
+    closePhoneModal();
   }
 });
+
+const domainInput = document.getElementById('domainInput');
+if (domainInput) {
+  domainInput.addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') runScan();
+  });
+}
 </script>
 </body>
 </html>
