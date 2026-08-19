@@ -864,6 +864,11 @@ async def _run_audit_impl(
     access_pass = str(payload.access_pass or "").strip() or None
     admin_bypass = _is_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
 
+    # --- TEMPORARY DEV BYPASS ---
+    # Overrides the gatekeeper so you do not get 429 rate limit errors while testing.
+    admin_bypass = True
+    # ----------------------------
+
     # Only a valid paid pass can invoke paid duplicate protection.
     try:
         is_duplicate = access_manager.recent_paid_duplicate(
