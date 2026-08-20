@@ -13,6 +13,7 @@ Rules:
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, List
 
 PASS = "PASS"
@@ -94,6 +95,21 @@ DEDICATED_CHECKPOINT_RULES = {
 }
 
 
+def _safe_float(value: Any) -> float | None:
+    try:
+        parsed = float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+    if parsed is None or not math.isfinite(parsed):
+        return None
+    return parsed
+
+
+def _safe_int(value: Any, default: int | None = None) -> int | None:
+    parsed = _safe_float(value)
+    return int(parsed) if parsed is not None else default
+
+
 def _verified(*statuses: Any) -> bool:
     return any(str(value or "").lower() == "verified" for value in statuses)
 
@@ -114,13 +130,15 @@ def _unknown_reason(cp_id: int, scan: Dict[str, Any]) -> Dict[str, str]:
 
 
 def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] | None = None) -> List[Dict[str, Any]]:
-    scan = scan_data or {}
-    audit = audit_data or {}
-    profile = audit.get("business_profile") or scan.get("business_profile") or {}
+    scan = scan_data if isinstance(scan_data, dict) else {}
+    audit = audit_data if isinstance(audit_data, dict) else {}
+    profile_raw = audit.get("business_profile") or scan.get("business_profile") or {}
+    profile = profile_raw if isinstance(profile_raw, dict) else {}
     vertical = str(profile.get("vertical") or audit.get("business_type") or "general").lower()
     applicability_vertical = str(profile.get("inferred_subtype") or vertical).lower()
 
-    quality = scan.get("scan_quality") or {}
+    quality_raw = scan.get("scan_quality")
+    quality = quality_raw if isinstance(quality_raw, dict) else {}
     browser_verified = bool(scan.get("browser_loaded")) and not bool(quality.get("bot_challenge_suspected"))
     static_verified = bool(scan.get("static_html_verified"))
     document_verified = browser_verified or static_verified
@@ -131,7 +149,7 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
     content_verified = _verified(scan.get("content_signal_status")) or document_verified
     technical_verified = _verified(scan.get("technical_evidence_status")) or document_verified
     psi_available = scan.get("pagespeed_api_status") == "success"
-    ai_available = scan.get("ai_spectrum_status") == "heuristic" and scan.get("ai_spectrum_pct") is not None
+    ai_available = scan.get("ai_spectrum_status") == "heuristic" and _safe_float(scan.get("ai_spectrum_pct")) is not None
 
     checkpoints: List[Dict[str, Any]] = []
 
@@ -149,8 +167,8 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
                 "reason": reason,
                 "rule_key": dedicated or meta.get("rule_key") or f"checkpoint_{cp_id:02d}",
                 "family": meta.get("family") or dedicated or f"checkpoint_{cp_id:02d}",
-                "report_weight": float(meta.get("weight") or 0.0),
-                "severity_factor": float(meta.get("severity") or 0.0),
+                "report_weight": _safe_float(meta.get("weight")) or 0.0,
+                "severity_factor": _safe_float(meta.get("severity")) or 0.0,
                 "dedicated_rule": bool(dedicated),
                 "unknown_reason_code": unknown_meta["code"],
                 "customer_note": reason or unknown_meta["customer_note"],
@@ -191,9 +209,10 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
     meta = str(scan.get("meta_description") or "")
     title = str(scan.get("title") or "")
     h1_status = str(scan.get("h1_status") or "unknown").lower()
-    h1_tags = scan.get("h1_tags") or []
-    perf = scan.get("performance_score")
-    seo = scan.get("google_seo_score")
+    h1_tags_raw = scan.get("h1_tags")
+    h1_tags = h1_tags_raw if isinstance(h1_tags_raw, list) else []
+    perf = _safe_float(scan.get("performance_score"))
+    seo = _safe_float(scan.get("google_seo_score"))
     add(16, "Meta Description Present", bool_status(bool(meta), metadata_verified), "seo_technical")
     add(17, "Meta Description Length Optimal (120-158 chars)", UNKNOWN if not metadata_verified or not meta else (PASS if 120 <= len(meta) <= 158 else FAIL), "seo_technical", len(meta) if meta else None)
     add(18, "Single H1 Tag Per Page", UNKNOWN if h1_status == "unknown" else (PASS if h1_status == "present" and len(h1_tags) == 1 else FAIL), "seo_technical", h1_tags)
@@ -204,30 +223,31 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
     add(22, "Canonical URL Set", bool_status(scan.get("canonical_present"), technical_verified), "seo_technical")
     add(23, "XML Sitemap Present", bool_status(scan.get("sitemap_present")), "seo_technical", scan.get("sitemap_status_code"))
     add(24, "Robots.txt Valid", bool_status(scan.get("robots_valid")), "seo_technical", scan.get("robots_status_code"))
-    add(25, "Google PageSpeed Performance > 60", UNKNOWN if not psi_available or perf is None else (PASS if float(perf) >= 60 else FAIL), "seo_technical", perf)
-    add(26, "Google PageSpeed Performance > 90", UNKNOWN if not psi_available or perf is None else (PASS if float(perf) >= 90 else FAIL), "seo_technical", perf)
-    add(27, "Google SEO Score > 80", UNKNOWN if not psi_available or seo is None else (PASS if float(seo) >= 80 else FAIL), "seo_technical", seo)
+    add(25, "Google PageSpeed Performance > 60", UNKNOWN if not psi_available or perf is None else (PASS if perf >= 60 else FAIL), "seo_technical", perf)
+    add(26, "Google PageSpeed Performance > 90", UNKNOWN if not psi_available or perf is None else (PASS if perf >= 90 else FAIL), "seo_technical", perf)
+    add(27, "Google SEO Score > 80", UNKNOWN if not psi_available or seo is None else (PASS if seo >= 80 else FAIL), "seo_technical", seo)
 
-    lcp = scan.get("crux_lcp_ms") if scan.get("crux_available") else scan.get("psi_lcp_ms")
-    inp = scan.get("crux_inp_ms") if scan.get("crux_available") else None
-    cls_value = scan.get("crux_cls") if scan.get("crux_available") else scan.get("psi_cls")
-    add(28, "LCP (Largest Contentful Paint) ≤ 2.5s", UNKNOWN if lcp is None else (PASS if float(lcp) <= 2500 else FAIL), "seo_technical", lcp)
-    add(29, "INP (Interaction to Next Paint) ≤ 200ms", UNKNOWN if inp is None else (PASS if float(inp) <= 200 else FAIL), "seo_technical", inp)
-    add(30, "CLS (Cumulative Layout Shift) ≤ 0.1", UNKNOWN if cls_value is None else (PASS if float(cls_value) <= 0.1 else FAIL), "seo_technical", cls_value)
+    lcp = _safe_float(scan.get("crux_lcp_ms") if scan.get("crux_available") else scan.get("psi_lcp_ms"))
+    inp = _safe_float(scan.get("crux_inp_ms") if scan.get("crux_available") else None)
+    cls_value = _safe_float(scan.get("crux_cls") if scan.get("crux_available") else scan.get("psi_cls"))
+    add(28, "LCP (Largest Contentful Paint) ≤ 2.5s", UNKNOWN if lcp is None else (PASS if lcp <= 2500 else FAIL), "seo_technical", lcp)
+    add(29, "INP (Interaction to Next Paint) ≤ 200ms", UNKNOWN if inp is None else (PASS if inp <= 200 else FAIL), "seo_technical", inp)
+    add(30, "CLS (Cumulative Layout Shift) ≤ 0.1", UNKNOWN if cls_value is None else (PASS if cls_value <= 0.1 else FAIL), "seo_technical", cls_value)
     add(31, "Mobile Viewport Configured", bool_status(scan.get("mobile_viewport_configured"), technical_verified), "seo_technical")
 
-    tap_count = scan.get("psi_tap_targets_flagged")
+    tap_count_raw = scan.get("psi_tap_targets_flagged")
+    tap_count = _safe_int(tap_count_raw)
     if tap_count is None:
         tap_list = scan.get("tap_targets_flagged")
         tap_status = UNKNOWN if not isinstance(tap_list, list) else (FAIL if len(tap_list) > 0 else (PASS if psi_available else UNKNOWN))
     else:
-        tap_status = PASS if int(tap_count) == 0 else FAIL
+        tap_status = PASS if tap_count == 0 else FAIL
     add(32, "Tap Targets Properly Sized", tap_status, "seo_technical", tap_count if tap_count is not None else scan.get("tap_targets_flagged"))
 
-    blocking = scan.get("psi_render_blocking_count")
-    add(33, "No Material Render-Blocking Resources", UNKNOWN if blocking is None else (PASS if int(blocking) == 0 else FAIL), "seo_technical", blocking)
-    missing_alt = scan.get("missing_alt_images")
-    add(34, "Images Have Accessibility Text", UNKNOWN if not image_verified or missing_alt is None else (PASS if int(missing_alt) == 0 else FAIL), "seo_technical", {"missing": missing_alt, "total": scan.get("total_images")})
+    blocking = _safe_int(scan.get("psi_render_blocking_count"))
+    add(33, "No Material Render-Blocking Resources", UNKNOWN if blocking is None else (PASS if blocking == 0 else FAIL), "seo_technical", blocking)
+    missing_alt = _safe_int(scan.get("missing_alt_images"))
+    add(34, "Images Have Accessibility Text", UNKNOWN if not image_verified or missing_alt is None else (PASS if missing_alt == 0 else FAIL), "seo_technical", {"missing": missing_alt, "total": scan.get("total_images")})
     lazy_status = str(scan.get("lazy_loading_status") or UNKNOWN).upper()
     add(35, "Lazy Loading on Relevant Images", lazy_status if lazy_status in {PASS, FAIL, UNKNOWN, NA} else UNKNOWN, "seo_technical", scan.get("lazy_image_count"))
 
@@ -236,16 +256,17 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
     editorial_relevant = bool(scan.get("blog_present")) or applicability_vertical in {"legal", "medspa", "professional_service", "saas", "agency", "b2b", "creator"}
     add(37, "Author Bylines Present", NA if not editorial_relevant else bool_status(scan.get("author_bylines_present"), content_verified), "content_eeat")
     add(38, "Publication Dates Visible", NA if not editorial_relevant else bool_status(scan.get("publication_dates_visible"), content_verified), "content_eeat")
-    word_count = int(scan.get("visible_word_count") or 0)
+    word_count = _safe_int(scan.get("visible_word_count"), 0) or 0
     word_relevant = applicability_vertical in {"legal", "medspa", "professional_service", "local_service", "saas", "ecommerce", "agency", "b2b", "creator"}
     add(39, "Visible Content Length > 300 Words", NA if not word_relevant else (UNKNOWN if not document_verified else (PASS if word_count > 300 else FAIL)), "content_eeat", word_count)
-    ai_pct = scan.get("ai_spectrum_pct")
-    add(40, "AI / Template Pattern Index < 30", UNKNOWN if not ai_available else (PASS if float(ai_pct) < 30 else FAIL), "content_eeat", ai_pct)
-    add(41, "AI / Template Pattern Index < 60", UNKNOWN if not ai_available else (PASS if float(ai_pct) < 60 else FAIL), "content_eeat", ai_pct)
-    generic = (scan.get("ai_flags") or {}).get("generic_headline")
+    ai_pct = _safe_float(scan.get("ai_spectrum_pct"))
+    add(40, "AI / Template Pattern Index < 30", UNKNOWN if not ai_available or ai_pct is None else (PASS if ai_pct < 30 else FAIL), "content_eeat", ai_pct)
+    add(41, "AI / Template Pattern Index < 60", UNKNOWN if not ai_available or ai_pct is None else (PASS if ai_pct < 60 else FAIL), "content_eeat", ai_pct)
+    ai_flags = scan.get("ai_flags") if isinstance(scan.get("ai_flags"), dict) else {}
+    generic = ai_flags.get("generic_headline")
     add(42, "No Generic Template Headlines", UNKNOWN if generic is None or not document_verified else (PASS if not bool(generic) else FAIL), "content_eeat")
-    unlinked = (scan.get("ai_flags") or {}).get("unlinked_forms")
-    add(43, "No Structurally Unlinked Forms", NA if scan.get("forms_present") is False else (UNKNOWN if unlinked is None else (PASS if int(unlinked) == 0 else FAIL)), "content_eeat", unlinked)
+    unlinked = _safe_int(ai_flags.get("unlinked_forms"))
+    add(43, "No Structurally Unlinked Forms", NA if scan.get("forms_present") is False else (UNKNOWN if unlinked is None else (PASS if unlinked == 0 else FAIL)), "content_eeat", unlinked)
     faq_relevant = applicability_vertical in {"legal", "medspa", "professional_service", "local_service", "saas", "ecommerce", "agency", "b2b"}
     add(44, "FAQ Section Present", NA if not faq_relevant else bool_status(scan.get("faq_present"), content_verified), "content_eeat")
     portfolio_relevant = applicability_vertical in {"local_service", "professional_service", "legal", "medspa", "saas", "agency", "b2b", "creator"}

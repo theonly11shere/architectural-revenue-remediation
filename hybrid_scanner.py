@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import os
 import re
 import urllib.parse
@@ -561,9 +562,17 @@ class HybridScanner:
     @staticmethod
     def _to_float(value: Any) -> Optional[float]:
         try:
-            return float(value) if value is not None else None
+            parsed = float(value) if value is not None else None
         except (TypeError, ValueError):
             return None
+        if parsed is None or not math.isfinite(parsed):
+            return None
+        return parsed
+
+    @staticmethod
+    def _to_int(value: Any, default: Optional[int] = None) -> Optional[int]:
+        parsed = HybridScanner._to_float(value)
+        return int(parsed) if parsed is not None else default
 
     @staticmethod
     def _grade_core_web_vitals(lcp: Optional[float], inp: Optional[float], cls_value: Optional[float]) -> str:
@@ -683,8 +692,8 @@ class HybridScanner:
                 form.get("has_inputs") and form.get("has_submit")
             )
             form_valid_flags.append(structurally_valid)
-            form_field_counts.append(int(form.get("field_count") or 0))
-            form_required_counts.append(int(form.get("required_field_count") or 0))
+            form_field_counts.append(self._to_int(form.get("field_count"), 0) or 0)
+            form_required_counts.append(self._to_int(form.get("required_field_count"), 0) or 0)
             if not structurally_valid:
                 unlinked_forms += 1
 
@@ -1120,8 +1129,8 @@ class HybridScanner:
             merged["h1_status"] = "present"
             merged["h1_tags"] = self._union_strings(first.get("h1_tags"), second.get("h1_tags"))
             merged["h1_dom_text"] = self._union_strings(first.get("h1_dom_text"), second.get("h1_dom_text"))
-            merged["h1_dom_count"] = max(int(first.get("h1_dom_count") or 0), int(second.get("h1_dom_count") or 0))
-            merged["h1_source_count"] = max(int(first.get("h1_source_count") or 0), int(second.get("h1_source_count") or 0))
+            merged["h1_dom_count"] = max(self._to_int(first.get("h1_dom_count"), 0) or 0, self._to_int(second.get("h1_dom_count"), 0) or 0)
+            merged["h1_source_count"] = max(self._to_int(first.get("h1_source_count"), 0) or 0, self._to_int(second.get("h1_source_count"), 0) or 0)
         elif first_h1 == "missing" and second_h1 == "missing" and (first_complete or second_complete):
             merged["h1_status"] = "missing"
         elif first_h1 == "missing" and first_complete and second_h1 == "unknown":
@@ -1220,7 +1229,7 @@ class HybridScanner:
             merged["h1_tags"] = self._union_strings(static.get("h1_tags"), dom.get("h1_tags"))
             merged["h1_dom_text"] = self._union_strings(dom.get("h1_dom_text"))
             merged["h1_dom_count"] = dom.get("h1_dom_count")
-            merged["h1_source_count"] = max(int(static.get("h1_source_count") or 0), int(dom.get("h1_source_count") or 0))
+            merged["h1_source_count"] = max(self._to_int(static.get("h1_source_count"), 0) or 0, self._to_int(dom.get("h1_source_count"), 0) or 0)
         elif dom_h1 == "missing" and dom_complete:
             merged["h1_status"] = "missing"
             for key in ("h1_tags", "h1_dom_count", "h1_dom_text", "h1_source_count"):
@@ -1251,7 +1260,7 @@ class HybridScanner:
                 merged[key] = dom_value
 
         if dom.get("page_html_length"):
-            merged["page_html_length"] = max(int(static.get("page_html_length") or 0), int(dom.get("page_html_length") or 0))
+            merged["page_html_length"] = max(self._to_int(static.get("page_html_length"), 0) or 0, self._to_int(dom.get("page_html_length"), 0) or 0)
             merged["page_content_len"] = merged["page_html_length"]
 
         # Structural/document presence. Static HTML may make a conclusive negative claim; rendered
@@ -1408,7 +1417,7 @@ class HybridScanner:
                 merged[key] = dom.get(key)
 
         # Images: rendered DOM is preferred when available; otherwise keep complete static evidence.
-        if int(dom.get("total_images") or 0) > 0 or (dom_complete and dom.get("missing_alt_images") is not None):
+        if (self._to_int(dom.get("total_images"), 0) or 0) > 0 or (dom_complete and dom.get("missing_alt_images") is not None):
             for key in (
                 "image_count", "total_images", "missing_alt_images", "images_with_alt", "lazy_image_count",
                 "lazy_loading_status", "custom_photography_signal", "custom_photography_status",
@@ -1555,8 +1564,8 @@ class HybridScanner:
                     viewport: window.innerHeight || 800
                 })"""
             )
-            height = int((metrics or {}).get("height") or 0)
-            viewport = max(1, int((metrics or {}).get("viewport") or 800))
+            height = self._to_int((metrics or {}).get("height"), 0) or 0
+            viewport = max(1, self._to_int((metrics or {}).get("viewport"), 800) or 800)
             if height <= viewport * 1.25:
                 return
 
@@ -2349,7 +2358,7 @@ class HybridScanner:
         if data.get("h1_status") != "present":
             return "UNKNOWN"
         h1 = " ".join(data.get("h1_tags") or []).lower()
-        if not h1.strip() or float(profile.get("confidence") or 0) < 0.55:
+        if not h1.strip() or (self._to_float(profile.get("confidence")) or 0.0) < 0.55:
             return "UNKNOWN"
         vertical = profile.get("vertical")
         keywords = {
