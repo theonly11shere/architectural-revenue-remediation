@@ -6,10 +6,10 @@ Scoring philosophy:
 - Verified leaks subtract weighted points.
 - Unknown evidence is neutral: it earns no strength and creates no penalty.
 - Ordinary good sites should typically land around 65-75.
-- Scores above 80 require unusually mature, verified architecture.
-- 90+ is intentionally rare and requires elite evidence across performance, conversion, trust, measurement and technical execution.
+- Scores above 70 enter a soft-ceiling zone so very strong sites remain distinguishable without implying near-perfect commercial readiness.
+- The public Revenue Readiness score can never exceed 78/100.
 
-This score is Revenue Readiness, NOT a literal visitor conversion percentage.
+This score is a Revenue Readiness INDEX, NOT a literal visitor conversion percentage or a claim that 78% of visitors convert.
 """
 
 from __future__ import annotations
@@ -335,6 +335,17 @@ STANDARD_STRENGTH_CAP = 30.0
 ELITE_BONUS_CAP = 18.0
 REFERENCE_COMPLETENESS_BONUS = 2.0
 
+# Public score ceiling.
+# A 78/100 Revenue Readiness score means "exceptionally mature relative readiness",
+# NOT 78% visitor conversion and NOT only 22% of visitors leaking.
+#
+# We use a soft saturation above 70 instead of a blunt hard clamp so an
+# exceptionally strong site can still outrank a merely strong site while no
+# site can ever present an unrealistic 80/90/100-style readiness number.
+MAX_REVENUE_READINESS_SCORE = 78.0
+SOFT_CEILING_START_SCORE = 70.0
+SOFT_CEILING_SCALE = 10.0
+
 LEAK_FAMILY = {
     "click_to_call": "mobile_direct_action",
     "mobile_sticky_cta": "mobile_direct_action",
@@ -471,8 +482,10 @@ class RevenueScorer:
             raise TypeError("scan_data must be a dictionary")
 
         profile, biz_type = self._resolve_business_profile(scan_data, business_type)
-        scan_quality = scan_data.get("scan_quality") or {}
-        coverage = scan_data.get("evidence_coverage") or {}
+        scan_quality_raw = scan_data.get("scan_quality")
+        scan_quality = scan_quality_raw if isinstance(scan_quality_raw, dict) else {}
+        coverage_raw = scan_data.get("evidence_coverage")
+        coverage = coverage_raw if isinstance(coverage_raw, dict) else {}
 
         if not scan_data.get("browser_loaded") and not scan_data.get("response_ok"):
             raise ValueError("Insufficient evidence: neither browser nor HTTP preflight produced usable telemetry")
@@ -538,7 +551,8 @@ class RevenueScorer:
             + reference_bonus
             - total_loss
         )
-        overall = round(max(0.0, min(100.0, pre_clamp)), 1)
+        raw_readiness = max(0.0, min(100.0, pre_clamp))
+        overall = round(self._apply_readiness_ceiling(raw_readiness), 1)
 
         sorted_leaks = sorted(leaks, key=lambda item: item.get("final_score_loss", 0.0), reverse=True)
         report_leaks = self._consolidate_report_families(sorted_leaks)
@@ -570,7 +584,7 @@ class RevenueScorer:
             # Kept for frontend compatibility. With the current request schema the
             # engine receives only a competitor-feature boolean, not competitor telemetry,
             # so this remains a modeled readiness-gap proxy rather than a measured rival score.
-            "competitor_gap_score": max(0, round(100 - overall)),
+            "competitor_gap_score": max(0, round(MAX_REVENUE_READINESS_SCORE - overall)),
             "competitor_gap_kind": "MODELED_READINESS_GAP_PROXY",
             "competitor_data_available": bool(competitor_data_present),
             "classification": self._classify_template_spectrum(ai_pct, str(scan_data.get("cms_platform") or "Not confidently identified")),
@@ -628,7 +642,9 @@ class RevenueScorer:
             "strength_ledger": strength_ledger,
             "elite_strength_ledger": elite_ledger,
             "overlap_adjustments": overlap_adjustments,
-            "score_semantics": "Revenue Readiness score; not a literal visitor conversion percentage.",
+                        "score_semantics": "Revenue Readiness index; not a literal visitor conversion percentage.",
+            "score_ceiling": MAX_REVENUE_READINESS_SCORE,
+            "score_ceiling_note": "78/100 is the maximum public readiness index. It does not mean 78% of visitors convert.",
             "research_calibration": {
                 "model": "mixed-evidence commercial-priority calibration",
                 "baymard_basis": "Ecommerce checkout only: relative weights are normalized against the mean of Baymard's current avoidable abandonment reasons; survey percentages are never copied directly into deductions.",
@@ -646,12 +662,17 @@ class RevenueScorer:
                 "reference_completeness_bonus": reference_bonus,
                 "total_final_penalty": total_loss,
                 "pre_clamp_score": round(pre_clamp, 2),
+                "raw_pre_ceiling_score": round(raw_readiness, 2),
+                "public_score_ceiling": MAX_REVENUE_READINESS_SCORE,
+                "soft_ceiling_starts_at": SOFT_CEILING_START_SCORE,
+                "ceiling_method": "soft saturation above 70; no public score can exceed 78",
                 "final_score": overall,
             },
         }
 
     def _resolve_business_profile(self, scan_data: Dict[str, Any], requested: str) -> Tuple[Dict[str, Any], str]:
-        automatic = dict(scan_data.get("business_profile") or {})
+        profile_raw = scan_data.get("business_profile") if isinstance(scan_data, dict) else {}
+        automatic = dict(profile_raw) if isinstance(profile_raw, dict) else {}
         auto_vertical = self._normalize_business_type(automatic.get("vertical"))
         auto_conf = self._safe_float(automatic.get("confidence"))
         if auto_conf is None:
@@ -799,7 +820,8 @@ class RevenueScorer:
                 }, "Rendered DOM")
 
         # 7. Hero semantics. One verified H1 earns the full standard strength.
-        h1_tags = data.get("h1_tags") or []
+        h1_tags_raw = data.get("h1_tags")
+        h1_tags = h1_tags_raw if isinstance(h1_tags_raw, list) else []
         if str(data.get("h1_status") or "unknown").lower() == "present":
             if len(h1_tags) == 1:
                 add("single_primary_h1", 1.5, "content_eeat", {"h1": h1_tags[0]}, "Rendered DOM + source")
@@ -837,8 +859,8 @@ class RevenueScorer:
         if data.get("html_lang_present") is True:
             mobile_hygiene_points += 0.5
             hygiene_evidence["html_lang_present"] = True
-        total_images = int(data.get("total_images") or data.get("image_count") or 0)
-        missing_alt = int(data.get("missing_alt_images") or 0)
+        total_images = self._safe_int(data.get("total_images"), self._safe_int(data.get("image_count"), 0)) or 0
+        missing_alt = self._safe_int(data.get("missing_alt_images"), 0) or 0
         if data.get("browser_loaded") and total_images > 0 and missing_alt == 0:
             mobile_hygiene_points += 0.75
             hygiene_evidence["all_rendered_images_accessible"] = True
@@ -1025,7 +1047,9 @@ class RevenueScorer:
         if cls is not None and cls <= 0.1:
             add("good_cls", 0.25, {"cls": cls}, "CrUX / PageSpeed")
 
-        coverage = self._safe_float((scan_data.get("evidence_coverage") or {}).get("ratio")) or 0.0
+        coverage_raw = scan_data.get("evidence_coverage") if isinstance(scan_data, dict) else {}
+        coverage_dict = coverage_raw if isinstance(coverage_raw, dict) else {}
+        coverage = self._safe_float(coverage_dict.get("ratio")) or 0.0
         if coverage >= 0.85:
             add("high_evidence_coverage", 0.25, {"coverage_ratio": coverage}, "Scanner evidence coverage")
 
@@ -1060,8 +1084,9 @@ class RevenueScorer:
         if technical_complete:
             add("mature_technical_foundation", 0.25, {"all_core_technical_signals_verified": True}, "DOM + HTTP discovery")
 
-        total_images = int(scan_data.get("total_images") or scan_data.get("image_count") or 0)
-        no_alt_failures = scan_data.get("browser_loaded") and total_images > 0 and int(scan_data.get("missing_alt_images") or 0) == 0
+        total_images = self._safe_int(scan_data.get("total_images"), self._safe_int(scan_data.get("image_count"), 0)) or 0
+        missing_alt = self._safe_int(scan_data.get("missing_alt_images"))
+        no_alt_failures = scan_data.get("browser_loaded") and total_images > 0 and missing_alt == 0
         no_tap_failures = scan_data.get("pagespeed_api_status") == "success" and not scan_data.get("tap_targets_flagged")
         if no_alt_failures and no_tap_failures:
             add("mature_mobile_accessibility", 0.25, {"alt_coverage": "complete", "tap_targets": "clear"}, "DOM + PageSpeed")
@@ -1078,10 +1103,9 @@ class RevenueScorer:
         scan_data: Dict[str, Any], standard_strength: float, elite_bonus: float, total_loss: float
     ) -> float:
         """Make 100 theoretically possible but exceptionally difficult."""
-        try:
-            coverage = float((scan_data.get("evidence_coverage") or {}).get("ratio") or 0.0)
-        except (TypeError, ValueError):
-            coverage = 0.0
+        coverage_raw = scan_data.get("evidence_coverage") if isinstance(scan_data, dict) else {}
+        coverage_dict = coverage_raw if isinstance(coverage_raw, dict) else {}
+        coverage = RevenueScorer._safe_float(coverage_dict.get("ratio")) or 0.0
         if (
             standard_strength >= 29.5
             and elite_bonus >= 9.0
@@ -1099,7 +1123,9 @@ class RevenueScorer:
         competitor_verified: bool,
     ) -> List[Dict[str, Any]]:
         leaks: List[Dict[str, Any]] = []
-        quality_conf = str((data.get("scan_quality") or {}).get("confidence") or "unknown").lower()
+        quality_raw = data.get("scan_quality") if isinstance(data, dict) else {}
+        quality = quality_raw if isinstance(quality_raw, dict) else {}
+        quality_conf = str(quality.get("confidence") or "unknown").lower()
 
         # 1. HTTPS / SSL
         if data.get("response_ok") and data.get("has_ssl") is False:
@@ -1524,7 +1550,9 @@ class RevenueScorer:
 
         # 7. H1 / hero semantics - unknown never fails
         h1_status = str(data.get("h1_status") or "unknown").lower()
-        h1_tags = data.get("h1_tags") or []
+        h1_tags_raw = data.get("h1_tags")
+        h1_tags = h1_tags_raw if isinstance(h1_tags_raw, list) else []
+        ai_flags = data.get("ai_flags") if isinstance(data.get("ai_flags"), dict) else {}
         if h1_status == "missing":
             leaks.append(
                 self._build_leak(
@@ -1557,7 +1585,7 @@ class RevenueScorer:
                     source="Rendered DOM",
                 )
             )
-        elif h1_status == "present" and bool((data.get("ai_flags") or {}).get("generic_headline")):
+        elif h1_status == "present" and bool(ai_flags.get("generic_headline")):
             leaks.append(
                 self._build_leak(
                     "diluted_h1",
@@ -1575,8 +1603,8 @@ class RevenueScorer:
             )
 
         # 7. Alt accessibility
-        total_images = int(data.get("total_images") or data.get("image_count") or 0)
-        missing_alt = int(data.get("missing_alt_images") or 0)
+        total_images = self._safe_int(data.get("total_images"), self._safe_int(data.get("image_count"), 0)) or 0
+        missing_alt = self._safe_int(data.get("missing_alt_images"), 0) or 0
         if data.get("browser_loaded") and total_images > 0 and missing_alt > 0:
             ratio = missing_alt / max(1, total_images)
             severity = 0.25 if ratio < 0.30 else (0.50 if ratio < 0.75 else 0.80)
@@ -1647,7 +1675,7 @@ class RevenueScorer:
                     confidence="medium",
                     substitution_factor=1.0,
                     competitor_verified=False,
-                    evidence={"ai_template_pattern_index": ai_pct, "ai_flags": data.get("ai_flags") or {}},
+                    evidence={"ai_template_pattern_index": ai_pct, "ai_flags": ai_flags},
                     source="Rendered DOM/template heuristic",
                 )
             )
@@ -1683,7 +1711,7 @@ class RevenueScorer:
                     confidence="high",
                     substitution_factor=1.0,
                     competitor_verified=competitor_verified,
-                    evidence={"form_action_valid": False, "unlinked_forms": (data.get("ai_flags") or {}).get("unlinked_forms")},
+                    evidence={"form_action_valid": False, "unlinked_forms": ai_flags.get("unlinked_forms")},
                     source="Rendered form DOM",
                 )
             )
@@ -2090,15 +2118,31 @@ class RevenueScorer:
         return {key: leak.get(key) for key in keys}
 
     @staticmethod
+    def _apply_readiness_ceiling(raw_score: float) -> float:
+        """Map an internally calculated 0-100 readiness value onto the public 0-78 index.
+
+        Values at or below 70 are preserved. Above 70, the curve saturates toward
+        78 so strong sites remain rankable without presenting near-perfect 80/90/100
+        readiness scores.
+        """
+        raw = max(0.0, min(100.0, float(raw_score)))
+        if raw <= SOFT_CEILING_START_SCORE:
+            return raw
+
+        headroom = MAX_REVENUE_READINESS_SCORE - SOFT_CEILING_START_SCORE
+        compressed = SOFT_CEILING_START_SCORE + headroom * (
+            1.0 - math.exp(-(raw - SOFT_CEILING_START_SCORE) / SOFT_CEILING_SCALE)
+        )
+        return min(MAX_REVENUE_READINESS_SCORE, compressed)
+
+    @staticmethod
     def _get_score_rating(score: float) -> str:
-        if score >= 90:
-            return "ARCHITECT / REFERENCE LEVEL"
-        if score >= 85:
-            return "ELITE ARCHITECTURE"
-        if score >= 80:
-            return "WORLD-CLASS COMMERCIAL ARCHITECTURE"
+        if score >= 77:
+            return "REFERENCE-LEVEL READINESS — HEADROOM STILL EXISTS"
         if score >= 75:
-            return "EXCEPTIONAL"
+            return "EXCEPTIONAL — LEAKS STILL REMAIN"
+        if score >= 70:
+            return "VERY STRONG — OPTIMIZATION REMAINS"
         if score >= 65:
             return "GOOD — LEAKS REMAIN"
         if score >= 50:
@@ -2108,9 +2152,9 @@ class RevenueScorer:
         return "SEVERE STRUCTURAL RISK"
 
     def _get_vault_id(self, score: float) -> str:
-        if score >= 90:
+        if score >= 77:
             return self.generate_tier_id(10)
-        if score >= 75:
+        if score >= 72:
             return self.generate_tier_id(8)
         if score >= 50:
             return self.generate_tier_id(4)
@@ -2134,9 +2178,9 @@ class RevenueScorer:
         It gives prospects a financially legible range while preserving the disclaimer that
         traffic, conversion rate and customer value were not supplied.
         """
-        if score >= 90:
+        if score >= 76:
             level = "VERY LOW"
-        elif score >= 80:
+        elif score >= 72:
             level = "LOW"
         elif score >= 65:
             level = "MODERATE"
@@ -2156,12 +2200,12 @@ class RevenueScorer:
             "saas": (550.0, 1300.0),
         }
         low_mult, high_mult = multipliers.get(biz_type, multipliers["general"])
-        readiness_gap = max(0.0, 82.0 - float(score))
+        readiness_gap = max(0.0, 80.0 - float(score))
         exposure_units = max(0.0, readiness_gap + min(18.0, float(total_loss) * 0.55))
         annual_min = int(round(exposure_units * low_mult / 100.0) * 100)
         annual_max = int(round(exposure_units * high_mult / 100.0) * 100)
-        if score >= 90:
-            annual_min = 0
+        # Even the maximum public readiness score retains a small modeled
+        # residual-exposure band; the product never implies perfect conversion.
         annual_max = max(annual_max, annual_min)
         range_text = f"${annual_min:,} – ${annual_max:,} / year"
         return {
@@ -2182,3 +2226,8 @@ class RevenueScorer:
         if parsed is None or not math.isfinite(parsed):
             return None
         return parsed
+
+    @staticmethod
+    def _safe_int(value: Any, default: Optional[int] = None) -> Optional[int]:
+        parsed = RevenueScorer._safe_float(value)
+        return int(parsed) if parsed is not None else default
