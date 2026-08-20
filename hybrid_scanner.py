@@ -249,7 +249,6 @@ class HybridScanner:
                 print(f"[Hybrid Scanner] Desktop retry skipped: {exc}")
 
         evidence_meta = self._merge_static_and_dom(static_meta, dom_meta)
-        evidence_meta.update(self._estimate_readability_metrics(str(evidence_meta.get("page_text") or "")))
 
         combined: Dict[str, Any] = {
             "domain": target_domain,
@@ -2358,7 +2357,7 @@ class HybridScanner:
         if data.get("h1_status") != "present":
             return "UNKNOWN"
         h1 = " ".join(data.get("h1_tags") or []).lower()
-        if not h1.strip() or (self._to_float(profile.get("confidence")) or 0.0) < 0.55:
+        if not h1.strip() or (HybridScanner._to_float(profile.get("confidence")) or 0.0) < 0.55:
             return "UNKNOWN"
         vertical = profile.get("vertical")
         keywords = {
