@@ -50,25 +50,55 @@ SOLUTIONS_MATRIX = {
         }
     }
 }
+# Legacy SOLUTIONS_MATRIX keys are catalog IDs, while the scorer/report layers
+# use descriptive rule_key values. Resolve known equivalents before lookup.
+RULE_KEY_TO_SOLUTION_CODE = {
+    "unsecured_ssl": "SEC-01",
+    "https_redirect": "SEC-01",
+    "meta_description_missing": "SEO-03",
+    "core_web_vitals": "PRF-01",
+    "pagespeed_below_60": "PRF-01",
+    "pagespeed_below_90": "PRF-01",
+    "lcp_poor": "PRF-01",
+    "inp_poor": "PRF-01",
+    "cls_poor": "PRF-01",
+    "render_blocking": "PRF-01",
+    "lazy_loading_gap": "PRF-01",
+    "missing_alt_images": "UX-01",
+}
+
+
+def _resolve_solution_code(code: str) -> str:
+    raw = str(code or "").strip()
+    if not raw:
+        return raw
+    upper = raw.upper()
+    if upper in SOLUTIONS_MATRIX:
+        return upper
+    return RULE_KEY_TO_SOLUTION_CODE.get(raw.lower(), raw)
 
 
 def get_3_angle_solutions(code: str, default_name: str, default_rec: str) -> Dict[str, Any]:
-    """Returns 3 distinct solution angles (Dev, CRO, Infrastructure) for a given leak."""
-    if code in SOLUTIONS_MATRIX:
-        entry = SOLUTIONS_MATRIX[code]
+    """Return 3 solution angles for either a catalog code or descriptive rule_key."""
+    original_code = str(code or "").strip()
+    resolved_code = _resolve_solution_code(original_code)
+
+    if resolved_code in SOLUTIONS_MATRIX:
+        entry = SOLUTIONS_MATRIX[resolved_code]
         return {
-            "leak_code": code,
+            "leak_code": original_code or resolved_code,
+            "solution_code": resolved_code,
             "issue": entry["issue"],
-            "angles": entry["angles"]
+            "angles": entry["angles"],
         }
-    
-    # Generic 3-angle fallback generator
+
     return {
-        "leak_code": code,
+        "leak_code": original_code,
+        "solution_code": None,
         "issue": default_name,
         "angles": {
             "developer_fix": f"Technical Action: {default_rec}",
             "cro_copy_angle": f"Conversion Action: Refine page messaging and CTA layout related to {default_name}.",
-            "infrastructure_angle": f"Infrastructure Action: Ensure server policies and hosting setup support {default_name} rules."
-        }
+            "infrastructure_angle": f"Infrastructure Action: Ensure server policies and hosting setup support {default_name} rules.",
+        },
     }

@@ -14,6 +14,7 @@ This score is Revenue Readiness, NOT a literal visitor conversion percentage.
 
 from __future__ import annotations
 
+import math
 import secrets
 import string
 from collections import defaultdict
@@ -23,63 +24,306 @@ from behavioural_engine import BehaviouralEngine
 from checkpoint_engine import FAIL, build_50_checkpoints, checkpoint_summary
 
 
+# -------------------------------
+# Research-informed calibration
+# -------------------------------
+# Baymard's current avoidable cart/checkout abandonment reasons are used only
+# to set RELATIVE ecommerce-checkout importance. Survey percentages are never
+# copied directly into score deductions. The anchor maps the average reported
+# reason to a 7.5-point commercial weight before evidence/severity/confidence.
+BAYMARD_AVOIDABLE_CHECKOUT_PCTS: Dict[str, float] = {
+    "extra_costs": 40.0,
+    "delivery_slow": 20.0,
+    "payment_trust": 19.0,
+    "forced_account": 18.0,
+    "checkout_complexity": 17.0,
+    "site_errors": 17.0,
+    "returns_policy": 13.0,
+    "total_cost_visibility": 12.0,
+    "card_declined": 10.0,
+    "payment_methods": 9.0,
+}
+BAYMARD_REASON_MEAN = sum(BAYMARD_AVOIDABLE_CHECKOUT_PCTS.values()) / len(BAYMARD_AVOIDABLE_CHECKOUT_PCTS)
+BAYMARD_COMMERCIAL_ANCHOR = 7.5
+
+
+def _baymard_weight(*reason_keys: str) -> float:
+    values = [
+        BAYMARD_AVOIDABLE_CHECKOUT_PCTS[key]
+        for key in reason_keys
+        if key in BAYMARD_AVOIDABLE_CHECKOUT_PCTS
+    ]
+    if not values:
+        return BAYMARD_COMMERCIAL_ANCHOR
+    relative = (sum(values) / len(values)) / BAYMARD_REASON_MEAN
+    # Population prevalence informs relative importance, but is deliberately
+    # bounded so one survey item cannot dominate a site-specific diagnosis.
+    relative = max(0.55, min(1.35, relative))
+    return round(BAYMARD_COMMERCIAL_ANCHOR * relative, 2)
+
+
 CATEGORY_WEIGHTS_BY_BIZ: Dict[str, Dict[str, float]] = {
-    "general": {"seo_technical": 1.00, "trust_conversion": 1.00, "content_eeat": 0.90, "measurement": 0.90},
-    "restaurant": {"seo_technical": 0.95, "trust_conversion": 1.15, "content_eeat": 0.75, "measurement": 0.85},
-    "local_service": {"seo_technical": 1.00, "trust_conversion": 1.30, "content_eeat": 0.90, "measurement": 1.00},
-    "professional_service": {"seo_technical": 1.05, "trust_conversion": 1.25, "content_eeat": 1.05, "measurement": 1.00},
-    "medspa": {"seo_technical": 1.00, "trust_conversion": 1.40, "content_eeat": 1.20, "measurement": 1.05},
-    "legal": {"seo_technical": 1.05, "trust_conversion": 1.45, "content_eeat": 1.25, "measurement": 1.05},
-    "ecommerce": {"seo_technical": 1.30, "trust_conversion": 1.30, "content_eeat": 0.90, "measurement": 1.10},
-    "saas": {"seo_technical": 1.20, "trust_conversion": 1.15, "content_eeat": 1.05, "measurement": 1.10},
+    "general": {"seo_technical": 0.90, "trust_conversion": 1.00, "content_eeat": 0.85, "measurement": 0.90},
+    "restaurant": {"seo_technical": 0.85, "trust_conversion": 1.15, "content_eeat": 0.75, "measurement": 0.85},
+    "local_service": {"seo_technical": 0.85, "trust_conversion": 1.30, "content_eeat": 0.90, "measurement": 1.00},
+    "professional_service": {"seo_technical": 0.90, "trust_conversion": 1.25, "content_eeat": 1.05, "measurement": 1.00},
+    "medspa": {"seo_technical": 0.90, "trust_conversion": 1.40, "content_eeat": 1.20, "measurement": 1.05},
+    "legal": {"seo_technical": 0.90, "trust_conversion": 1.45, "content_eeat": 1.25, "measurement": 1.05},
+    "ecommerce": {"seo_technical": 1.00, "trust_conversion": 1.35, "content_eeat": 0.90, "measurement": 1.10},
+    "saas": {"seo_technical": 0.95, "trust_conversion": 1.20, "content_eeat": 1.05, "measurement": 1.10},
+    "agency": {"seo_technical": 0.80, "trust_conversion": 1.35, "content_eeat": 1.20, "measurement": 1.05},
+    "b2b": {"seo_technical": 0.80, "trust_conversion": 1.35, "content_eeat": 1.25, "measurement": 1.05},
+    "creator": {"seo_technical": 0.80, "trust_conversion": 1.15, "content_eeat": 1.10, "measurement": 1.00},
 }
 
 BUSINESS_MODEL_MATRIX: Dict[str, Dict[str, float]] = {
-    "general": {"trust": 1.00, "conversion": 1.00, "seo": 1.00, "measurement": 1.00},
-    "restaurant": {"trust": 1.00, "conversion": 1.05, "seo": 0.90, "measurement": 0.90},
-    "local_service": {"trust": 1.15, "conversion": 1.25, "seo": 1.00, "measurement": 1.00},
-    "professional_service": {"trust": 1.20, "conversion": 1.20, "seo": 1.05, "measurement": 1.00},
-    "medspa": {"trust": 1.35, "conversion": 1.35, "seo": 1.05, "measurement": 1.05},
-    "legal": {"trust": 1.40, "conversion": 1.40, "seo": 1.05, "measurement": 1.05},
-    "ecommerce": {"trust": 1.20, "conversion": 1.30, "seo": 1.25, "measurement": 1.10},
-    "saas": {"trust": 1.15, "conversion": 1.15, "seo": 1.20, "measurement": 1.10},
+    "general": {"trust": 1.00, "conversion": 1.00, "seo": 0.90, "measurement": 1.00},
+    "restaurant": {"trust": 1.00, "conversion": 1.05, "seo": 0.85, "measurement": 0.90},
+    "local_service": {"trust": 1.15, "conversion": 1.25, "seo": 0.90, "measurement": 1.00},
+    "professional_service": {"trust": 1.20, "conversion": 1.20, "seo": 0.90, "measurement": 1.00},
+    "medspa": {"trust": 1.35, "conversion": 1.35, "seo": 0.90, "measurement": 1.05},
+    "legal": {"trust": 1.40, "conversion": 1.40, "seo": 0.90, "measurement": 1.05},
+    "ecommerce": {"trust": 1.20, "conversion": 1.30, "seo": 0.95, "measurement": 1.10},
+    "saas": {"trust": 1.15, "conversion": 1.15, "seo": 0.90, "measurement": 1.10},
+    "agency": {"trust": 1.35, "conversion": 1.35, "seo": 0.85, "measurement": 1.05},
+    "b2b": {"trust": 1.40, "conversion": 1.30, "seo": 0.85, "measurement": 1.05},
+    "creator": {"trust": 1.05, "conversion": 1.15, "seo": 0.85, "measurement": 1.00},
 }
 
 RULE_BASE_WEIGHTS: Dict[str, Dict[str, float]] = {
+    # Verified commercial foundations.
     "unsecured_ssl": {"default": 10.0},
     "core_web_vitals": {"default": 7.0, "ecommerce": 9.0, "saas": 8.0, "restaurant": 6.0},
-    "click_to_call": {
-        "default": 4.5,
-        "restaurant": 4.0,
-        "local_service": 7.0,
-        "professional_service": 6.0,
-        "medspa": 8.0,
+    "form_architecture": {
+        "default": 7.0,
+        "restaurant": 6.0,
+        "local_service": 8.0,
+        "professional_service": 7.5,
+        "medspa": 9.0,
         "legal": 9.0,
-        "ecommerce": 2.0,
-        "saas": 1.5,
+        "ecommerce": 8.0,
+        "saas": 7.5,
+        "agency": 7.5,
+        "b2b": 8.0,
+        "creator": 5.0,
+    },
+    "primary_conversion_path": {
+        "default": 7.0,
+        "restaurant": 8.0,
+        "local_service": 9.0,
+        "professional_service": 8.0,
+        "medspa": 9.0,
+        "legal": 10.0,
+        "ecommerce": 11.0,
+        "saas": 9.0,
+        "agency": 9.0,
+        "b2b": 10.0,
+        "creator": 6.0,
+    },
+    "lead_form_friction": {
+        "default": 4.0,
+        "local_service": 6.0,
+        "professional_service": 6.0,
+        "medspa": 6.5,
+        "legal": 6.5,
+        "agency": 6.0,
+        "b2b": 6.5,
+        "creator": 4.0,
+    },
+
+    # Baymard quantitative reasons: weights are derived relative to the mean of
+    # the published avoidable checkout reasons above.
+    "checkout_cost_transparency": {
+        "default": 0.0,
+        "ecommerce": _baymard_weight("extra_costs", "total_cost_visibility"),
+    },
+    "guest_checkout_barrier": {
+        "default": 0.0,
+        "ecommerce": _baymard_weight("forced_account"),
+    },
+    "checkout_complexity": {
+        "default": 0.0,
+        "ecommerce": _baymard_weight("checkout_complexity"),
+    },
+    "return_policy_discoverability": {
+        "default": 0.0,
+        "ecommerce": _baymard_weight("returns_policy"),
+    },
+    # The scanner can verify delivery-information clarity, but Baymard's 20%
+    # statistic is about delivery being TOO SLOW, which is not the same thing.
+    # Therefore this is deliberately not given the 20% Baymard-derived weight.
+    "delivery_expectation_clarity": {"default": 0.0, "ecommerce": 3.5},
+    "shipping_info_discoverability": {"default": 0.0, "ecommerce": 3.0},
+
+    # NN/g B2B research: pricing is a high-priority research need, but the
+    # scanner uses medium confidence because complex enterprise pricing can be
+    # legitimately quote-based.
+    "b2b_pricing_transparency": {"default": 0.0, "b2b": 4.5},
+
+    # Supporting conversion signals.
+    "click_to_call": {
+        "default": 2.5,
+        "restaurant": 2.5,
+        "local_service": 4.5,
+        "professional_service": 3.5,
+        "medspa": 4.5,
+        "legal": 5.0,
+        "ecommerce": 0.75,
+        "saas": 0.50,
+        "agency": 3.0,
+        "b2b": 2.5,
+        "creator": 0.75,
     },
     "mobile_sticky_cta": {
-        "default": 5.0,
-        "restaurant": 5.5,
-        "local_service": 6.0,
-        "professional_service": 5.5,
-        "medspa": 7.0,
-        "legal": 6.5,
-        "ecommerce": 8.0,
-        "saas": 6.0,
+        "default": 1.75,
+        "restaurant": 2.0,
+        "local_service": 2.5,
+        "professional_service": 2.0,
+        "medspa": 2.5,
+        "legal": 2.5,
+        "ecommerce": 1.75,
+        "saas": 2.0,
+        "agency": 2.0,
+        "b2b": 2.0,
+        "creator": 1.25,
     },
-    "diluted_h1": {"default": 4.5, "legal": 5.5, "saas": 5.5},
-    "missing_alt_images": {"default": 2.0, "ecommerce": 2.5},
-    "favicon_present": {"default": 1.0},
-    "html_lang_attribute": {"default": 1.0},
-    "ai_template_similarity": {"default": 2.5, "legal": 3.5, "medspa": 3.0},
-    "measurement_telemetry": {"default": 3.5, "ecommerce": 4.5, "saas": 4.0},
-    "form_architecture": {"default": 5.0, "legal": 7.0, "medspa": 7.0, "local_service": 6.5},
+
+    # Supporting content / hygiene.
+    "diluted_h1": {"default": 2.0, "legal": 2.5, "saas": 2.5},
+    "missing_alt_images": {"default": 1.5, "ecommerce": 1.75},
+    "favicon_present": {"default": 0.5},
+    "html_lang_attribute": {"default": 0.75},
+    "ai_template_similarity": {"default": 1.75, "legal": 2.25, "medspa": 2.25},
+    "measurement_telemetry": {
+        "default": 3.0, "ecommerce": 3.5, "saas": 3.5,
+        "agency": 3.5, "b2b": 3.5, "creator": 2.5,
+    },
 }
+
+# Research multipliers apply only AFTER the scanner has verified a failure.
+# They adjust the relative commercial importance; they do not create failures.
+RESEARCH_MULTIPLIER_BY_RULE: Dict[str, Any] = {
+    "unsecured_ssl": 1.10,
+    "core_web_vitals": 1.15,
+    "form_architecture": 1.15,
+    "primary_conversion_path": 1.20,
+    "lead_form_friction": 1.10,
+    "checkout_cost_transparency": 1.00,
+    "guest_checkout_barrier": 1.00,
+    "checkout_complexity": 1.00,
+    "return_policy_discoverability": 1.00,
+    "delivery_expectation_clarity": 0.90,
+    "shipping_info_discoverability": 0.85,
+    "b2b_pricing_transparency": 1.00,
+    "click_to_call": {
+        "default": 0.65, "restaurant": 0.90, "local_service": 1.05,
+        "professional_service": 0.85, "medspa": 1.05, "legal": 1.00,
+        "ecommerce": 0.40, "saas": 0.40, "agency": 0.75, "b2b": 0.65, "creator": 0.40,
+    },
+    "mobile_sticky_cta": 0.55,
+    "diluted_h1": 0.65,
+    "missing_alt_images": 0.65,
+    "favicon_present": 0.35,
+    "html_lang_attribute": 0.50,
+    "ai_template_similarity": 0.60,
+    "measurement_telemetry": 0.80,
+
+    # 50-checkpoint rules.
+    "https_redirect": 0.90,
+    "retargeting_telemetry": 0.70,
+    "phone_visibility": {
+        "default": 0.65, "restaurant": 0.90, "local_service": 1.05,
+        "professional_service": 0.85, "medspa": 1.05, "legal": 1.00,
+        "agency": 0.75, "b2b": 0.65,
+    },
+    "location_visibility": {
+        "default": 0.65, "restaurant": 1.00, "local_service": 1.05,
+        "professional_service": 0.80, "medspa": 1.05, "legal": 0.95,
+    },
+    "trust_credentials": 0.90,
+    "reviews_social_proof": 0.90,
+    "guarantee_refund_clarity": 0.85,
+    "about_team_signal": 0.65,
+    "social_proof_signal": 0.85,
+    "instant_query_channel": 0.45,
+    "meta_description_missing": 0.45,
+    "meta_description_length": 0.35,
+    "h1_topic_relevance": 0.60,
+    "title_length": 0.35,
+    "structured_data_missing": 0.55,
+    "canonical_missing": 0.55,
+    "sitemap_missing": 0.50,
+    "robots_missing": 0.50,
+    "pagespeed_below_60": 1.10,
+    "pagespeed_below_90": 0.75,
+    "seo_score_below_80": 0.60,
+    "lcp_poor": 1.10,
+    "inp_poor": 1.10,
+    "cls_poor": 1.05,
+    "viewport_missing": 0.90,
+    "tap_target_friction": 0.80,
+    "render_blocking": 0.95,
+    "lazy_loading_gap": 0.70,
+    "author_bylines_missing": 0.55,
+    "publication_dates_missing": 0.45,
+    "thin_visible_content": 0.60,
+    "generic_headline": 0.60,
+    "unlinked_form_structure": 1.05,
+    "faq_missing": 0.55,
+    "case_studies_missing": 0.80,
+    "content_hub_missing": 0.50,
+    "social_links_missing": 0.35,
+    "privacy_terms_missing": 0.75,
+}
+
+RESEARCH_BASIS_BY_RULE: Dict[str, Dict[str, str]] = {
+    "checkout_cost_transparency": {"source": "Baymard Institute", "class": "quantitative checkout abandonment", "scope": "ecommerce checkout"},
+    "guest_checkout_barrier": {"source": "Baymard Institute", "class": "quantitative checkout abandonment", "scope": "ecommerce checkout"},
+    "checkout_complexity": {"source": "Baymard Institute", "class": "quantitative checkout abandonment + usability testing", "scope": "ecommerce checkout"},
+    "return_policy_discoverability": {"source": "Baymard Institute", "class": "quantitative checkout abandonment", "scope": "ecommerce"},
+    "form_architecture": {"source": "Nielsen Norman Group", "class": "form usability / conversion research", "scope": "lead and transaction forms"},
+    "lead_form_friction": {"source": "Nielsen Norman Group", "class": "form usability / conversion research", "scope": "lead-generation forms"},
+    "primary_conversion_path": {"source": "Nielsen Norman Group", "class": "conversion-event / task-success research", "scope": "business-specific primary action"},
+    "b2b_pricing_transparency": {"source": "Nielsen Norman Group", "class": "B2B usability research", "scope": "B2B research journey"},
+    "core_web_vitals": {"source": "Google web.dev", "class": "real-world performance case studies", "scope": "measured user experience"},
+    "pagespeed_below_60": {"source": "Google Lighthouse / web.dev", "class": "measured performance", "scope": "mobile performance"},
+    "lcp_poor": {"source": "Google CrUX / web.dev", "class": "field/lab performance", "scope": "Core Web Vitals"},
+    "inp_poor": {"source": "Google CrUX / web.dev", "class": "field performance", "scope": "Core Web Vitals"},
+    "cls_poor": {"source": "Google CrUX / web.dev", "class": "field/lab performance", "scope": "Core Web Vitals"},
+    "click_to_call": {"source": "Google mobile/local research", "class": "local intent research", "scope": "call-relevant local/service businesses"},
+    "phone_visibility": {"source": "Google mobile/local research", "class": "local intent research", "scope": "local/service businesses"},
+    "location_visibility": {"source": "Google mobile/local research", "class": "local intent research", "scope": "location-relevant businesses"},
+}
+
+
+def _research_multiplier(rule_key: str, biz_type: str) -> float:
+    value = RESEARCH_MULTIPLIER_BY_RULE.get(rule_key, 0.75)
+    if isinstance(value, dict):
+        return float(value.get(biz_type, value.get("default", 0.75)))
+    return float(value)
+
+
+def _research_basis(rule_key: str) -> Dict[str, str]:
+    if rule_key in RESEARCH_BASIS_BY_RULE:
+        return dict(RESEARCH_BASIS_BY_RULE[rule_key])
+    if rule_key in {
+        "meta_description_missing", "meta_description_length", "title_length",
+        "structured_data_missing", "canonical_missing", "sitemap_missing",
+        "robots_missing", "seo_score_below_80",
+    }:
+        return {"source": "Google/Lighthouse technical evidence", "class": "search/discovery hygiene", "scope": "SEO/technical"}
+    return {"source": "Trilloka verified evidence model", "class": "evidence-weighted diagnostic", "scope": "site-specific"}
 
 CONFIDENCE_MULTIPLIERS = {"high": 1.0, "medium": 0.65, "low": 0.30, "unknown": 0.0}
 
-TIER_PREFIXES = {3: "IFYB3", 6: "MBTB6", 8: "NOLY8", 10: "ARCH10"}
+TIER_PREFIXES = {
+    4: "IFYB4",
+    8: "NOLY8",
+    10: "ARCH10",
+    # Legacy aliases remain accepted so older integrations do not break.
+    3: "IFYB3",
+    6: "MBTB6",
+}
 
 
 # Revenue Readiness calibration.
@@ -94,7 +338,16 @@ REFERENCE_COMPLETENESS_BONUS = 2.0
 LEAK_FAMILY = {
     "click_to_call": "mobile_direct_action",
     "mobile_sticky_cta": "mobile_direct_action",
+    "primary_conversion_path": "conversion_execution",
     "form_architecture": "conversion_execution",
+    "lead_form_friction": "conversion_execution",
+    "checkout_cost_transparency": "checkout_cost",
+    "guest_checkout_barrier": "checkout_account",
+    "checkout_complexity": "checkout_complexity",
+    "delivery_expectation_clarity": "checkout_delivery",
+    "return_policy_discoverability": "commerce_policy",
+    "shipping_info_discoverability": "commerce_policy",
+    "b2b_pricing_transparency": "b2b_evaluation",
     "unsecured_ssl": "foundation_security",
     "core_web_vitals": "performance",
     "diluted_h1": "hero_clarity",
@@ -105,47 +358,85 @@ LEAK_FAMILY = {
     "measurement_telemetry": "measurement",
 }
 
-
-# V5 commercial ranking: conversion/revenue consequences outrank ordinary SEO hygiene.
-# This does not alter whether a checkpoint is measured; it changes which verified
-# issues are surfaced first in customer-facing findings.
+# Commercial priority is a tie-breaker only; actual evidence-weighted score loss
+# is the primary ranking signal.
 COMMERCIAL_PRIORITY_BY_FAMILY = {
-    "conversion_execution": 5.0,
-    "mobile_direct_action": 5.0,
-    "mobile_foundation": 4.8,
-    "mobile_usability": 4.6,
-    "trust_proof": 4.2,
-    "trust_local": 4.1,
-    "trust_policy": 3.8,
-    "trust_identity": 3.6,
-    "measurement": 3.8,
-    "performance": 3.7,
-    "hero_clarity": 3.7,
-    "accessibility_content": 3.2,
-    "content_support": 3.1,
-    "content_depth": 2.8,
-    "content_distinctiveness": 2.8,
-    "content_eeat": 2.7,
-    "search_structure": 2.2,
-    "search_snippet": 1.8,
-    "crawlability": 1.7,
-    "technical_hygiene": 1.5,
-    "foundation_security": 5.0,
+    "checkout_cost": 5.0,
+    "checkout_account": 4.9,
+    "checkout_complexity": 4.9,
+    "conversion_execution": 4.9,
+    "performance": 4.8,
+    "foundation_security": 4.8,
+    "checkout_delivery": 4.2,
+    "b2b_evaluation": 4.2,
+    "commerce_policy": 4.0,
+    "trust_proof": 4.0,
+    "trust_local": 4.0,
+    "measurement": 3.6,
+    "mobile_direct_action": 3.3,
+    "mobile_foundation": 3.3,
+    "mobile_usability": 3.2,
+    "trust_policy": 3.2,
+    "trust_identity": 3.0,
+    "hero_clarity": 2.8,
+    "accessibility_content": 2.6,
+    "content_support": 2.4,
+    "content_depth": 2.2,
+    "content_distinctiveness": 2.2,
+    "content_eeat": 2.1,
+    "search_structure": 1.6,
+    "search_snippet": 1.3,
+    "crawlability": 1.2,
+    "technical_hygiene": 1.0,
 }
 
+# Family caps stop many small signals from collectively outweighing a verified
+# commercial blocker.
+FAMILY_SCORE_CAPS = {
+    "technical_hygiene": 0.8,
+    "search_snippet": 1.0,
+    "search_structure": 1.8,
+    "crawlability": 1.0,
+    "hero_clarity": 2.0,
+    "accessibility_content": 2.0,
+    "content_support": 1.6,
+    "content_depth": 2.0,
+    "content_distinctiveness": 2.0,
+    "content_eeat": 2.0,
+    "mobile_direct_action": 3.5,
+    "measurement": 3.5,
+    "trust_identity": 2.5,
+    "trust_policy": 3.5,
+    "trust_proof": 4.5,
+    "trust_local": 4.0,
+    "performance": 16.0,
+    "foundation_security": 14.0,
+    "conversion_execution": 17.0,
+    "checkout_cost": 12.0,
+    "checkout_account": 9.0,
+    "checkout_complexity": 9.0,
+    "checkout_delivery": 4.0,
+    "commerce_policy": 4.0,
+    "b2b_evaluation": 4.0,
+    "mobile_foundation": 3.0,
+    "mobile_usability": 3.0,
+}
+
+# Combined cap across ordinary SEO/discovery hygiene. Performance is explicitly
+# excluded even though it is technically measured by Lighthouse.
+SEO_HYGIENE_FAMILIES = {
+    "search_snippet", "search_structure", "crawlability", "technical_hygiene"
+}
+SEO_HYGIENE_TOTAL_CAP = 3.0
+
 DEDUP_SUPERFAMILY = {
-    # All performance threshold/audit signals describe one performance architecture problem.
     "performance": "performance_architecture",
-    # Phone visibility, tap-to-call, sticky CTA and instant contact are one direct-action family.
     "mobile_direct_action": "mobile_direct_action",
-    # H1 dedicated and topic-relevance checkpoint are one hero-clarity family.
     "hero_clarity": "hero_clarity",
-    # AI/template and generic headline are one distinctiveness family.
     "content_distinctiveness": "content_distinctiveness",
-    # Form dedicated and unlinked-form checkpoint are one conversion execution family.
     "conversion_execution": "conversion_execution",
-    # Review/testimonial/social-proof/case-study signals can support one trust-proof finding.
     "trust_proof": "trust_proof",
+    "commerce_policy": "commerce_policy",
 }
 
 CONSOLIDATED_FAMILY_LABELS = {
@@ -155,6 +446,7 @@ CONSOLIDATED_FAMILY_LABELS = {
     "content_distinctiveness": "Content Distinctiveness Gap",
     "conversion_execution": "Conversion Execution Friction",
     "trust_proof": "Trust & Social Proof Gap",
+    "commerce_policy": "Ecommerce Policy / Fulfilment Clarity",
 }
 
 
@@ -262,31 +554,40 @@ class RevenueScorer:
                 "rule_key": top.get("rule_key"),
             }
 
-        ai_pct = scan_data.get("ai_spectrum_pct")
-        perf = scan_data.get("performance_score")
-        seo = scan_data.get("google_seo_score")
+        ai_pct = self._safe_float(scan_data.get("ai_spectrum_pct"))
+        perf = self._safe_float(scan_data.get("performance_score"))
+        seo = self._safe_float(scan_data.get("google_seo_score"))
         exposure = self._revenue_exposure(overall, biz_type, total_loss)
 
-        # Preserve existing public surface metric keys. Add availability flags so unknown data is never scored as zero.
+        # Preserve the public keys, but do not represent unavailable telemetry as a
+        # real score of zero. Availability flags remain explicit for the frontend.
         surface_metrics = {
-            "mobile_performance_score": round(float(perf)) if perf is not None else 0,
-            "seo_health_index": round(float(seo)) if seo is not None else 0,
-            "ai_spectrum_pct": round(float(ai_pct), 1) if ai_pct is not None else 0.0,
+            "mobile_performance_score": round(perf) if perf is not None else None,
+            "seo_health_index": round(seo) if seo is not None else None,
+            "ai_spectrum_pct": round(ai_pct, 1) if ai_pct is not None else None,
             "online_presence_index": round(overall, 1),
             "conversion_efficiency": round(overall, 1),
+            # Kept for frontend compatibility. With the current request schema the
+            # engine receives only a competitor-feature boolean, not competitor telemetry,
+            # so this remains a modeled readiness-gap proxy rather than a measured rival score.
             "competitor_gap_score": max(0, round(100 - overall)),
+            "competitor_gap_kind": "MODELED_READINESS_GAP_PROXY",
+            "competitor_data_available": bool(competitor_data_present),
             "classification": self._classify_template_spectrum(ai_pct, str(scan_data.get("cms_platform") or "Not confidently identified")),
             "mobile_performance_available": perf is not None,
             "seo_health_available": seo is not None,
             "ai_spectrum_available": ai_pct is not None,
+            "pagespeed_api_status": str(scan_data.get("pagespeed_api_status") or "unavailable"),
         }
 
         tiered = {
-            "tier_3_ifyb3": [self._format_leak_item(leak, 3) for leak in report_leaks[:3]],
-            "tier_6_mbtb6": [self._format_leak_item(leak, 6) for leak in report_leaks[:6]],
+            # Current commercial products: 4 / 8 / 10 highest-value findings.
+            "tier_4_ifyb4": [self._format_leak_item(leak, 4) for leak in report_leaks[:4]],
             "tier_8_noly8": [self._format_leak_item(leak, 8) for leak in report_leaks[:8]],
             "tier_10_arch10": [self._format_leak_item(leak, 10) for leak in report_leaks[:10]],
-            # Backward-compatible raw leak list. Customer report uses tier_10_arch10, which is family-consolidated.
+            # Legacy aliases retained so existing frontend/backend integrations keep working.
+            "tier_3_ifyb3": [self._format_leak_item(leak, 4) for leak in report_leaks[:4]],
+            "tier_6_mbtb6": [self._format_leak_item(leak, 8) for leak in report_leaks[:8]],
             "all_scoring_leaks": [self._format_leak_item(leak, 10) for leak in sorted_leaks],
         }
 
@@ -328,6 +629,14 @@ class RevenueScorer:
             "elite_strength_ledger": elite_ledger,
             "overlap_adjustments": overlap_adjustments,
             "score_semantics": "Revenue Readiness score; not a literal visitor conversion percentage.",
+            "research_calibration": {
+                "model": "mixed-evidence commercial-priority calibration",
+                "baymard_basis": "Ecommerce checkout only: relative weights are normalized against the mean of Baymard's current avoidable abandonment reasons; survey percentages are never copied directly into deductions.",
+                "nng_basis": "Primary conversion paths, B2B information needs and form friction are calibrated with Nielsen Norman Group usability/conversion research.",
+                "google_basis": "Core Web Vitals/performance and local mobile-intent signals use Google/web.dev or Google mobile/local evidence where applicable.",
+                "seo_policy": "SEO and discovery hygiene remain measured and visible, but low-value SEO families are capped so they cannot collectively outrank a verified commercial blocker.",
+                "guardrail": "Research changes relative priority only after the scanner verifies a site-specific condition. Unknown evidence remains neutral.",
+            },
             "score_formula": {
                 "operating_baseline": OPERATING_BASELINE_SCORE,
                 "raw_verified_strength_points": raw_standard_strength,
@@ -344,7 +653,9 @@ class RevenueScorer:
     def _resolve_business_profile(self, scan_data: Dict[str, Any], requested: str) -> Tuple[Dict[str, Any], str]:
         automatic = dict(scan_data.get("business_profile") or {})
         auto_vertical = self._normalize_business_type(automatic.get("vertical"))
-        auto_conf = float(automatic.get("confidence") or 0.0)
+        auto_conf = self._safe_float(automatic.get("confidence"))
+        if auto_conf is None:
+            auto_conf = 0.0
 
         requested_norm = self._normalize_business_type(requested)
         requested_raw = str(requested or "auto").strip().lower()
@@ -398,6 +709,17 @@ class RevenueScorer:
             "store": "ecommerce",
             "saas": "saas",
             "software": "saas",
+            "agency": "agency",
+            "marketing_agency": "agency",
+            "design_agency": "agency",
+            "creative_agency": "agency",
+            "b2b": "b2b",
+            "business_to_business": "b2b",
+            "enterprise": "b2b",
+            "wholesale": "b2b",
+            "creator": "creator",
+            "content_creator": "creator",
+            "newsletter": "creator",
             "general": "general",
             "auto": "general",
         }
@@ -443,10 +765,11 @@ class RevenueScorer:
             perf_points = 3.0 if perf >= 90 else (2.0 if perf >= 75 else (1.0 if perf >= 60 else 0.0))
             add("mobile_performance_quality", perf_points, "seo_technical", {"performance_score": perf}, "Google PageSpeed")
 
-        # 3. Lighthouse SEO quality.
+        # 3. Lighthouse SEO quality. Useful discovery hygiene, but deliberately
+        # modest in Revenue Readiness because it is not itself a completed sale/lead.
         seo = self._safe_float(data.get("google_seo_score"))
         if data.get("pagespeed_api_status") == "success" and seo is not None:
-            seo_points = 2.0 if seo >= 90 else (1.25 if seo >= 80 else (0.5 if seo >= 70 else 0.0))
+            seo_points = 0.75 if seo >= 90 else (0.45 if seo >= 80 else (0.20 if seo >= 70 else 0.0))
             add("seo_technical_quality", seo_points, "seo_technical", {"google_seo_score": seo}, "Google Lighthouse SEO")
 
         # 4. Mobile conversion access.
@@ -465,7 +788,7 @@ class RevenueScorer:
         add("business_specific_conversion_path", business_conversion_points, "trust_conversion", business_conversion_evidence, "Rendered conversion architecture")
 
         # 6. Direct contact readiness when it actually matters to the vertical.
-        if biz_type in {"restaurant", "local_service", "professional_service", "medspa", "legal"}:
+        if biz_type in {"restaurant", "local_service", "professional_service", "medspa", "legal", "agency"}:
             if data.get("click_to_call_status") == "verified" and data.get("click_to_call_present") is True:
                 add("direct_mobile_contact", 1.0, "trust_conversion", {"click_to_call_present": True}, "Rendered mobile DOM")
         elif biz_type in {"ecommerce", "saas"}:
@@ -488,9 +811,9 @@ class RevenueScorer:
         title = str(data.get("title") or "").strip()
         metadata_points = 0.0
         if title:
-            metadata_points += 0.25
+            metadata_points += 0.08
         if meta_desc:
-            metadata_points += 0.50 if 80 <= len(meta_desc) <= 170 else 0.25
+            metadata_points += 0.17 if 80 <= len(meta_desc) <= 170 else 0.08
         add("search_snippet_metadata", metadata_points, "seo_technical", {
             "title_present": bool(title), "meta_description_length": len(meta_desc),
         }, "Rendered document head")
@@ -502,7 +825,7 @@ class RevenueScorer:
             "sitemap": data.get("sitemap_present"),
             "robots": data.get("robots_valid"),
         }
-        structured_points = 0.75 * sum(value is True for value in structured_items.values())
+        structured_points = 0.25 * sum(value is True for value in structured_items.values())
         add("structured_search_foundation", structured_points, "seo_technical", structured_items, "DOM + HTTP discovery")
 
         # 10. Mobile/accessibility hygiene.
@@ -599,12 +922,28 @@ class RevenueScorer:
             elif data.get("mobile_primary_cta_present"):
                 points = 1.25
                 evidence["mobile_primary_cta_present"] = True
-        elif biz_type in {"legal", "medspa", "local_service", "professional_service"}:
+        elif biz_type in {"legal", "medspa", "local_service", "professional_service", "agency"}:
             if data.get("mobile_primary_cta_present") and (data.get("click_to_call_present") or data.get("forms_present")):
                 points = 2.5
                 evidence["qualified_primary_action"] = True
             elif data.get("mobile_primary_cta_present"):
                 points = 1.5
+                evidence["mobile_primary_cta_present"] = True
+        elif biz_type == "b2b":
+            ctas = set(data.get("mobile_cta_types") or [])
+            if data.get("mobile_primary_cta_present") and (data.get("forms_present") or {"quote", "demo", "contact", "book"} & ctas):
+                points = 2.5
+                evidence["qualified_primary_action"] = True
+            elif data.get("mobile_primary_cta_present"):
+                points = 1.25
+                evidence["mobile_primary_cta_present"] = True
+        elif biz_type == "creator":
+            ctas = set(data.get("mobile_cta_types") or [])
+            if "subscribe" in ctas:
+                points = 2.5
+                evidence["subscribe_action"] = True
+            elif data.get("mobile_primary_cta_present"):
+                points = 1.25
                 evidence["mobile_primary_cta_present"] = True
         elif biz_type == "saas":
             if data.get("mobile_primary_cta_present"):
@@ -626,11 +965,29 @@ class RevenueScorer:
     ) -> Tuple[List[Dict[str, Any]], float]:
         """Award rare maturity points needed to move above ordinary-good territory.
 
-        Elite points are gated behind at least 24 standard strength points. This is
-        not a hidden score cap: it means advanced credit cannot be earned until the
-        verified fundamentals are already strong.
+        Elite eligibility is based on verified commercial/core experience maturity,
+        not on accumulating SEO-hygiene points. This avoids a meta/schema/sitemap
+        bundle switching off the entire elite pool while still requiring strong
+        conversion, trust, measurement and measured performance evidence.
         """
-        if standard_strength < 24.0:
+        perf_gate = self._safe_float(scan_data.get("performance_score"))
+        performance_mature = (
+            scan_data.get("pagespeed_api_status") == "success"
+            and perf_gate is not None
+            and perf_gate >= 75
+        )
+        conversion_points, _ = self._business_conversion_strength(scan_data, biz_type, profile)
+        conversion_mature_gate = conversion_points >= 1.5
+        secure_mature = bool(scan_data.get("response_ok") and scan_data.get("has_ssl") is True)
+        trust_mature = bool(scan_data.get("reviews_visible") or scan_data.get("social_proof_present") or scan_data.get("trust_badges_present"))
+        measurement_mature = bool(scan_data.get("has_ga4") or scan_data.get("has_meta_pixel") or scan_data.get("retargeting_pixel_installed"))
+        form_mature = bool(scan_data.get("forms_present") is not True or scan_data.get("form_action_valid") is True)
+
+        core_gate_count = sum((
+            secure_mature, performance_mature, conversion_mature_gate,
+            trust_mature, measurement_mature, form_mature,
+        ))
+        if core_gate_count < 5:
             return [], 0.0
 
         elite: List[Dict[str, Any]] = []
@@ -651,7 +1008,7 @@ class RevenueScorer:
         if scan_data.get("pagespeed_api_status") == "success" and perf is not None and perf >= 95:
             add("elite_mobile_performance", 1.5, {"performance_score": perf}, "Google PageSpeed")
         if scan_data.get("pagespeed_api_status") == "success" and seo is not None and seo >= 95:
-            add("elite_lighthouse_seo", 1.0, {"google_seo_score": seo}, "Google Lighthouse SEO")
+            add("elite_lighthouse_seo", 0.25, {"google_seo_score": seo}, "Google Lighthouse SEO")
 
         # Current Core Web Vitals: LCP, INP, CLS. Field data gets preference; lab fallback is accepted where applicable.
         lcp = self._safe_float(scan_data.get("crux_lcp_ms"))
@@ -701,7 +1058,7 @@ class RevenueScorer:
             "mobile_viewport_configured", "html_lang_present", "favicon_present",
         ))
         if technical_complete:
-            add("mature_technical_foundation", 0.75, {"all_core_technical_signals_verified": True}, "DOM + HTTP discovery")
+            add("mature_technical_foundation", 0.25, {"all_core_technical_signals_verified": True}, "DOM + HTTP discovery")
 
         total_images = int(scan_data.get("total_images") or scan_data.get("image_count") or 0)
         no_alt_failures = scan_data.get("browser_loaded") and total_images > 0 and int(scan_data.get("missing_alt_images") or 0) == 0
@@ -765,7 +1122,8 @@ class RevenueScorer:
         # 2. Performance / Core Web Vitals
         perf = self._safe_float(data.get("performance_score"))
         crux_grade = str(data.get("real_user_speed_grade") or "UNKNOWN")
-        if perf is not None and perf < 60:
+        pagespeed_success = data.get("pagespeed_api_status") == "success"
+        if pagespeed_success and perf is not None and perf < 60:
             severity = max(0.30, min(1.0, (60.0 - perf) / 40.0 + 0.25))
             if crux_grade == "POOR":
                 severity = min(1.0, severity + 0.20)
@@ -873,7 +1231,298 @@ class RevenueScorer:
                 )
             )
 
-        # 5. H1 / hero semantics - unknown never fails
+        # 5. Business-specific primary conversion path.
+        #
+        # This is intentionally conservative: absence is penalized only when the
+        # scanner has verified the mobile action layer and the page context makes
+        # the expected action commercially relevant. A generic ecommerce homepage,
+        # for example, is not failed merely because it has no Add-to-Cart button.
+        cta_types = {str(x or "").lower() for x in (data.get("mobile_cta_types") or [])}
+        cta_verified = str(data.get("mobile_cta_status") or "unknown").lower() == "verified"
+        form_usable = bool(data.get("forms_present") and data.get("form_action_valid") is True)
+        page_url = str(data.get("final_url") or data.get("url") or data.get("domain") or "").lower()
+        schema_types = {str(x or "").lower() for x in (data.get("schema_types") or [])}
+        product_context = (
+            "product" in schema_types
+            or any(token in page_url for token in ("/product/", "/products/", "/item/", "/p/"))
+        )
+
+        conversion_gap = False
+        conversion_gap_severity = 0.0
+        conversion_gap_description = ""
+        conversion_evidence: Dict[str, Any] = {
+            "business_type": biz_type,
+            "mobile_cta_types": sorted(cta_types),
+            "forms_present": bool(data.get("forms_present")),
+            "form_action_valid": data.get("form_action_valid"),
+            "product_context": product_context,
+            "primary_conversion": profile.get("primary_conversion"),
+        }
+
+        if cta_verified:
+            if biz_type == "ecommerce":
+                # Product pages must expose a purchase/cart path. A homepage or
+                # category page is not treated as broken solely for lacking one.
+                if product_context and not bool(data.get("add_to_cart_visible")):
+                    conversion_gap = True
+                    conversion_gap_severity = 0.95
+                    conversion_gap_description = (
+                        "A verified ecommerce product page exposes no Add-to-Cart, Buy, or equivalent purchase action."
+                    )
+            elif biz_type == "restaurant":
+                direct = bool(
+                    data.get("order_online_present")
+                    or data.get("reservation_present")
+                    or data.get("click_to_call_present")
+                    or data.get("directions_present")
+                    or {"order", "reserve", "book", "call", "directions"} & cta_types
+                )
+                if not direct:
+                    conversion_gap = True
+                    conversion_gap_severity = 0.85
+                    conversion_gap_description = (
+                        "No verified order, reservation, call, or directions action was found in the mobile journey."
+                    )
+            elif biz_type in {"legal", "medspa", "local_service", "professional_service", "agency"}:
+                direct = bool(
+                    form_usable
+                    or data.get("click_to_call_present")
+                    or {"quote", "book", "contact", "call", "demo"} & cta_types
+                )
+                if not direct:
+                    conversion_gap = True
+                    conversion_gap_severity = 0.90
+                    conversion_gap_description = (
+                        "No verified lead-generation path was found: no usable form, quote/booking/contact action, or direct call path."
+                    )
+            elif biz_type == "b2b":
+                direct = bool(
+                    form_usable
+                    or {"quote", "demo", "contact", "book", "call"} & cta_types
+                )
+                if not direct:
+                    conversion_gap = True
+                    conversion_gap_severity = 0.90
+                    conversion_gap_description = (
+                        "No verified B2B lead path was found for quote, demo, contact, booking, call, or a usable lead form."
+                    )
+            elif biz_type == "creator":
+                direct = bool(
+                    "subscribe" in cta_types
+                    or form_usable
+                    or {"contact", "book"} & cta_types
+                )
+                if not direct:
+                    conversion_gap = True
+                    conversion_gap_severity = 0.75
+                    conversion_gap_description = (
+                        "No verified creator conversion path was found for subscription, membership/join intent, contact, or a usable signup form."
+                    )
+            elif biz_type == "saas":
+                direct = bool(
+                    form_usable
+                    or {"trial", "demo", "contact", "book"} & cta_types
+                )
+                if not direct:
+                    conversion_gap = True
+                    conversion_gap_severity = 0.90
+                    conversion_gap_description = (
+                        "No verified SaaS conversion path was found for trial, demo, contact, booking, or a usable lead form."
+                    )
+            elif not form_usable and not cta_types:
+                conversion_gap = True
+                conversion_gap_severity = 0.65
+                conversion_gap_description = (
+                    "The verified mobile page exposes no clear primary action or usable lead form."
+                )
+
+        if conversion_gap:
+            leaks.append(
+                self._build_leak(
+                    "primary_conversion_path",
+                    "Primary Conversion Path Failure",
+                    conversion_gap_description,
+                    "trust_conversion",
+                    biz_type,
+                    severity_factor=conversion_gap_severity,
+                    confidence="high" if quality_conf == "high" else "medium",
+                    substitution_factor=1.0,
+                    competitor_verified=competitor_verified,
+                    evidence=conversion_evidence,
+                    source="Rendered mobile conversion-path evidence",
+                )
+            )
+
+
+        # 6. Research-calibrated ecommerce checkout friction.
+        # These rules activate only when the scanner actually observes a cart or
+        # checkout context. They do not infer checkout problems from a homepage.
+        if biz_type == "ecommerce" and bool(data.get("checkout_context_detected")):
+            if data.get("late_cost_disclosure_risk") is True:
+                leaks.append(
+                    self._build_leak(
+                        "checkout_cost_transparency",
+                        "Late Checkout Cost Disclosure",
+                        "The inspected cart/checkout experience indicates shipping, taxes, or fees are deferred until checkout instead of being made clear earlier.",
+                        "trust_conversion",
+                        biz_type,
+                        severity_factor=0.95,
+                        confidence="high",
+                        substitution_factor=1.0,
+                        competitor_verified=False,
+                        evidence={"late_cost_disclosure_risk": True},
+                        source="Observed cart/checkout copy",
+                    )
+                )
+
+            if data.get("guest_checkout_available") is False:
+                leaks.append(
+                    self._build_leak(
+                        "guest_checkout_barrier",
+                        "Guest Checkout Barrier",
+                        "The inspected checkout context indicates account sign-in/creation is required or strongly implied without a visible guest-checkout route.",
+                        "trust_conversion",
+                        biz_type,
+                        severity_factor=0.90,
+                        confidence="high",
+                        substitution_factor=1.0,
+                        competitor_verified=False,
+                        evidence={"guest_checkout_available": False},
+                        source="Observed cart/checkout controls and copy",
+                    )
+                )
+
+            checkout_fields = self._safe_float(data.get("checkout_form_field_count"))
+            if checkout_fields is not None and checkout_fields > 8:
+                severity = min(0.90, 0.35 + (checkout_fields - 8.0) * 0.08)
+                leaks.append(
+                    self._build_leak(
+                        "checkout_complexity",
+                        "High Checkout Form Burden",
+                        f"The inspected checkout exposes about {int(checkout_fields)} customer-input fields. The scanner treats this as checkout effort, not as a claim that every field is unnecessary.",
+                        "trust_conversion",
+                        biz_type,
+                        severity_factor=severity,
+                        confidence="medium",
+                        substitution_factor=1.0,
+                        competitor_verified=False,
+                        evidence={"checkout_form_field_count": int(checkout_fields)},
+                        source="Observed checkout form structure",
+                    )
+                )
+
+            # Missing delivery-date wording is useful context but is NOT equivalent
+            # to Baymard's 'delivery was too slow' survey reason, so its weight is
+            # intentionally much lower.
+            if data.get("delivery_date_visible") is False:
+                leaks.append(
+                    self._build_leak(
+                        "delivery_expectation_clarity",
+                        "Delivery Expectation Clarity Gap",
+                        "No clear estimated-delivery or arrival-date wording was detected in the inspected checkout context.",
+                        "trust_conversion",
+                        biz_type,
+                        severity_factor=0.35,
+                        confidence="medium",
+                        substitution_factor=1.0,
+                        competitor_verified=False,
+                        evidence={"delivery_date_visible": False},
+                        source="Observed checkout content",
+                    )
+                )
+
+        # Ecommerce policy discoverability is lower-confidence than an observed
+        # checkout blocker and therefore receives a smaller penalty.
+        if biz_type == "ecommerce" and str(data.get("content_signal_status") or "").lower() == "verified":
+            if data.get("return_policy_linked") is False:
+                leaks.append(
+                    self._build_leak(
+                        "return_policy_discoverability",
+                        "Return Policy Hard to Find",
+                        "No clear return/refund policy link was detected in the verified page evidence.",
+                        "trust_conversion",
+                        biz_type,
+                        severity_factor=0.45,
+                        confidence="medium",
+                        substitution_factor=1.0,
+                        competitor_verified=False,
+                        evidence={"return_policy_linked": False},
+                        source="Verified rendered/static navigation evidence",
+                    )
+                )
+            if data.get("shipping_info_linked") is False:
+                leaks.append(
+                    self._build_leak(
+                        "shipping_info_discoverability",
+                        "Shipping Information Hard to Find",
+                        "No clear shipping/delivery information link was detected in the verified page evidence.",
+                        "trust_conversion",
+                        biz_type,
+                        severity_factor=0.35,
+                        confidence="medium",
+                        substitution_factor=1.0,
+                        competitor_verified=False,
+                        evidence={"shipping_info_linked": False},
+                        source="Verified rendered/static navigation evidence",
+                    )
+                )
+
+        # NN/g B2B research shows that users need substantial information before
+        # they will submit lead-generation forms and that pricing is especially
+        # important. Because public enterprise pricing can legitimately be quote-
+        # based, this remains a medium-confidence, moderate-weight finding.
+        if (
+            biz_type == "b2b"
+            and str(data.get("content_signal_status") or "").lower() == "verified"
+            and data.get("pricing_linked") is False
+        ):
+            leaks.append(
+                self._build_leak(
+                    "b2b_pricing_transparency",
+                    "B2B Pricing / Commercial Context Gap",
+                    "No clear pricing, plans, packages, or commercial-context path was detected in the verified B2B page evidence.",
+                    "trust_conversion",
+                    biz_type,
+                    severity_factor=0.45,
+                    confidence="medium",
+                    substitution_factor=1.0,
+                    competitor_verified=False,
+                    evidence={"pricing_linked": False},
+                    source="Verified B2B page/navigation evidence",
+                )
+            )
+
+        # Form length is treated as a friction heuristic, never a universal rule.
+        # NN/g supports minimizing unnecessary questions; the threshold below is a
+        # conservative scanner heuristic rather than a claimed NN/g cutoff.
+        if (
+            biz_type in {"local_service", "professional_service", "medspa", "legal", "agency", "b2b", "creator"}
+            and data.get("forms_present")
+            and data.get("form_action_valid") is not False
+        ):
+            max_fields = self._safe_float(data.get("form_max_field_count"))
+            if max_fields is not None and max_fields > 8:
+                severity = min(0.80, 0.30 + (max_fields - 8.0) * 0.07)
+                leaks.append(
+                    self._build_leak(
+                        "lead_form_friction",
+                        "High Lead-Form Effort",
+                        f"At least one lead/contact form exposes about {int(max_fields)} customer-input fields, increasing completion effort on a conversion path.",
+                        "trust_conversion",
+                        biz_type,
+                        severity_factor=severity,
+                        confidence="medium",
+                        substitution_factor=1.0,
+                        competitor_verified=False,
+                        evidence={
+                            "form_max_field_count": int(max_fields),
+                            "form_max_required_field_count": data.get("form_max_required_field_count"),
+                        },
+                        source="Rendered form structure",
+                    )
+                )
+
+        # 7. H1 / hero semantics - unknown never fails
         h1_status = str(data.get("h1_status") or "unknown").lower()
         h1_tags = data.get("h1_tags") or []
         if h1_status == "missing":
@@ -925,7 +1574,7 @@ class RevenueScorer:
                 )
             )
 
-        # 6. Alt accessibility
+        # 7. Alt accessibility
         total_images = int(data.get("total_images") or data.get("image_count") or 0)
         missing_alt = int(data.get("missing_alt_images") or 0)
         if data.get("browser_loaded") and total_images > 0 and missing_alt > 0:
@@ -947,7 +1596,7 @@ class RevenueScorer:
                 )
             )
 
-        # 7. Favicon - small hygiene penalty only when verified.
+        # 8. Favicon - small hygiene penalty only when verified.
         if data.get("favicon_present") is False and data.get("browser_loaded"):
             leaks.append(
                 self._build_leak(
@@ -965,7 +1614,7 @@ class RevenueScorer:
                 )
             )
 
-        # 8. HTML language
+        # 9. HTML language
         if data.get("html_lang_present") is False and data.get("browser_loaded"):
             leaks.append(
                 self._build_leak(
@@ -983,7 +1632,7 @@ class RevenueScorer:
                 )
             )
 
-        # 9. AI/template pattern index - only when measured, and kept modest.
+        # 10. AI/template pattern index - only when measured, and kept modest.
         ai_pct = self._safe_float(data.get("ai_spectrum_pct"))
         if data.get("ai_spectrum_status") == "heuristic" and ai_pct is not None and ai_pct > 50:
             severity = min(0.70, max(0.20, (ai_pct - 50.0) / 70.0))
@@ -1003,7 +1652,7 @@ class RevenueScorer:
                 )
             )
 
-        # 10. Measurement telemetry - evidence-backed absence, not universal catastrophe.
+        # 11. Measurement telemetry - evidence-backed absence, not universal catastrophe.
         if data.get("browser_loaded") and not data.get("has_ga4") and not data.get("has_meta_pixel"):
             leaks.append(
                 self._build_leak(
@@ -1021,7 +1670,7 @@ class RevenueScorer:
                 )
             )
 
-        # 11. Form architecture - only when a form is actually present and structurally invalid.
+        # 12. Form architecture - only when a form is actually present and structurally invalid.
         if data.get("forms_present") and data.get("form_action_valid") is False:
             leaks.append(
                 self._build_leak(
@@ -1070,7 +1719,9 @@ class RevenueScorer:
                 "content_eeat": matrix["trust"],
                 "measurement": matrix["measurement"],
             }.get(category, 1.0)
-            pre_dedupe = base_weight * category_multiplier * business_multiplier * severity
+            research_multiplier = _research_multiplier(rule_key, biz_type)
+            research_basis = _research_basis(rule_key)
+            pre_dedupe = base_weight * category_multiplier * business_multiplier * severity * research_multiplier
             title, impact = self._checkpoint_failure_copy(checkpoint)
             promoted.append(
                 {
@@ -1084,6 +1735,8 @@ class RevenueScorer:
                     "base_impact_weight": round(base_weight, 2),
                     "category_multiplier": round(category_multiplier, 3),
                     "business_multiplier": round(business_multiplier, 3),
+                    "research_multiplier": round(research_multiplier, 3),
+                    "research_basis": research_basis,
                     "severity_factor": round(severity, 2),
                     "confidence": "high",
                     "confidence_multiplier": 1.0,
@@ -1179,8 +1832,10 @@ class RevenueScorer:
             "measurement": matrix["measurement"],
         }.get(category, 1.0)
 
-        weighted = base_weight * category_multiplier * business_multiplier
-        competitor_bonus = 1.0 if competitor_verified and rule_key in {"click_to_call", "mobile_sticky_cta", "core_web_vitals", "form_architecture"} else 0.0
+        research_multiplier = _research_multiplier(rule_key, biz_type)
+        research_basis = _research_basis(rule_key)
+        weighted = base_weight * category_multiplier * business_multiplier * research_multiplier
+        competitor_bonus = 1.0 if competitor_verified and rule_key in {"click_to_call", "mobile_sticky_cta", "core_web_vitals", "form_architecture", "primary_conversion_path"} else 0.0
         pre_dedupe = (weighted * severity * conf_mult * substitution) + (competitor_bonus * severity * conf_mult)
 
         return {
@@ -1192,6 +1847,8 @@ class RevenueScorer:
             "base_impact_weight": round(base_weight, 2),
             "category_multiplier": round(category_multiplier, 3),
             "business_multiplier": round(business_multiplier, 3),
+            "research_multiplier": round(research_multiplier, 3),
+            "research_basis": research_basis,
             "severity_factor": round(severity, 2),
             "confidence": confidence_key,
             "confidence_multiplier": conf_mult,
@@ -1225,7 +1882,20 @@ class RevenueScorer:
                 leak["final_score_loss"] = final
                 leak["final_severity_score"] = final
                 after += final
-            if len(ordered) > 1 and round(before - after, 2) > 0:
+
+            cap = FAMILY_SCORE_CAPS.get(family)
+            if cap is not None and after > cap and after > 0:
+                scale = float(cap) / after
+                after = 0.0
+                for leak in ordered:
+                    capped = round(float(leak.get("final_score_loss") or 0.0) * scale, 2)
+                    leak["family_adjustment"] = round(float(leak.get("family_adjustment") or 1.0) * scale, 4)
+                    leak["final_score_loss"] = capped
+                    leak["final_severity_score"] = capped
+                    after += capped
+                after = round(after, 2)
+
+            if round(before - after, 2) > 0:
                 adjustments.append(
                     {
                         "family": family,
@@ -1235,6 +1905,32 @@ class RevenueScorer:
                         "rules": [item.get("rule_key") for item in ordered],
                     }
                 )
+
+        # Cross-family cap for ordinary SEO/discovery hygiene. This is applied
+        # after the family-level caps so numerous small SEO issues cannot add up
+        # to a larger penalty than a verified checkout/form/performance blocker.
+        seo_items = [
+            leak for leak in leaks
+            if str(leak.get("family") or "") in SEO_HYGIENE_FAMILIES
+        ]
+        seo_total = round(sum(float(x.get("final_score_loss") or 0.0) for x in seo_items), 2)
+        if seo_total > SEO_HYGIENE_TOTAL_CAP and seo_total > 0:
+            scale = SEO_HYGIENE_TOTAL_CAP / seo_total
+            for leak in seo_items:
+                capped = round(float(leak.get("final_score_loss") or 0.0) * scale, 2)
+                leak["family_adjustment"] = round(float(leak.get("family_adjustment") or 1.0) * scale, 4)
+                leak["final_score_loss"] = capped
+                leak["final_severity_score"] = capped
+            adjustments.append(
+                {
+                    "family": "seo_hygiene_total",
+                    "pre_dedupe_total": seo_total,
+                    "post_dedupe_total": round(sum(float(x.get("final_score_loss") or 0.0) for x in seo_items), 2),
+                    "overlap_reduction": round(seo_total - sum(float(x.get("final_score_loss") or 0.0) for x in seo_items), 2),
+                    "rules": [x.get("rule_key") for x in seo_items],
+                }
+            )
+
         return leaks, adjustments
 
     @staticmethod
@@ -1243,8 +1939,10 @@ class RevenueScorer:
         priority = float(leak.get("commercial_priority") or COMMERCIAL_PRIORITY_BY_FAMILY.get(family, 2.5))
         loss = float(leak.get("final_score_loss") or 0.0)
         severity = float(leak.get("severity_factor") or 0.0)
-        # Revenue consequence is primary; score contribution and severity break ties.
-        return (priority, loss, severity)
+        # The evidence-weighted score loss is the primary ranking signal.
+        # Commercial family priority is a tie-breaker, not an override that can
+        # place a tiny cosmetic issue above a much larger verified revenue risk.
+        return (loss, priority, severity)
 
     def _consolidate_report_families(self, leaks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Collapse related scoring signals into one customer-facing commercial finding.
@@ -1315,6 +2013,12 @@ class RevenueScorer:
                 return 0.30
             if biz_type in {"legal", "medspa", "local_service"}:
                 return 1.0
+            if biz_type == "agency":
+                return 0.70
+            if biz_type == "b2b":
+                return 0.45
+            if biz_type == "creator":
+                return 0.20
             if primary_present or chat_present:
                 return 0.65
             return 0.85
@@ -1349,6 +2053,8 @@ class RevenueScorer:
             "base_impact_weight": leak.get("base_impact_weight"),
             "category_multiplier": leak.get("category_multiplier"),
             "business_multiplier": leak.get("business_multiplier"),
+            "research_multiplier": leak.get("research_multiplier"),
+            "research_basis": leak.get("research_basis") or {},
             "confidence_multiplier": leak.get("confidence_multiplier"),
             "substitution_factor": leak.get("substitution_factor"),
             "competitor_advantage_bonus": leak.get("competitor_advantage_bonus"),
@@ -1368,6 +2074,8 @@ class RevenueScorer:
             "base_impact_weight",
             "category_multiplier",
             "business_multiplier",
+            "research_multiplier",
+            "research_basis",
             "severity_factor",
             "confidence",
             "confidence_multiplier",
@@ -1405,8 +2113,8 @@ class RevenueScorer:
         if score >= 75:
             return self.generate_tier_id(8)
         if score >= 50:
-            return self.generate_tier_id(6)
-        return self.generate_tier_id(3)
+            return self.generate_tier_id(4)
+        return self.generate_tier_id(4)
 
     @staticmethod
     def _classify_template_spectrum(ai_pct: Optional[float], cms: str) -> str:
@@ -1468,6 +2176,9 @@ class RevenueScorer:
     @staticmethod
     def _safe_float(value: Any) -> Optional[float]:
         try:
-            return float(value) if value is not None else None
+            parsed = float(value) if value is not None else None
         except (TypeError, ValueError):
             return None
+        if parsed is None or not math.isfinite(parsed):
+            return None
+        return parsed

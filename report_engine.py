@@ -65,7 +65,9 @@ class ReportGenerator:
         # optimization opportunities selected from verified PASS checkpoints.
         findings = self._fill_to_ten_findings(enriched, checkpoints, scan, business_profile)
 
-        overall = audit.get("overall_health_score", audit.get("overall_score", 0.0))
+        overall = audit.get("overall_health_score")
+        if overall is None:
+            overall = audit.get("overall_score")
         revenue_display = (audit.get("revenue_leak") or {}).get("est_annual_revenue_leak") or "Not measured"
 
         return {
@@ -80,7 +82,15 @@ class ReportGenerator:
             "estimated_revenue_leak": revenue_display,
             "revenue_exposure": audit.get("revenue_leak") or {},
             "scoring_methodology": self._build_scoring_methodology_explanation(audit),
-            "score_level_impact": self._build_score_level_impact_explanation(float(overall or 0.0)),
+            "score_level_impact": (
+                self._build_score_level_impact_explanation(float(overall))
+                if overall is not None
+                else {
+                    "level": "SCORE UNAVAILABLE",
+                    "impact_summary": "The scoring engine did not supply an overall score.",
+                    "severity_behavior": "No synthetic zero was substituted.",
+                }
+            ),
             "top_10_financial_leaks": findings,
             # Backward-compatible alias for any old template/client code.
             "top_6_financial_leaks": findings[:6],
@@ -98,6 +108,76 @@ class ReportGenerator:
             "overlap_adjustments": audit.get("overlap_adjustments") or [],
             "score_formula": audit.get("score_formula") or {},
         }
+
+
+    def build_implementation_roadmap(
+        self,
+        findings: List[Dict[str, Any]],
+        days: int,
+    ) -> List[Dict[str, Any]]:
+        """Build a deterministic plan-specific roadmap without changing finding structure.
+
+        14-day plans use four short execution phases. 30-day plans use four weekly
+        phases. Every unlocked finding appears exactly once, in ranked order.
+        """
+        items = [item for item in (findings or []) if isinstance(item, dict)]
+        days = int(days or 0)
+        if days <= 0 or not items:
+            return []
+
+        if days <= 14:
+            phases = [
+                ("Days 1–3", "Stabilize the highest-value blockers"),
+                ("Days 4–7", "Repair conversion-path and trust friction"),
+                ("Days 8–11", "Improve measured experience and supporting systems"),
+                ("Days 12–14", "Verify, re-scan and close regressions"),
+            ]
+        else:
+            phases = [
+                ("Week 1", "Fix critical commercial blockers"),
+                ("Week 2", "Repair conversion, form and trust architecture"),
+                ("Week 3", "Improve measured performance and supporting experience"),
+                ("Week 4", "Re-test, validate evidence and lock in gains"),
+            ]
+
+        # Split ranked findings as evenly as possible while keeping the highest
+        # impact work earliest.
+        n = len(items)
+        phase_count = len(phases)
+        base = n // phase_count
+        remainder = n % phase_count
+        roadmap: List[Dict[str, Any]] = []
+        cursor = 0
+
+        for idx, (label, objective) in enumerate(phases):
+            take = base + (1 if idx < remainder else 0)
+            phase_items = items[cursor: cursor + take]
+            cursor += take
+            actions: List[Dict[str, Any]] = []
+            for finding in phase_items:
+                angles = finding.get("solutions_3_angles") or {}
+                actions.append(
+                    {
+                        "rank": len(actions) + 1,
+                        "rule_key": finding.get("rule_key"),
+                        "finding": finding.get("leak_name"),
+                        "finding_type": finding.get("finding_type", "VERIFIED_LEAK"),
+                        "score_loss": finding.get("final_score_loss", finding.get("severity_score", 0.0)),
+                        "technical_action": angles.get("technical", ""),
+                        "cro_ux_action": angles.get("cro_ux", ""),
+                        "systems_action": angles.get("systems", ""),
+                        "verification": "Re-scan the affected page/flow and compare the evidence ledger after implementation.",
+                    }
+                )
+            roadmap.append(
+                {
+                    "phase": label,
+                    "objective": objective,
+                    "actions": actions,
+                }
+            )
+
+        return roadmap
 
     def _fill_to_ten_findings(
         self,
@@ -229,7 +309,7 @@ class ReportGenerator:
             "core_philosophy": "Trilloka measures Revenue Readiness, not literal conversion percentage. A functioning site begins from an operating baseline and must earn higher scores through verified strengths while verified leaks subtract weighted points.",
             "graded_continuum": "Every deduction is scaled by implementation severity, evidence confidence and business relevance. Unknown telemetry earns no strength and creates no penalty.",
             "vertical_weighting": f"Conversion relevance is weighted for the {biz} model, with substitution credit when another strong conversion path already serves the customer.",
-            "hygiene_gatekeeping": "Verified conversion friction, primary-action usability, trust and journey blockers are prioritized ahead of ordinary SEO hygiene when commercial impact is higher. This prioritization is Baymard-informed where published Baymard UX research is applicable, while Trilloka also uses its own evidence-weighted rules and does not claim full Baymard certification or that every checkpoint originates from Baymard. Ordinary good websites are intentionally calibrated around the upper-60s to mid-70s; scores above 80 require advanced verified maturity.",
+            "hygiene_gatekeeping": "Verified commercial blockers are prioritized ahead of ordinary SEO hygiene. Ecommerce checkout weights use Baymard only where the scanned evidence matches Baymard's checkout research; primary conversion paths, forms and B2B information needs are informed by Nielsen Norman Group research; measured performance and local/mobile-intent signals use Google/web.dev evidence where applicable. Survey percentages are never copied directly into site-specific score deductions, and unknown evidence is never failed.",
         }
 
     @staticmethod
@@ -444,6 +524,61 @@ class ReportGenerator:
     @staticmethod
     def _checkpoint_specific_solution(rule_key: str, leak: Dict[str, Any], vertical: str) -> Optional[Dict[str, str]]:
         plans: Dict[str, tuple[str, str, str]] = {
+            "primary_conversion_path": (
+                "Expose one clear primary conversion action that matches the business model and works on mobile before adding secondary CTAs.",
+                "Make the main next step unmistakable: purchase, book, request a quote, start a trial, or contact — whichever represents real customer progress.",
+                "Track the primary action separately from secondary navigation so completion and drop-off can be measured.",
+            ),
+            "lead_form_friction": (
+                "Remove nonessential lead-form inputs, defer qualification questions until after the first conversion where possible, and preserve validation/error handling.",
+                "Ask only for information needed to continue the sales or booking process; move nice-to-have questions to a later step.",
+                "Measure form starts, validation errors and successful submissions so field reductions are evaluated against qualified-lead quality.",
+            ),
+            "checkout_cost_transparency": (
+                "Surface shipping, tax and unavoidable fee estimates as early as technically possible and keep the order total synchronized throughout checkout.",
+                "Avoid surprising shoppers with material costs at the final step; make total-cost expectations visible before commitment.",
+                "Regression-test pricing, shipping and tax calculations across common regions and cart states.",
+            ),
+            "guest_checkout_barrier": (
+                "Provide a guest checkout path when the business model permits it and offer account creation after purchase rather than making registration a prerequisite.",
+                "Keep sign-in useful for returning customers without blocking first-time buyers who want to complete the order quickly.",
+                "Track guest vs. account checkout completion and post-purchase account creation separately.",
+            ),
+            "checkout_complexity": (
+                "Reduce the number of customer-input fields to those needed to process the order, use address/payment autofill where appropriate, and hide optional fields until needed.",
+                "Lower perceived effort by grouping only necessary information and keeping the path to payment obvious.",
+                "Monitor checkout field errors and abandonment by stage so complexity fixes target the actual friction points.",
+            ),
+            "delivery_expectation_clarity": (
+                "Expose a concrete delivery-date or delivery-window expectation when it can be calculated, rather than relying only on vague shipping-speed labels.",
+                "Help buyers understand when the order will arrive before they commit.",
+                "Keep delivery estimates synchronized with inventory, fulfillment method, destination and carrier data.",
+            ),
+            "return_policy_discoverability": (
+                "Link the real return/refund policy from predictable shopping and footer locations and ensure the policy page is accessible on mobile.",
+                "Make return conditions easy to find before purchase without crowding the primary buying action.",
+                "Keep policy copy synchronized with support and fulfillment processes as terms change.",
+            ),
+            "shipping_info_discoverability": (
+                "Provide a clearly discoverable shipping/delivery information path with regions, methods, cost rules and timing where applicable.",
+                "Let shoppers resolve shipping uncertainty before they reach the final checkout step.",
+                "Keep shipping content synchronized with fulfillment configuration and checkout calculations.",
+            ),
+            "b2b_pricing_transparency": (
+                "Expose usable pricing context where possible: published pricing, starting ranges, plan bands, or a clearly explained quote process.",
+                "Give B2B researchers enough commercial context to judge fit before asking them to surrender contact information.",
+                "Keep pricing/quote logic synchronized with sales qualification rules so the website and sales team communicate the same buying expectations.",
+            ),
+            "saas_ui_proof_gap": (
+                "Add authentic product-interface screenshots, annotated workflows, video, or an interactive preview that shows the actual software experience.",
+                "Help prospects understand what they will use after signup instead of relying only on abstract feature claims.",
+                "Keep product visuals current with major UI releases and link important plan-matrix features to explanatory product evidence.",
+            ),
+            "copy_readability_friction": (
+                "Simplify sentence structure and terminology in the highest-intent page copy while preserving necessary technical accuracy.",
+                "Use clear customer language, shorter sentences and scannable sections so visitors can understand the offer without unnecessary cognitive effort.",
+                "A/B test simplified copy against qualified conversion outcomes; treat the scanner readability grade as a heuristic, not a universal target.",
+            ),
             "https_redirect": (
                 "Force every HTTP request to the equivalent HTTPS URL at the CDN/server layer and verify there is no redirect loop or mixed final destination.",
                 "Keep every landing and conversion URL on the secure canonical path so visitors never see inconsistent secure/non-secure variants.",
@@ -771,19 +906,25 @@ class ReportGenerator:
         coverage_note = html.escape(str(report.get("verification_coverage_note") or self._verification_coverage_note(summary)))
 
         score_color = "#22C55E" if score >= 75 else "#D8B66A" if score >= 50 else "#EF4444"
+        findings = report.get("top_10_financial_leaks") or report.get("top_6_financial_leaks") or []
+        findings_count = len([item for item in findings if isinstance(item, dict)])
         leaks_html = ""
-        for idx, leak in enumerate(report.get("top_10_financial_leaks") or report.get("top_6_financial_leaks") or [], 1):
+        for idx, leak in enumerate(findings, 1):
             if not isinstance(leak, dict):
                 continue
             angles = leak.get("solutions_3_angles") or {}
             factor = leak.get("severity_factor")
             factor_display = "Unknown" if factor is None else str(factor)
+            research = leak.get("research_basis") or {}
+            research_source = html.escape(str(research.get("source") or "Trilloka verified evidence model"))
+            research_class = html.escape(str(research.get("class") or "evidence-weighted diagnostic"))
             leaks_html += f"""
             <div style="margin-bottom:32px; border-left:4px solid #D8B66A; padding-left:16px;">
                 <h3 style="font-family:Georgia,serif; font-size:18px; color:#090B12; margin:0 0 6px 0; font-weight:700;">{idx}. {html.escape(str(leak.get('leak_name','')))}</h3>
                 <p style="font-family:Inter,sans-serif; font-size:13px; color:#555; margin:0 0 8px 0; line-height:1.5;">{html.escape(str(leak.get('impact_summary','')))}</p>
                 <p style="font-family:Inter,sans-serif; font-size:10px; color:#6B7280; margin:0 0 6px 0; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">{html.escape(str(leak.get('finding_type','VERIFIED_LEAK')).replace('_',' '))}</p>
-                <p style="font-family:Inter,sans-serif; font-size:11px; color:#C85A5A; margin:0 0 12px 0; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">{html.escape(str(leak.get('severity_label','SEVERITY UNKNOWN')))} &nbsp;|&nbsp; Severity Scale: {factor_display} &nbsp;|&nbsp; Score Loss: -{float(leak.get('severity_score') or 0):.2f} pts</p>
+                <p style="font-family:Inter,sans-serif; font-size:11px; color:#C85A5A; margin:0 0 6px 0; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">{html.escape(str(leak.get('severity_label','SEVERITY UNKNOWN')))} &nbsp;|&nbsp; Severity Scale: {factor_display} &nbsp;|&nbsp; Score Loss: -{float(leak.get('severity_score') or 0):.2f} pts</p>
+                <p style="font-family:Inter,sans-serif; font-size:10px; color:#6B7280; margin:0 0 12px 0;"><strong>Evidence basis:</strong> {research_source} — {research_class}. Research affects relative priority only after this site-specific condition is verified.</p>
                 <div style="background:#fdfdfd; border:1px solid #f0f0f0; border-radius:8px; padding:16px; margin-top:10px;">
                     <p style="font-family:Inter,sans-serif; font-size:12px; color:#111; font-weight:700; margin:0 0 10px 0; text-transform:uppercase; letter-spacing:0.5px;">The 3-Angle Remediation Plan:</p>
                     <p style="font-family:Inter,sans-serif; font-size:13px; color:#222; margin:0 0 8px 0; line-height:1.6;"><strong>Technical Angle:</strong> {html.escape(str(angles.get('technical','')))}</p>
@@ -792,6 +933,33 @@ class ReportGenerator:
                     <p style="font-family:Inter,sans-serif; font-size:13px; color:#111; margin:0 0 8px 0; line-height:1.6;"><strong>Why We Recommend This:</strong> {html.escape(str(angles.get('why_recommend','')))}</p>
                     <p style="font-family:Inter,sans-serif; font-size:13px; color:#111; margin:0; line-height:1.6;"><strong>Implementation Cadence ({html.escape(str(angles.get('cadence_title','Week 1')))}):</strong> {html.escape(str(angles.get('cadence_text','')))}</p>
                 </div>
+            </div>
+            """
+
+
+        roadmap_html = ""
+        roadmap = report.get("implementation_roadmap") or []
+        if roadmap:
+            phase_html = ""
+            for phase in roadmap:
+                actions_html = ""
+                for action in phase.get("actions") or []:
+                    actions_html += (
+                        "<li style=\"margin:0 0 8px 0; line-height:1.5;\">"
+                        f"<strong>{html.escape(str(action.get('finding') or 'Action'))}:</strong> "
+                        f"{html.escape(str(action.get('technical_action') or action.get('cro_ux_action') or 'Implement the verified correction and re-scan.'))}"
+                        "</li>"
+                    )
+                phase_html += f"""
+                <div style="margin:0 0 18px 0;">
+                    <h3 style="font-family:Georgia,serif; font-size:16px; color:#090B12; margin:0 0 6px 0;">{html.escape(str(phase.get('phase') or 'Phase'))} — {html.escape(str(phase.get('objective') or 'Implementation'))}</h3>
+                    <ul style="font-family:Inter,sans-serif; font-size:12px; color:#4B5563; padding-left:20px; margin:0;">{actions_html}</ul>
+                </div>
+                """
+            roadmap_html = f"""
+            <div style="background:#F9FAFB; border:1px solid #E5E7EB; border-radius:12px; padding:20px; margin:28px 0;">
+                <h2 style="font-family:Georgia,serif; font-size:20px; color:#090B12; margin:0 0 16px 0;">Implementation Roadmap</h2>
+                {phase_html}
             </div>
             """
 
@@ -829,8 +997,9 @@ class ReportGenerator:
         <p style="font-family:Inter,sans-serif; font-size:12px; color:#D1D5DB; margin:0; line-height:1.5;">• <strong>Hygiene:</strong> {html.escape(str(methodology.get('hygiene_gatekeeping','')))}</p>
     </div>
 
-    <h2 style="font-family:Georgia,serif; font-size:22px; color:#090B12; margin:32px 0 20px 0; font-weight:700;">🎯 10 Highest-Priority Revenue Findings & 3-Angle Fixes</h2>
+    <h2 style="font-family:Georgia,serif; font-size:22px; color:#090B12; margin:32px 0 20px 0; font-weight:700;">🎯 {findings_count} Highest-Priority Revenue Findings & 3-Angle Fixes</h2>
     {leaks_html}
+    {roadmap_html}
 
     <div style="background:#121621; color:#F2F0E8; border-radius:12px; padding:20px; margin:24px 0;">
         <h3 style="font-family:Georgia,serif; font-size:16px; color:#D8B66A; margin:0 0 12px 0;">📊 Full 50-Point Checkpoint Basis</h3>

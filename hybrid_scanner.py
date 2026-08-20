@@ -17,6 +17,7 @@ Backward compatibility:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -118,12 +119,23 @@ class _StaticHTMLProbe(HTMLParser):
         if tag == "button":
             self._button_stack.append({"href": "", "text_parts": [], "type": a.get("type", "")})
         if tag == "form":
-            form = {"action": a.get("action", ""), "has_inputs": False, "has_submit": False}
+            form = {
+                "action": a.get("action", ""),
+                "has_inputs": False,
+                "has_submit": False,
+                "field_count": 0,
+                "required_field_count": 0,
+            }
             self._form_stack.append(form)
             self.forms.append(form)
         if self._form_stack and tag in {"input", "textarea", "select"}:
-            self._form_stack[-1]["has_inputs"] = True
-            if tag == "input" and a.get("type", "").lower() == "submit":
+            input_type = a.get("type", "").lower() if tag == "input" else ""
+            if input_type not in {"submit", "button", "hidden", "image", "reset"}:
+                self._form_stack[-1]["has_inputs"] = True
+                self._form_stack[-1]["field_count"] += 1
+                if "required" in a or a.get("aria-required", "").lower() == "true":
+                    self._form_stack[-1]["required_field_count"] += 1
+            if tag == "input" and input_type == "submit":
                 self._form_stack[-1]["has_submit"] = True
         if self._form_stack and tag == "button" and a.get("type", "submit").lower() in {"", "submit"}:
             self._form_stack[-1]["has_submit"] = True
@@ -182,11 +194,12 @@ class HybridScanner:
     """Three-phase scanner with evidence confidence and business context."""
 
     def __init__(self, google_api_key: Optional[str] = None):
-        self.google_api_key = (
+        self.google_api_key = str(
             google_api_key
             or os.environ.get("PAGESPEED_API_KEY", "")
             or os.environ.get("GOOGLE_API_KEY", "")
-        )
+            or ""
+        ).strip()
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "TrillokaBot/2.0 Revenue Architecture Auditor"})
 
@@ -194,17 +207,23 @@ class HybridScanner:
         """Run HTTP, Google and mobile-browser evidence collection."""
         url = self._normalize_url(target_domain)
 
-        http_meta = self._fast_http_preflight(url)
+        # Keep Playwright on this event loop while moving blocking requests work
+        # to worker threads. This avoids executor -> asyncio.run(...) nesting.
+        http_meta = await asyncio.to_thread(self._fast_http_preflight, url)
         raw_html = str(http_meta.pop("_http_html", "") or "")
         static_meta = self._extract_static_html_evidence(
             raw_html,
             http_meta.get("final_url") or url,
             verified=bool(http_meta.get("response_ok")),
         )
-        site_files = self._fetch_site_files(http_meta.get("final_url") or url)
-        pagespeed_meta = self._fetch_google_pagespeed(http_meta.get("final_url") or url)
-        crux_meta = self._fetch_crux_telemetry(http_meta.get("final_url") or url)
-        places_meta = self._fetch_google_places(target_domain, business_name)
+
+        resolved_url = http_meta.get("final_url") or url
+        site_files = await asyncio.to_thread(self._fetch_site_files, resolved_url)
+        pagespeed_meta = await asyncio.to_thread(self._fetch_google_pagespeed, resolved_url)
+        crux_meta = await asyncio.to_thread(self._fetch_crux_telemetry, resolved_url)
+        places_meta = await asyncio.to_thread(
+            self._fetch_google_places, target_domain, business_name
+        )
 
         try:
             mobile_dom = await self._run_targeted_playwright(
@@ -229,6 +248,7 @@ class HybridScanner:
                 print(f"[Hybrid Scanner] Desktop retry skipped: {exc}")
 
         evidence_meta = self._merge_static_and_dom(static_meta, dom_meta)
+        evidence_meta.update(self._estimate_readability_metrics(str(evidence_meta.get("page_text") or "")))
 
         combined: Dict[str, Any] = {
             "domain": target_domain,
@@ -416,7 +436,14 @@ class HybridScanner:
         }
 
         try:
-            response = self.session.get(endpoint, timeout=(5, 20))
+            try:
+                read_timeout = float(os.environ.get("PAGESPEED_READ_TIMEOUT_SECONDS", "45"))
+            except (TypeError, ValueError):
+                read_timeout = 45.0
+            # Google Lighthouse can legitimately take longer than 20 seconds.
+            read_timeout = max(20.0, min(read_timeout, 120.0))
+
+            response = self.session.get(endpoint, timeout=(5, read_timeout))
             if response.status_code != 200:
                 unavailable["pagespeed_error"] = f"HTTP {response.status_code}"
                 return unavailable
@@ -428,7 +455,8 @@ class HybridScanner:
 
             def category_score(name: str) -> Optional[float]:
                 raw = (categories.get(name) or {}).get("score")
-                return round(float(raw) * 100, 1) if raw is not None else None
+                numeric = self._to_float(raw)
+                return round(numeric * 100, 1) if numeric is not None else None
 
             tap_audit = audits.get("tap-targets") or {}
             tap_details = (tap_audit.get("details") or {}).get("items")
@@ -451,6 +479,10 @@ class HybridScanner:
                 "psi_tap_targets_flagged": tap_flagged,
                 "psi_lazy_images_score": (audits.get("offscreen-images") or {}).get("score"),
             }
+        except requests.Timeout as exc:
+            unavailable["pagespeed_error"] = f"timeout: {exc}"
+            print(f"[Hybrid Scanner] PageSpeed API timeout: {exc}")
+            return unavailable
         except Exception as exc:
             unavailable["pagespeed_error"] = str(exc)
             print(f"[Hybrid Scanner] PageSpeed API error: {exc}")
@@ -469,7 +501,10 @@ class HybridScanner:
         audit = audits.get(audit_id)
         if not isinstance(audit, dict) or audit.get("score") is None:
             return None
-        return float(audit.get("score")) >= 0.9
+        try:
+            return float(audit.get("score")) >= 0.9
+        except (TypeError, ValueError):
+            return None
 
     def _fetch_crux_telemetry(self, url: str) -> Dict[str, Any]:
         if not self.google_api_key:
@@ -492,7 +527,7 @@ class HybridScanner:
                 lcp = self._crux_p75(metrics, "largest_contentful_paint")
                 cls_value = self._crux_p75(metrics, "cumulative_layout_shift")
                 inp = self._crux_p75(metrics, "interaction_to_next_paint")
-                cls_float = float(cls_value) if cls_value is not None else None
+                cls_float = self._to_float(cls_value)
                 return {
                     "crux_available": True,
                     "crux_reason": "",
@@ -641,11 +676,15 @@ class HybridScanner:
 
         form_valid_flags: List[bool] = []
         unlinked_forms = 0
+        form_field_counts: List[int] = []
+        form_required_counts: List[int] = []
         for form in probe.forms:
             structurally_valid = bool(str(form.get("action") or "").strip()) or bool(
                 form.get("has_inputs") and form.get("has_submit")
             )
             form_valid_flags.append(structurally_valid)
+            form_field_counts.append(int(form.get("field_count") or 0))
+            form_required_counts.append(int(form.get("required_field_count") or 0))
             if not structurally_valid:
                 unlinked_forms += 1
 
@@ -736,6 +775,16 @@ class HybridScanner:
                 "live_chat_present": self._detect_live_chat(html_lower, visible_text),
                 "forms_present": bool(probe.forms),
                 "form_action_valid": all(form_valid_flags) if form_valid_flags else None,
+                "form_field_counts": form_field_counts,
+                "form_required_field_counts": form_required_counts,
+                "form_min_field_count": min(form_field_counts) if form_field_counts else None,
+                "form_max_field_count": max(form_field_counts) if form_field_counts else None,
+                "form_max_required_field_count": max(form_required_counts) if form_required_counts else None,
+                "checkout_form_field_count": (
+                    max(form_field_counts)
+                    if form_field_counts and content_signals.get("checkout_context_detected")
+                    else None
+                ),
                 "form_functional_status": "UNKNOWN" if probe.forms else "NOT_APPLICABLE",
                 "form_payload_fired": False,
                 "mobile_primary_cta_present": bool(action_types),
@@ -792,12 +841,13 @@ class HybridScanner:
             (r"buy\s*now|checkout|purchase", "buy"),
             (r"order\s*(?:online|now)?|pickup|delivery", "order"),
             (r"reserve|reservation", "reserve"),
+            (r"book\s*demo|request\s*demo|demo", "demo"),
             (r"book\s*(?:now|appointment|consultation)?", "book"),
             (r"tel:|call\s*(?:now|us|restaurant)?", "call"),
             (r"directions|maps\.google|google\.com/maps", "directions"),
             (r"get\s*a?\s*quote|request\s*quote|estimate", "quote"),
             (r"start\s*(?:free\s*)?trial|free\s*trial", "trial"),
-            (r"book\s*demo|request\s*demo|demo", "demo"),
+            (r"subscribe|newsletter|join\s*(?:the\s*)?(?:list|newsletter)|sign\s*up\s*for\s*(?:the\s*)?newsletter", "subscribe"),
             (r"contact\s*(?:us)?|get\s*in\s*touch", "contact"),
             (r"chat|whatsapp|wa\.me", "chat"),
         )
@@ -840,6 +890,66 @@ class HybridScanner:
             probe.cookie_markup
             or re.search(r"\b(cookie settings|cookie preferences|accept cookies|manage cookies)\b", text_lower)
         )
+
+        # Passive commercial-journey evidence. These are observed facts only;
+        # the scanner never mutates a cart or submits a customer-facing form.
+        urlish = " ".join(hrefs).lower()
+        checkout_context = bool(
+            re.search(r"\b(cart|checkout|order summary|payment method|shipping address|billing address)\b", text_lower)
+            or re.search(r"/(?:cart|checkout)(?:/|\?|$)", urlish)
+        )
+        guest_checkout_available = (
+            True
+            if checkout_context and re.search(r"\b(guest checkout|continue as guest|checkout as guest)\b", text_lower)
+            else (
+                False
+                if checkout_context and re.search(
+                    r"\b(create an account|sign in to checkout|login to checkout|register to checkout)\b",
+                    text_lower,
+                )
+                else None
+            )
+        )
+        late_cost_disclosure_risk = bool(
+            checkout_context
+            and re.search(
+                r"\b(shipping|tax(?:es)?|fees?)\s+(?:will be\s+)?calculated at checkout\b|\bcalculated at checkout\b",
+                text_lower,
+            )
+        )
+        delivery_date_visible = (
+            bool(re.search(r"\b(arrives? by|delivery by|estimated delivery|delivery date|delivers? on)\b", text_lower))
+            if checkout_context
+            else None
+        )
+        shipping_info_linked = any(
+            re.search(r"\b(shipping|delivery)\b", text)
+            or re.search(r"/(?:shipping|delivery)(?:/|\?|$)", href)
+            for text, href in zip(link_text, hrefs)
+        )
+        return_policy_linked = any(
+            re.search(r"\b(return|refund)\b", text)
+            or re.search(r"/(?:returns?|refunds?)(?:/|\?|$)", href)
+            for text, href in zip(link_text, hrefs)
+        )
+        pricing_linked = any(
+            re.search(r"\b(pricing|plans?|packages?)\b", text)
+            or re.search(r"/(?:pricing|plans?|packages?)(?:/|\?|$)", href)
+            for text, href in zip(link_text, hrefs)
+        )
+        plan_matrix_signal = bool(
+            len(re.findall(r"(?:\$|€|£)\s*\d+(?:[.,]\d+)?", visible_text)) >= 2
+            and re.search(r"\b(month|monthly|year|yearly|annual|plan|tier)\b", text_lower)
+        )
+        image_evidence_blob = " ".join(
+            " ".join(str(image.get(key) or "") for key in ("alt", "title", "src", "class", "id"))
+            for image in probe.images
+        ).lower()
+        product_ui_preview_signal = bool(
+            re.search(r"\b(dashboard|interface|product tour|app preview|software screenshot|see it in action)\b", text_lower)
+            or re.search(r"dashboard|interface|ui[-_ ]?(?:preview|screenshot)|app[-_ ]?screenshot|product[-_ ]?screenshot", image_evidence_blob)
+        )
+
         bylines = bool(
             probe.has_author_markup
             or re.search(r"(?:^|\n|\s)by\s+[A-Z][A-Za-z.'’\-]+(?:\s+[A-Z][A-Za-z.'’\-]+)+", visible_text)
@@ -859,6 +969,15 @@ class HybridScanner:
             "terms_linked": terms,
             "privacy_terms_linked": privacy and terms,
             "cookie_banner_present": cookie_banner,
+            "checkout_context_detected": checkout_context,
+            "guest_checkout_available": guest_checkout_available,
+            "late_cost_disclosure_risk": late_cost_disclosure_risk,
+            "delivery_date_visible": delivery_date_visible,
+            "shipping_info_linked": shipping_info_linked,
+            "return_policy_linked": return_policy_linked,
+            "pricing_linked": pricing_linked,
+            "plan_matrix_signal": plan_matrix_signal,
+            "product_ui_preview_signal": product_ui_preview_signal,
             "author_bylines_present": bylines,
             "publication_dates_visible": probe.has_publication_date_markup,
         }
@@ -1023,6 +1142,8 @@ class HybridScanner:
             "guarantee_refund_present", "about_team_linked", "social_proof_present",
             "faq_present", "case_studies_portfolio_present", "blog_present", "social_links_present",
             "privacy_policy_linked", "terms_linked", "privacy_terms_linked", "cookie_banner_present",
+            "shipping_info_linked", "return_policy_linked", "pricing_linked",
+            "plan_matrix_signal", "product_ui_preview_signal",
             "author_bylines_present", "publication_dates_visible",
         )
         for key in dom_presence_keys:
@@ -1161,6 +1282,8 @@ class HybridScanner:
             "guarantee_refund_present", "about_team_linked", "social_proof_present",
             "faq_present", "case_studies_portfolio_present", "blog_present", "social_links_present",
             "privacy_policy_linked", "terms_linked", "privacy_terms_linked", "cookie_banner_present",
+            "shipping_info_linked", "return_policy_linked", "pricing_linked",
+            "plan_matrix_signal", "product_ui_preview_signal",
             "author_bylines_present", "publication_dates_visible",
         )
         for key in visible_presence_keys:
@@ -1173,6 +1296,39 @@ class HybridScanner:
                 allow_second_only_negative=True,
             )
             merged[key] = consensus
+
+        # Checkout-specific facts are only meaningful when a checkout/cart context was observed.
+        merged["checkout_context_detected"] = bool(
+            static.get("checkout_context_detected") or dom.get("checkout_context_detected")
+        )
+        if merged["checkout_context_detected"]:
+            guest_values = [
+                value for value in (
+                    static.get("guest_checkout_available"),
+                    dom.get("guest_checkout_available"),
+                )
+                if value is not None
+            ]
+            merged["guest_checkout_available"] = (
+                True if True in guest_values else (False if False in guest_values else None)
+            )
+            merged["late_cost_disclosure_risk"] = bool(
+                static.get("late_cost_disclosure_risk") or dom.get("late_cost_disclosure_risk")
+            )
+            delivery_values = [
+                value for value in (
+                    static.get("delivery_date_visible"),
+                    dom.get("delivery_date_visible"),
+                )
+                if value is not None
+            ]
+            merged["delivery_date_visible"] = (
+                True if True in delivery_values else (False if False in delivery_values else None)
+            )
+        else:
+            merged["guest_checkout_available"] = None
+            merged["late_cost_disclosure_risk"] = False
+            merged["delivery_date_visible"] = None
 
         # Phone visibility and instant actions use the same positive-wins rule. Static HTML can prove
         # presence; a negative becomes conclusive only with a complete rendered DOM.
@@ -1227,6 +1383,20 @@ class HybridScanner:
             merged["form_functional_status"] = dom.get("form_functional_status")
         if "form_payload_fired" in dom:
             merged["form_payload_fired"] = dom.get("form_payload_fired")
+
+        form_source = dom if dom_complete and isinstance(dom.get("form_field_counts"), list) else static
+        for key in (
+            "form_field_counts",
+            "form_required_field_counts",
+            "form_min_field_count",
+            "form_max_field_count",
+            "form_max_required_field_count",
+        ):
+            if key in form_source:
+                merged[key] = form_source.get(key)
+        merged["checkout_form_field_count"] = (
+            merged.get("form_max_field_count") if merged.get("checkout_context_detected") else None
+        )
 
         # Mobile CTA evidence remains browser/mobile-only; raw HTML cannot prove visibility/stickiness.
         if str(dom.get("mobile_cta_status") or "unknown") == "verified":
@@ -1317,6 +1487,12 @@ class HybridScanner:
             "form_payload_fired": False,
             "forms_present": False,
             "form_action_valid": None,
+            "form_field_counts": [],
+            "form_required_field_counts": [],
+            "form_min_field_count": None,
+            "form_max_field_count": None,
+            "form_max_required_field_count": None,
+            "checkout_form_field_count": None,
             "form_functional_status": "UNKNOWN",
             "tap_targets_flagged": [],
             "ai_spectrum_pct": None,
@@ -1351,6 +1527,15 @@ class HybridScanner:
             "terms_linked": None,
             "privacy_terms_linked": None,
             "cookie_banner_present": None,
+            "checkout_context_detected": False,
+            "guest_checkout_available": None,
+            "late_cost_disclosure_risk": False,
+            "delivery_date_visible": None,
+            "shipping_info_linked": None,
+            "return_policy_linked": None,
+            "pricing_linked": None,
+            "plan_matrix_signal": None,
+            "product_ui_preview_signal": None,
             "author_bylines_present": None,
             "publication_dates_visible": None,
             "custom_photography_status": "UNKNOWN",
@@ -1402,10 +1587,14 @@ class HybridScanner:
             ]
 
         async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-setuid-sandbox"],
-            )
+            launch_kwargs: Dict[str, Any] = {
+                "headless": True,
+                "args": ["--no-sandbox", "--disable-setuid-sandbox"],
+            }
+            chromium_executable = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE", "").strip()
+            if chromium_executable:
+                launch_kwargs["executable_path"] = chromium_executable
+            browser = await playwright.chromium.launch(**launch_kwargs)
             if mode == "desktop":
                 viewport = {"width": 1365, "height": 900}
                 user_agent = (
@@ -1598,23 +1787,40 @@ class HybridScanner:
                 forms = page.locator("form")
                 form_count = await forms.count()
                 form_valid_flags: List[bool] = []
+                form_field_counts: List[int] = []
+                form_required_counts: List[int] = []
                 unlinked_forms = 0
                 for idx in range(form_count):
                     form = forms.nth(idx)
                     action = (await form.get_attribute("action") or "").strip()
-                    has_inputs = await form.locator("input, textarea, select").count() > 0
+                    meaningful_fields = form.locator(
+                        'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]), textarea, select'
+                    )
+                    field_count = await meaningful_fields.count()
+                    required_count = await form.locator(
+                        'input[required]:not([type="hidden"]), textarea[required], select[required], '
+                        'input[aria-required="true"]:not([type="hidden"]), textarea[aria-required="true"], select[aria-required="true"]'
+                    ).count()
+                    has_inputs = field_count > 0
                     has_submit = await form.locator(
                         'button[type="submit"], input[type="submit"], button:not([type])'
                     ).count() > 0
                     # SPA forms often intentionally omit action; interactive inputs + submit is a valid architecture signal.
                     structurally_valid = bool(action) or (has_inputs and has_submit)
                     form_valid_flags.append(structurally_valid)
+                    form_field_counts.append(field_count)
+                    form_required_counts.append(required_count)
                     if not structurally_valid:
                         unlinked_forms += 1
                 results["forms_present"] = form_count > 0
                 results["form_action_valid"] = (
                     all(form_valid_flags) if form_valid_flags else None
                 )
+                results["form_field_counts"] = form_field_counts
+                results["form_required_field_counts"] = form_required_counts
+                results["form_min_field_count"] = min(form_field_counts) if form_field_counts else None
+                results["form_max_field_count"] = max(form_field_counts) if form_field_counts else None
+                results["form_max_required_field_count"] = max(form_required_counts) if form_required_counts else None
                 results["form_functional_status"] = "UNKNOWN" if form_count > 0 else "NOT_APPLICABLE"
                 results["form_payload_fired"] = False  # legacy field: intentionally no submission
 
@@ -1641,6 +1847,11 @@ class HybridScanner:
 
                 # Content / trust / navigation signals used only when observed.
                 results.update(await self._collect_content_signals(page, visible_text, schema_types))
+                results["checkout_form_field_count"] = (
+                    results.get("form_max_field_count")
+                    if results.get("checkout_context_detected")
+                    else None
+                )
 
                 # AI/template-pattern heuristic: explicitly a pattern index, not authorship proof.
                 ai_flags = await self._collect_template_flags(page)
@@ -1712,12 +1923,13 @@ class HybridScanner:
                     if (/buy\\s*now|checkout|purchase/.test(value)) return 'buy';
                     if (/order\\s*(online|now)?|pickup|delivery/.test(value)) return 'order';
                     if (/reserve|reservation/.test(value)) return 'reserve';
+                    if (/book\\s*demo|request\\s*demo|demo/.test(value)) return 'demo';
                     if (/book\\s*(now|appointment|consultation)?/.test(value)) return 'book';
                     if (/tel:|call\\s*(now|us|restaurant)?/.test(value)) return 'call';
                     if (/directions|maps\\.google|google\\.com\\/maps/.test(value)) return 'directions';
                     if (/get\\s*a?\\s*quote|request\\s*quote|estimate/.test(value)) return 'quote';
                     if (/start\\s*(free\\s*)?trial|free\\s*trial/.test(value)) return 'trial';
-                    if (/book\\s*demo|request\\s*demo|demo/.test(value)) return 'demo';
+                    if (/subscribe|newsletter|join\\s*(the\\s*)?(list|newsletter)|sign\\s*up\\s*for\\s*(the\\s*)?newsletter/.test(value)) return 'subscribe';
                     if (/contact\\s*(us)?|get\\s*in\\s*touch/.test(value)) return 'contact';
                     if (/chat|whatsapp|wa\\.me/.test(value)) return 'chat';
                     return 'other';
@@ -1800,6 +2012,64 @@ class HybridScanner:
             re.search(r"\b(cookie settings|cookie preferences|accept cookies|manage cookies)\b", text_lower)
             or await page.locator('[class*="cookie"], [id*="cookie"], [class*="consent"], [id*="consent"]').count() > 0
         )
+
+        current_url = str(page.url or "").lower()
+        checkout_context = bool(
+            re.search(r"/(?:cart|checkout)(?:/|\?|$)", current_url)
+            or re.search(r"\b(cart|checkout|order summary|payment method|shipping address|billing address)\b", text_lower)
+        )
+        guest_checkout_available = (
+            True
+            if checkout_context and re.search(r"\b(guest checkout|continue as guest|checkout as guest)\b", text_lower)
+            else (
+                False
+                if checkout_context and re.search(
+                    r"\b(create an account|sign in to checkout|login to checkout|register to checkout)\b",
+                    text_lower,
+                )
+                else None
+            )
+        )
+        late_cost_disclosure_risk = bool(
+            checkout_context
+            and re.search(
+                r"\b(shipping|tax(?:es)?|fees?)\s+(?:will be\s+)?calculated at checkout\b|\bcalculated at checkout\b",
+                text_lower,
+            )
+        )
+        delivery_date_visible = (
+            bool(re.search(r"\b(arrives? by|delivery by|estimated delivery|delivery date|delivers? on)\b", text_lower))
+            if checkout_context
+            else None
+        )
+        shipping_info_linked = any(
+            re.search(r"\b(shipping|delivery)\b", text)
+            or re.search(r"/(?:shipping|delivery)(?:/|\?|$)", href)
+            for text, href in zip(link_text, hrefs)
+        )
+        return_policy_linked = any(
+            re.search(r"\b(return|refund)\b", text)
+            or re.search(r"/(?:returns?|refunds?)(?:/|\?|$)", href)
+            for text, href in zip(link_text, hrefs)
+        )
+        pricing_linked = any(
+            re.search(r"\b(pricing|plans?|packages?)\b", text)
+            or re.search(r"/(?:pricing|plans?|packages?)(?:/|\?|$)", href)
+            for text, href in zip(link_text, hrefs)
+        )
+        plan_matrix_signal = bool(
+            len(re.findall(r"(?:\$|€|£)\s*\d+(?:[.,]\d+)?", visible_text)) >= 2
+            and re.search(r"\b(month|monthly|year|yearly|annual|plan|tier)\b", text_lower)
+        )
+        media_preview_count = await page.locator(
+            'img[alt*="dashboard" i], img[alt*="interface" i], img[alt*="screenshot" i], '
+            'img[src*="dashboard" i], img[src*="screenshot" i], video, [aria-label*="product tour" i]'
+        ).count()
+        product_ui_preview_signal = bool(
+            re.search(r"\b(dashboard|interface|product tour|app preview|software screenshot|see it in action)\b", text_lower)
+            or media_preview_count > 0
+        )
+
         bylines = bool(
             await page.locator('[rel="author"], [class*="author"], [itemprop="author"]').count() > 0
             or re.search(r"(?:^|\n)\s*by\s+[A-Z][A-Za-z.'’\-]+(?:\s+[A-Z][A-Za-z.'’\-]+)+", visible_text)
@@ -1822,6 +2092,15 @@ class HybridScanner:
             "terms_linked": terms,
             "privacy_terms_linked": privacy and terms,
             "cookie_banner_present": cookie_banner,
+            "checkout_context_detected": checkout_context,
+            "guest_checkout_available": guest_checkout_available,
+            "late_cost_disclosure_risk": late_cost_disclosure_risk,
+            "delivery_date_visible": delivery_date_visible,
+            "shipping_info_linked": shipping_info_linked,
+            "return_policy_linked": return_policy_linked,
+            "pricing_linked": pricing_linked,
+            "plan_matrix_signal": plan_matrix_signal,
+            "product_ui_preview_signal": product_ui_preview_signal,
             "author_bylines_present": bylines,
             "publication_dates_visible": publication_dates,
         }
@@ -1966,12 +2245,24 @@ class HybridScanner:
             "medspa": ("med spa", "medspa", "aesthetic", "injectable", "botox", "filler", "laser treatment"),
             "ecommerce": ("add to cart", "checkout", "shop now", "product", "shipping", "shopify", "shopping cart"),
             "saas": ("saas", "software", "platform", "start free trial", "free trial", "book demo", "api"),
+            "agency": (
+                "marketing agency", "design agency", "creative agency", "advertising agency",
+                "branding agency", "web agency", "digital agency", "media agency",
+            ),
+            "b2b": (
+                "b2b", "business-to-business", "enterprise solutions", "wholesale", "manufacturer",
+                "industrial", "distributor", "procurement", "business clients", "request a quote",
+            ),
+            "creator": (
+                "content creator", "creator", "newsletter", "podcast", "youtube", "substack",
+                "patreon", "membership", "subscribe",
+            ),
             "local_service": (
                 "service area", "free estimate", "get a quote", "plumbing", "electrician", "cleaning service",
                 "roofing", "moving", "contractor", "landscaping", "hvac", "repair service",
             ),
             "professional_service": (
-                "consulting", "consultant", "accounting", "bookkeeping", "marketing agency", "design agency",
+                "consulting", "consultant", "accounting", "bookkeeping",
                 "architecture firm", "engineering firm", "professional services",
             ),
         }
@@ -1995,6 +2286,16 @@ class HybridScanner:
         if data.get("order_online_present"):
             score_map["restaurant"] += 2
             signal_map["restaurant"].append("order action")
+        cta_types = set(data.get("mobile_cta_types") or [])
+        if "subscribe" in cta_types:
+            score_map["creator"] += 3
+            signal_map["creator"].append("subscribe action")
+        if "demo" in cta_types and score_map.get("saas", 0) > 0:
+            score_map["saas"] += 2
+            signal_map["saas"].append("demo action")
+        if "quote" in cta_types and score_map.get("b2b", 0) > 0:
+            score_map["b2b"] += 2
+            signal_map["b2b"].append("quote action")
 
         best_vertical = max(score_map, key=score_map.get) if score_map else "general"
         best_score = score_map.get(best_vertical, 0)
@@ -2006,7 +2307,6 @@ class HybridScanner:
             confidence = min(0.96, 0.48 + best_score * 0.07)
             signals = signal_map.get(best_vertical, [])[:8]
 
-        cta_types = set(data.get("mobile_cta_types") or [])
         primary, secondary = self._conversion_model(best_vertical, cta_types)
         return {
             "vertical": best_vertical,
@@ -2032,6 +2332,12 @@ class HybridScanner:
             return "add_to_cart_checkout", ["product_question", "chat"]
         if vertical == "saas":
             return "signup_trial_demo", ["contact", "chat"]
+        if vertical == "agency":
+            return "qualified_lead", ["contact_form", "demo", "call"]
+        if vertical == "b2b":
+            return "qualified_lead_or_quote", ["demo", "contact_form", "call"]
+        if vertical == "creator":
+            return "subscribe_or_join", ["contact", "follow", "membership"]
         if vertical == "local_service":
             return "quote_or_call", ["contact_form", "booking"]
         if vertical == "professional_service":
@@ -2052,8 +2358,11 @@ class HybridScanner:
             "medspa": ("medspa", "med spa", "aesthetic", "treatment", "skin", "laser"),
             "ecommerce": ("shop", "store", "product", "collection"),
             "saas": ("software", "platform", "automation", "api"),
+            "agency": ("agency", "marketing", "design", "branding", "advertising", "creative"),
+            "b2b": ("enterprise", "business", "industrial", "wholesale", "manufacturer", "distribution", "solutions"),
+            "creator": ("creator", "newsletter", "podcast", "membership", "subscribe", "content"),
             "local_service": ("service", "repair", "cleaning", "contractor", "plumbing", "moving"),
-            "professional_service": ("consulting", "services", "agency", "architecture", "engineering", "accounting"),
+            "professional_service": ("consulting", "services", "architecture", "engineering", "accounting"),
         }.get(vertical, ())
         if any(keyword in h1 for keyword in keywords):
             return "PASS"

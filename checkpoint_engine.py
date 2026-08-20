@@ -24,9 +24,15 @@ NA = "NOT_APPLICABLE"
 # Report/scoring metadata for failed checkpoints that are not already represented
 # by one of the scorer's dedicated high-impact rules.
 CHECKPOINT_RULE_META: Dict[int, Dict[str, Any]] = {
+    # Dedicated rules also need report metadata; otherwise their checkpoint
+    # records fall through to zero weight/severity.
+    1: {"rule_key": "unsecured_ssl", "family": "foundation_security", "weight": 3.0, "severity": 0.90},
     2: {"rule_key": "https_redirect", "family": "foundation_security", "weight": 1.4, "severity": 0.45},
+    3: {"rule_key": "click_to_call", "family": "mobile_direct_action", "weight": 2.2, "severity": 0.65},
+    4: {"rule_key": "mobile_sticky_cta", "family": "mobile_direct_action", "weight": 2.6, "severity": 0.70},
+    5: {"rule_key": "form_architecture", "family": "conversion_execution", "weight": 3.0, "severity": 0.85},
     6: {"rule_key": "retargeting_telemetry", "family": "measurement", "weight": 1.5, "severity": 0.40},
-    7: {"rule_key": "primary_mobile_action", "family": "mobile_direct_action", "weight": 2.6, "severity": 0.70},
+    7: {"rule_key": "primary_conversion_path", "family": "conversion_execution", "weight": 2.6, "severity": 0.70},
     8: {"rule_key": "phone_visibility", "family": "mobile_direct_action", "weight": 2.2, "severity": 0.55},
     9: {"rule_key": "location_visibility", "family": "trust_local", "weight": 1.8, "severity": 0.50},
     10: {"rule_key": "trust_credentials", "family": "trust_proof", "weight": 1.8, "severity": 0.45},
@@ -37,6 +43,7 @@ CHECKPOINT_RULE_META: Dict[int, Dict[str, Any]] = {
     15: {"rule_key": "instant_query_channel", "family": "mobile_direct_action", "weight": 1.5, "severity": 0.40},
     16: {"rule_key": "meta_description_missing", "family": "search_snippet", "weight": 1.5, "severity": 0.45},
     17: {"rule_key": "meta_description_length", "family": "search_snippet", "weight": 0.9, "severity": 0.30},
+    18: {"rule_key": "diluted_h1", "family": "hero_clarity", "weight": 1.6, "severity": 0.55},
     19: {"rule_key": "h1_topic_relevance", "family": "hero_clarity", "weight": 1.6, "severity": 0.45},
     20: {"rule_key": "title_length", "family": "search_snippet", "weight": 0.9, "severity": 0.30},
     21: {"rule_key": "structured_data_missing", "family": "search_structure", "weight": 1.6, "severity": 0.45},
@@ -52,10 +59,13 @@ CHECKPOINT_RULE_META: Dict[int, Dict[str, Any]] = {
     31: {"rule_key": "viewport_missing", "family": "mobile_foundation", "weight": 2.6, "severity": 0.75},
     32: {"rule_key": "tap_target_friction", "family": "mobile_usability", "weight": 2.0, "severity": 0.55},
     33: {"rule_key": "render_blocking", "family": "performance", "weight": 1.7, "severity": 0.45},
+    34: {"rule_key": "missing_alt_images", "family": "accessibility_media", "weight": 1.2, "severity": 0.35},
     35: {"rule_key": "lazy_loading_gap", "family": "performance", "weight": 1.0, "severity": 0.30},
     37: {"rule_key": "author_bylines_missing", "family": "content_eeat", "weight": 1.1, "severity": 0.35},
     38: {"rule_key": "publication_dates_missing", "family": "content_eeat", "weight": 0.9, "severity": 0.30},
     39: {"rule_key": "thin_visible_content", "family": "content_depth", "weight": 1.6, "severity": 0.45},
+    40: {"rule_key": "ai_template_similarity", "family": "content_distinctiveness", "weight": 0.8, "severity": 0.20},
+    41: {"rule_key": "ai_template_similarity", "family": "content_distinctiveness", "weight": 0.5, "severity": 0.15},
     42: {"rule_key": "generic_headline", "family": "content_distinctiveness", "weight": 1.5, "severity": 0.45},
     43: {"rule_key": "unlinked_form_structure", "family": "conversion_execution", "weight": 2.4, "severity": 0.65},
     44: {"rule_key": "faq_missing", "family": "content_support", "weight": 1.2, "severity": 0.35},
@@ -72,6 +82,7 @@ DEDICATED_CHECKPOINT_RULES = {
     4: "mobile_sticky_cta",
     5: "form_architecture",
     6: "measurement_telemetry",
+    7: "primary_conversion_path",
     18: "diluted_h1",
     28: "core_web_vitals",
     29: "core_web_vitals",
@@ -161,9 +172,9 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
     add(6, "Analytics / Measurement Layer Present", bool_status(measurement_present, tracking_verified), "trust_conversion")
     add(7, "Primary Mobile Conversion Action Visible", bool_status(scan.get("mobile_primary_cta_present"), scan.get("mobile_cta_status") == "verified"), "trust_conversion", scan.get("mobile_cta_types"))
     add(8, "Phone Number Visible", bool_status(scan.get("phone_number_visible"), scan.get("phone_visibility_status") == "verified"), "trust_conversion", scan.get("detected_phone_numbers"))
-    location_relevant = applicability_vertical not in {"ecommerce", "saas"}
+    location_relevant = applicability_vertical not in {"ecommerce", "saas", "agency", "b2b", "creator"}
     add(9, "Address / Location Signal Visible", NA if not location_relevant else bool_status(scan.get("address_location_visible"), content_verified), "trust_conversion")
-    credential_relevant = applicability_vertical in {"legal", "medspa", "local_service", "professional_service", "ecommerce"}
+    credential_relevant = applicability_vertical in {"legal", "medspa", "local_service", "professional_service", "ecommerce", "agency", "b2b"}
     add(10, "Trust Badges / Credential Signals Present", NA if not credential_relevant else bool_status(scan.get("trust_badges_present"), content_verified), "trust_conversion")
     add(11, "Testimonials / Reviews Visible", bool_status(scan.get("reviews_visible"), content_verified), "trust_conversion")
 
@@ -222,11 +233,11 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
 
     # Content & E-E-A-T 36-50
     add(36, "Original Photography (Not Stock)", scan.get("custom_photography_status") if scan.get("custom_photography_status") in {PASS, FAIL, UNKNOWN, NA} else UNKNOWN, "content_eeat", reason="Scanner records same-origin imagery as a signal but does not claim provenance without proof")
-    editorial_relevant = bool(scan.get("blog_present")) or applicability_vertical in {"legal", "medspa", "professional_service", "saas"}
+    editorial_relevant = bool(scan.get("blog_present")) or applicability_vertical in {"legal", "medspa", "professional_service", "saas", "agency", "b2b", "creator"}
     add(37, "Author Bylines Present", NA if not editorial_relevant else bool_status(scan.get("author_bylines_present"), content_verified), "content_eeat")
     add(38, "Publication Dates Visible", NA if not editorial_relevant else bool_status(scan.get("publication_dates_visible"), content_verified), "content_eeat")
     word_count = int(scan.get("visible_word_count") or 0)
-    word_relevant = applicability_vertical in {"legal", "medspa", "professional_service", "local_service", "saas", "ecommerce"}
+    word_relevant = applicability_vertical in {"legal", "medspa", "professional_service", "local_service", "saas", "ecommerce", "agency", "b2b", "creator"}
     add(39, "Visible Content Length > 300 Words", NA if not word_relevant else (UNKNOWN if not document_verified else (PASS if word_count > 300 else FAIL)), "content_eeat", word_count)
     ai_pct = scan.get("ai_spectrum_pct")
     add(40, "AI / Template Pattern Index < 30", UNKNOWN if not ai_available else (PASS if float(ai_pct) < 30 else FAIL), "content_eeat", ai_pct)
@@ -235,15 +246,15 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
     add(42, "No Generic Template Headlines", UNKNOWN if generic is None or not document_verified else (PASS if not bool(generic) else FAIL), "content_eeat")
     unlinked = (scan.get("ai_flags") or {}).get("unlinked_forms")
     add(43, "No Structurally Unlinked Forms", NA if scan.get("forms_present") is False else (UNKNOWN if unlinked is None else (PASS if int(unlinked) == 0 else FAIL)), "content_eeat", unlinked)
-    faq_relevant = applicability_vertical in {"legal", "medspa", "professional_service", "local_service", "saas", "ecommerce"}
+    faq_relevant = applicability_vertical in {"legal", "medspa", "professional_service", "local_service", "saas", "ecommerce", "agency", "b2b"}
     add(44, "FAQ Section Present", NA if not faq_relevant else bool_status(scan.get("faq_present"), content_verified), "content_eeat")
-    portfolio_relevant = applicability_vertical in {"local_service", "professional_service", "legal", "medspa", "saas"}
+    portfolio_relevant = applicability_vertical in {"local_service", "professional_service", "legal", "medspa", "saas", "agency", "b2b", "creator"}
     add(45, "Case Studies / Portfolio Linked", NA if not portfolio_relevant else bool_status(scan.get("case_studies_portfolio_present"), content_verified), "content_eeat")
-    blog_relevant = applicability_vertical in {"legal", "medspa", "professional_service", "local_service", "saas"}
+    blog_relevant = applicability_vertical in {"legal", "medspa", "professional_service", "local_service", "saas", "agency", "b2b", "creator"}
     add(46, "Blog / Content Hub Active", NA if not blog_relevant else bool_status(scan.get("blog_present"), content_verified), "content_eeat")
     social_present = bool(scan.get("social_links_present"))
     add(47, "Social Media Links Active", PASS if social_present and content_verified else NA, "content_eeat", reason="Optional identity/discovery channel; absence alone is not a conversion failure")
-    policy_relevant = bool(scan.get("forms_present") or scan.get("has_ga4") or scan.get("has_meta_pixel") or scan.get("retargeting_pixel_installed")) or applicability_vertical in {"ecommerce", "saas", "legal", "medspa", "professional_service"}
+    policy_relevant = bool(scan.get("forms_present") or scan.get("has_ga4") or scan.get("has_meta_pixel") or scan.get("retargeting_pixel_installed")) or applicability_vertical in {"ecommerce", "saas", "legal", "medspa", "professional_service", "agency", "b2b", "creator"}
     add(48, "Privacy Policy & Terms Linked", bool_status(scan.get("privacy_terms_linked"), content_verified) if policy_relevant else NA, "content_eeat")
     cookie = scan.get("cookie_banner_present")
     tracking_or_cookie_context = bool(

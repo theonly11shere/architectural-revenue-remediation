@@ -9,18 +9,21 @@ Scanner compatibility
 
 Commercial access
 -----------------
-* Free preview: one successful scan per IP/device per rolling 24h.
-* $350 Essential: Top 3 remediation, full 50-check data, 2 scans/day for 30 days.
-* $550 Advanced: Top 6 remediation, full 50-check data, 3 scans/day for 30 days,
-  one 15-minute guidance call.
-* $850 Architect: Top 10 remediation, full 50-check data, 4 scans/day for 30 days,
-  two 15-minute guidance calls and a 15-hour email-support response target.
+* Free preview: one successful scan per IP/device per rolling 24h. Public score,
+  SEO/performance surface metrics, modeled competitor-gap proxy, and revenue-exposure
+  estimate remain visible; detailed leak identities and remediation are locked.
+* $350 Essential: Top 4 verified revenue findings + 3-angle fixes, full 50-check data,
+  2 scans/day for 30 days.
+* $550 Advanced: Top 8 verified revenue findings + 3-angle fixes + 14-day roadmap,
+  full 50-check data, 3 scans/day for 30 days, one 15-minute guidance call.
+* $850 Architect: Top 10 verified revenue findings + 3-angle fixes + 30-day roadmap,
+  full 50-check data, 4 scans/day for 30 days, two 15-minute guidance calls and a
+  15-hour email-support response target.
 * Paid access is bound to email + purchased domain + a secure purchase access pass.
 """
 
 from __future__ import annotations
 
-import asyncio
 import copy
 import json
 import os
@@ -47,6 +50,27 @@ except Exception as exc:
     print(f"[Report Engine] Import failed: {exc}")
     reporter = None
     REPORT_ENGINE_AVAILABLE = False
+
+
+def _configure_plan_catalog() -> None:
+    """Align report depth/roadmap access with the current three paid tiers.
+
+    scan_access owns entitlement validation and quota accounting; this gateway only
+    adjusts additive report-delivery metadata on the shared catalog object. Existing
+    plan IDs, prices, scan quotas, expiry behavior and guidance-call fields remain intact.
+    """
+    overrides = {
+        "essential_350": {"remediation_limit": 4, "roadmap_days": 0},
+        "advanced_550": {"remediation_limit": 8, "roadmap_days": 14},
+        "architect_850": {"remediation_limit": 10, "roadmap_days": 30},
+    }
+    for plan_id, values in overrides.items():
+        plan = PLAN_CATALOG.get(plan_id)
+        if isinstance(plan, dict):
+            plan.update(values)
+
+
+_configure_plan_catalog()
 
 
 _ALLOWED_ORIGINS = [
@@ -685,10 +709,8 @@ def admin_record_guidance_call(
 
 
 async def _run_scan_async(domain: str, business_name: str = "") -> Dict[str, Any]:
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        None, lambda: asyncio.run(scanner.execute_hybrid_scan(domain, business_name))
-    )
+    # HybridScanner is already async; keep Playwright on the active event loop.
+    return await scanner.execute_hybrid_scan(domain, business_name)
 
 
 def _base_success_payload(
@@ -699,11 +721,15 @@ def _base_success_payload(
     admin_master_report: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
     all_leaks = (audit_results.get("tiered_remediation_packages") or {}).get("tier_10_arch10", [])
+    overall_score = audit_results.get("overall_score")
+    if overall_score is None:
+        overall_score = audit_results.get("overall_health_score")
+
     return {
         "success": True,
         "status": "complete",
         "target_domain": requested_domain,
-        "overall_score": audit_results.get("overall_score"),
+        "overall_score": overall_score,
         "surface_metrics": audit_results.get("surface_metrics", {}),
         "key_friction_insight": audit_results.get("key_friction_insight", {}),
         "revenue_leak": audit_results.get("revenue_leak", {}),
@@ -762,6 +788,7 @@ def _apply_report_access(base_payload: Dict[str, Any], ticket: AccessTicket) -> 
             "plan_name": plan["name"],
             "full_50_checkpoint_data": True,
             "remediation_findings_unlocked": limit,
+            "roadmap_days": int(plan.get("roadmap_days") or 0),
             "guidance_calls": plan["guidance_calls"],
             "guidance_call_minutes": plan["guidance_call_minutes"],
             "email_support_response_hours": plan["email_support_response_hours"],
@@ -777,9 +804,19 @@ def _apply_report_access(base_payload: Dict[str, Any], ticket: AccessTicket) -> 
         }
         return result
 
-    previews = [_preview_leak(item) for item in all_leaks[:3]]
-    result["top_10_financial_leaks"] = previews
-    result["top_5_seo_leaks"] = previews
+    # Free keeps the public diagnostic surfaces (overall score, SEO/performance metrics,
+    # modeled competitor-gap proxy and revenue exposure), but not the identities of the
+    # verified revenue leaks or their remediation. Preserve existing response keys so the
+    # frontend layout does not need to change.
+    result["top_10_financial_leaks"] = []
+    result["top_5_seo_leaks"] = []
+    result["key_friction_insight"] = {
+        "reason": "Detailed verified revenue findings unlock with a paid audit plan.",
+        "revenue_loss_pct": None,
+        "score_loss_points": None,
+        "rule_key": None,
+        "locked": True,
+    }
     result.pop("full_50_checkpoint_basis", None)
     result.pop("scoring_ledger", None)
     result.pop("overlap_adjustments", None)
@@ -789,7 +826,8 @@ def _apply_report_access(base_payload: Dict[str, Any], ticket: AccessTicket) -> 
         "plan_name": "Free Preview",
         "full_50_checkpoint_data": False,
         "remediation_findings_unlocked": 0,
-        "preview_findings_shown": len(previews),
+        "preview_findings_shown": 0,
+        "locked_findings_count": len(all_leaks),
         "upgrade_required_for_patch_plan": True,
     }
     return result
@@ -833,10 +871,21 @@ def _customer_report_for_ticket(admin_report: Dict[str, Any], ticket: AccessTick
     limit = int(plan["remediation_limit"])
     findings = [x for x in (report.get("top_10_financial_leaks") or []) if isinstance(x, dict)][:limit]
     report["top_10_financial_leaks"] = findings
+    # Backward-compatible aliases plus the current 8-finding middle tier.
     report["top_6_financial_leaks"] = findings[:6]
+    report["top_8_financial_leaks"] = findings[:8]
     report["customer_plan"] = dict(plan)
     report["remediation_limit"] = limit
     report["purchased_domain"] = ticket.domain_key
+
+    roadmap_days = int(plan.get("roadmap_days") or 0)
+    report["roadmap_days"] = roadmap_days
+    if reporter is not None and hasattr(reporter, "build_implementation_roadmap"):
+        report["implementation_roadmap"] = reporter.build_implementation_roadmap(
+            findings, roadmap_days
+        )
+    else:
+        report["implementation_roadmap"] = []
     return report
 
 
@@ -862,12 +911,10 @@ async def _run_audit_impl(
     client_ip = access_manager.client_ip(http_request)
     email = str(payload.email) if payload.email else None
     access_pass = str(payload.access_pass or "").strip() or None
-    admin_bypass = _is_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
-
-    # --- TEMPORARY DEV BYPASS ---
-    # Overrides the gatekeeper so you do not get 429 rate limit errors while testing.
-    admin_bypass = True
-    # ----------------------------
+    # Bypass is available only to a verified owner/admin session.
+    admin_bypass = _is_admin_session(
+        http_request, x_trilloka_admin_session, x_trilloka_admin_key
+    )
 
     # Only a valid paid pass can invoke paid duplicate protection.
     try:
@@ -962,6 +1009,15 @@ async def _run_audit_impl(
                 status_code=500,
                 detail="Scoring engine failed. No substitute or fallback score was generated.",
             ) from exc
+
+        resolved_score = audit_results.get("overall_score")
+        if resolved_score is None:
+            resolved_score = audit_results.get("overall_health_score")
+        if resolved_score is None:
+            raise HTTPException(
+                status_code=500,
+                detail="Scoring engine completed without an overall score. No synthetic zero was returned.",
+            )
 
         admin_master_report: Optional[Dict[str, Any]] = None
         customer_report: Optional[Dict[str, Any]] = None
