@@ -3,6 +3,26 @@
 Single source of truth for HTTP, Google telemetry, mobile DOM evidence,
 business classification and confidence-aware scanner facts.
 
+V6.9 final calibration + subtype-aware journey hardening:
+- Uses inferred business subtype to refine which customer-journey page receives the extra Chromium render.
+- Preserves parent business-type logic while adding subtype-specific conversion/proof destinations.
+
+V6.8 proof-backed real-world hardening:
+- Browser-renders one priority journey page in addition to the homepage.
+- Captures proof receipts and optional screenshot evidence for public conversion failures.
+- Checks allow-listed external booking providers passively without booking or submitting data.
+- Adds severe-finding two-pass confirmation hooks and richer business subtypes.
+- Preserves V6.7 business-applicability and false-positive guardrails.
+
+V6.7 authenticity + business-applicability hardening:
+- Adds bounded same-origin multi-page conversion-path inspection.
+- Detects explicit public-facing CAPTCHA/booking/form error states without submitting forms.
+- Expands professional credential recognition across supported business types.
+- Adds healthcare/professional-service subtype signals and business-type mismatch warnings.
+- Makes public error detection visible-text-first to reduce source-code false positives.
+- Expands common analytics/measurement platform recognition.
+- Adds passive dead conversion-destination HTTP checks and more diverse journey-page sampling.
+
 V4 evidence consensus hardening:
 - Positive evidence from any reliable source cannot be erased by a weaker negative pass.
 - Negative visible-content claims require a complete rendered DOM when static HTML alone is inconclusive.
@@ -18,6 +38,8 @@ Backward compatibility:
 from __future__ import annotations
 
 import asyncio
+import base64
+import datetime
 import hashlib
 import json
 import math
@@ -41,7 +63,6 @@ BOT_CHALLENGE_PATTERNS = (
     "verify you are human",
     "attention required",
     "access denied",
-    "captcha",
     "cf-chl-",
     "cloudflare ray id",
     "unusual traffic",
@@ -58,6 +79,168 @@ SOCIAL_DOMAINS = (
     "twitter.com",
     "pinterest.com",
 )
+
+
+# High-confidence error strings that can be passively observed on public conversion pages.
+# These are deliberately narrow: generic words like "error" do not create a failure.
+CONVERSION_ERROR_PATTERNS = (
+    ("recaptcha_invalid_site_key", r"google\s+recaptcha\s*:\s*invalid\s+site\s+key|recaptcha[^\n]{0,60}invalid\s+site\s+key|invalid\s+site\s+key[^\n]{0,40}recaptcha", "Google reCAPTCHA is exposing an invalid site-key error."),
+    ("recaptcha_site_owner_error", r"error\s+for\s+site\s+owner[^\n]{0,120}(?:site\s+key|recaptcha|domain|key\s+type)", "The page exposes a reCAPTCHA site-owner configuration error."),
+    ("recaptcha_load_failure", r"recaptcha[^\n]{0,80}(?:failed\s+to\s+load|verification\s+failed|could\s+not\s+load|unavailable)", "The page exposes a reCAPTCHA loading or verification failure."),
+    ("booking_widget_failure", r"(?:booking|appointment|reservation)[^\n]{0,80}(?:widget\s+)?(?:failed\s+to\s+load|temporarily\s+unavailable|currently\s+unavailable|could\s+not\s+load)", "A customer-facing booking or reservation interface exposes an availability/loading error."),
+    ("form_unavailable", r"(?:contact|enquiry|inquiry|quote|lead|request)[^\n]{0,80}form[^\n]{0,80}(?:currently\s+unavailable|temporarily\s+unavailable|failed\s+to\s+load|could\s+not\s+load)", "A customer-facing form exposes an availability/loading error."),
+    ("broken_form_shortcode", r"\[(?:contact-form-7|gravityform|wpforms|formidable|ninja_form)[^\]]*\]", "A raw form shortcode is visible instead of the intended customer form."),
+)
+
+# Page intent differs by business model. Scores select a bounded set of same-origin pages;
+# they do not change Revenue Readiness by themselves.
+BUSINESS_JOURNEY_TERMS = {
+    "restaurant": ("order", "menu", "reservation", "reserve", "booking", "book", "contact", "location", "catering"),
+    "local_service": ("quote", "estimate", "contact", "book", "booking", "service", "services", "financing", "reviews"),
+    "professional_service": ("contact", "consultation", "book", "booking", "appointment", "services", "team", "about", "testimonials", "patient", "referral"),
+    "medspa": ("book", "booking", "appointment", "consultation", "treatments", "services", "team", "about", "financing", "reviews"),
+    "legal": ("consultation", "contact", "book", "lawyers", "team", "practice", "services", "about", "testimonials"),
+    "ecommerce": ("product", "products", "shop", "cart", "checkout", "shipping", "delivery", "returns", "refund", "contact"),
+    "saas": ("pricing", "plans", "demo", "trial", "signup", "sign-up", "contact", "security", "customers", "case-studies"),
+    "agency": ("contact", "quote", "demo", "book", "services", "portfolio", "work", "case-studies", "clients"),
+    "b2b": ("quote", "demo", "contact", "pricing", "solutions", "services", "case-studies", "customers", "industries"),
+    "creator": ("subscribe", "join", "membership", "contact", "newsletter", "courses", "community", "about"),
+    "general": ("contact", "book", "booking", "quote", "pricing", "services", "about", "team", "reviews"),
+}
+
+POLICY_TERMS = ("privacy", "terms", "legal", "policy")
+PROOF_TERMS = ("about", "team", "staff", "reviews", "testimonials", "case-studies", "case_studies", "portfolio", "credentials")
+
+# Subtype terms refine page priority without replacing the canonical parent business model.
+# These only choose which public same-origin pages deserve closer inspection; they do not
+# award or deduct Revenue Readiness points by themselves.
+SUBTYPE_JOURNEY_TERMS = {
+    "healthcare_clinic": ("appointment", "book", "patient", "referral", "team", "physiotherapy", "rehabilitation", "contact"),
+    "dental_clinic": ("appointment", "book", "new-patient", "patient", "services", "team", "contact", "financing"),
+    "accounting_finance": ("consultation", "contact", "services", "tax", "accounting", "team", "resources"),
+    "architecture_engineering": ("contact", "projects", "portfolio", "services", "team", "credentials"),
+    "consulting_advisory": ("consultation", "contact", "services", "case-studies", "team", "insights"),
+    "cleaning_service": ("quote", "estimate", "book", "services", "reviews", "contact"),
+    "moving_service": ("quote", "estimate", "book", "services", "reviews", "contact"),
+    "construction_renovation": ("quote", "consultation", "projects", "portfolio", "reviews", "contact"),
+    "home_trades": ("service", "book", "quote", "estimate", "financing", "reviews", "contact"),
+    "injectables_aesthetics": ("book", "consultation", "injectables", "treatments", "team", "financing", "reviews"),
+    "laser_skin_clinic": ("book", "consultation", "laser", "treatments", "team", "financing", "reviews"),
+    "immigration_law": ("consultation", "contact", "immigration", "lawyers", "team", "resources"),
+    "family_law": ("consultation", "contact", "family-law", "lawyers", "team", "resources"),
+    "business_law": ("consultation", "contact", "business-law", "lawyers", "team", "services"),
+    "subscription_commerce": ("subscribe", "subscription", "products", "shipping", "returns", "contact"),
+    "retail_ecommerce": ("products", "shop", "cart", "checkout", "shipping", "returns"),
+    "self_serve_saas": ("pricing", "trial", "signup", "security", "customers", "contact"),
+    "enterprise_saas": ("demo", "contact-sales", "security", "customers", "case-studies", "pricing"),
+    "marketing_creative_agency": ("contact", "quote", "work", "portfolio", "case-studies", "clients"),
+    "manufacturing_distribution": ("quote", "products", "industries", "certifications", "contact", "case-studies"),
+    "b2b_services": ("quote", "demo", "solutions", "case-studies", "customers", "contact"),
+    "membership_course": ("join", "membership", "courses", "community", "subscribe", "about"),
+    "media_newsletter": ("subscribe", "newsletter", "podcast", "about", "contact"),
+    "quick_service_ordering": ("order", "menu", "pickup", "delivery", "location", "contact"),
+    "reservation_restaurant": ("reservation", "reserve", "menu", "location", "contact"),
+}
+
+SUBTYPE_JOURNEY_GUESSES = {
+    "healthcare_clinic": ["/book/", "/appointments/", "/patient-info/", "/our-team/", "/contact/"],
+    "dental_clinic": ["/book/", "/appointments/", "/new-patients/", "/services/", "/our-team/"],
+    "accounting_finance": ["/contact/", "/consultation/", "/services/", "/our-team/", "/resources/"],
+    "architecture_engineering": ["/contact/", "/projects/", "/portfolio/", "/services/", "/team/"],
+    "consulting_advisory": ["/contact/", "/consultation/", "/services/", "/case-studies/", "/team/"],
+    "cleaning_service": ["/request-a-quote/", "/book/", "/services/", "/reviews/", "/contact/"],
+    "moving_service": ["/request-a-quote/", "/estimate/", "/services/", "/reviews/", "/contact/"],
+    "construction_renovation": ["/contact/", "/consultation/", "/projects/", "/portfolio/", "/reviews/"],
+    "home_trades": ["/book/", "/request-service/", "/request-a-quote/", "/financing/", "/reviews/"],
+    "injectables_aesthetics": ["/book/", "/consultation/", "/treatments/", "/team/", "/reviews/"],
+    "laser_skin_clinic": ["/book/", "/consultation/", "/treatments/", "/team/", "/reviews/"],
+    "immigration_law": ["/consultation/", "/contact/", "/immigration/", "/lawyers/", "/resources/"],
+    "family_law": ["/consultation/", "/contact/", "/family-law/", "/lawyers/", "/resources/"],
+    "business_law": ["/consultation/", "/contact/", "/business-law/", "/lawyers/", "/services/"],
+    "subscription_commerce": ["/products/", "/subscriptions/", "/shipping/", "/returns/", "/contact/"],
+    "retail_ecommerce": ["/shop/", "/products/", "/cart/", "/checkout/", "/returns/"],
+    "self_serve_saas": ["/pricing/", "/signup/", "/trial/", "/security/", "/customers/"],
+    "enterprise_saas": ["/demo/", "/contact-sales/", "/security/", "/case-studies/", "/customers/"],
+    "marketing_creative_agency": ["/contact/", "/work/", "/portfolio/", "/case-studies/", "/clients/"],
+    "manufacturing_distribution": ["/request-a-quote/", "/products/", "/industries/", "/certifications/", "/contact/"],
+    "b2b_services": ["/request-a-quote/", "/demo/", "/solutions/", "/case-studies/", "/contact/"],
+    "membership_course": ["/join/", "/membership/", "/courses/", "/community/", "/about/"],
+    "media_newsletter": ["/subscribe/", "/newsletter/", "/podcast/", "/about/", "/contact/"],
+    "quick_service_ordering": ["/order-online/", "/menu/", "/locations/", "/delivery/", "/contact/"],
+    "reservation_restaurant": ["/reservations/", "/menu/", "/location/", "/contact/"],
+}
+
+
+# External booking/scheduling providers are allow-listed to avoid turning the scanner into
+# an arbitrary external URL fetcher. Health checks are passive GETs only; no booking is made.
+BOOKING_PROVIDER_HOSTS = {
+    "Jane": ("janeapp.com",),
+    "Cliniko": ("cliniko.com",),
+    "Mindbody": ("mindbodyonline.com", "healcode.com"),
+    "Calendly": ("calendly.com",),
+    "Acuity Scheduling": ("acuityscheduling.com",),
+    "OpenTable": ("opentable.com",),
+    "Fresha": ("fresha.com",),
+    "Square Appointments": ("square.site", "squareup.com", "squareappointments.com"),
+    "Vagaro": ("vagaro.com",),
+    "Boulevard": ("joinblvd.com",),
+    "Phorest": ("phorest.com",),
+    "Practice Better": ("practicebetter.io",),
+    "SimplePractice": ("simplepractice.com",),
+    "Zocdoc": ("zocdoc.com",),
+    "Booksy": ("booksy.com",),
+}
+
+# Subtypes refine reasoning while retaining their canonical parent business type.
+BUSINESS_SUBTYPE_TERMS = {
+    "professional_service": (
+        ("dental_clinic", ("dentist", "dental clinic", "dental care", "orthodont", "dental implant")),
+        ("healthcare_clinic", ("physiotherapy", "physiotherapist", "physical therapy", "rehabilitation", "chiropractic", "registered massage therapist", "occupational therapy", "speech therapy", "psychologist", "counselling", "counseling")),
+        ("accounting_finance", ("chartered professional accountant", "cpa", "accounting", "bookkeeping", "tax services", "financial advisory")),
+        ("architecture_engineering", ("architecture firm", "architect", "engineering firm", "professional engineer", "p.eng", "aibc")),
+        ("consulting_advisory", ("consulting", "consultant", "advisory", "strategy consulting", "management consulting")),
+    ),
+    "local_service": (
+        ("cleaning_service", ("cleaning service", "house cleaning", "office cleaning", "janitorial")),
+        ("moving_service", ("moving company", "movers", "moving service", "relocation")),
+        ("construction_renovation", ("renovation", "remodeling", "remodelling", "custom home", "general contractor", "construction")),
+        ("home_trades", ("plumbing", "plumber", "electrician", "hvac", "roofing", "landscaping", "repair service")),
+    ),
+    "medspa": (
+        ("injectables_aesthetics", ("botox", "filler", "injectable", "neuromodulator")),
+        ("laser_skin_clinic", ("laser treatment", "laser hair", "skin treatment", "skin rejuvenation")),
+    ),
+    "legal": (
+        ("immigration_law", ("immigration law", "immigration lawyer", "work permit", "permanent residence")),
+        ("family_law", ("family law", "divorce", "custody", "separation agreement")),
+        ("business_law", ("corporate law", "business law", "commercial law", "corporate lawyer")),
+        ("law_firm", ("law firm", "lawyer", "barrister", "solicitor")),
+    ),
+    "ecommerce": (
+        ("subscription_commerce", ("subscription", "subscribe and save", "recurring delivery")),
+        ("retail_ecommerce", ("add to cart", "checkout", "shop now", "product")),
+    ),
+    "saas": (
+        ("self_serve_saas", ("start free trial", "free trial", "sign up", "signup", "pricing plans")),
+        ("enterprise_saas", ("book demo", "request demo", "contact sales", "enterprise")),
+    ),
+    "agency": (
+        ("marketing_creative_agency", ("marketing agency", "creative agency", "branding agency", "design agency", "advertising agency")),
+    ),
+    "b2b": (
+        ("manufacturing_distribution", ("manufacturer", "manufacturing", "distributor", "wholesale", "industrial")),
+        ("b2b_services", ("b2b", "business clients", "enterprise solutions", "request a quote")),
+    ),
+    "creator": (
+        ("membership_course", ("membership", "course", "community", "cohort")),
+        ("media_newsletter", ("newsletter", "podcast", "youtube", "subscribe")),
+    ),
+    "restaurant": (
+        ("quick_service_ordering", ("order online", "pickup", "delivery")),
+        ("reservation_restaurant", ("reservation", "reserve a table", "book a table")),
+        ("restaurant", ("restaurant", "cafe", "café")),
+    ),
+}
 
 
 class _StaticHTMLProbe(HTMLParser):
@@ -120,6 +303,8 @@ class _StaticHTMLProbe(HTMLParser):
                 self.has_author_markup = True
         if tag == "button":
             self._button_stack.append({"href": "", "text_parts": [], "type": a.get("type", "")})
+        if tag == "iframe" and a.get("src"):
+            self.actions.append({"href": a.get("src", ""), "text": a.get("title", "") or a.get("aria-label", "")})
         if tag == "form":
             form = {
                 "action": a.get("action", ""),
@@ -192,7 +377,7 @@ class _StaticHTMLProbe(HTMLParser):
 
 
 class HybridScanner:
-    ENGINE_VERSION = "v6"
+    ENGINE_VERSION = "v6.9"
     """Three-phase scanner with evidence confidence and business context."""
 
     def __init__(self, google_api_key: Optional[str] = None):
@@ -216,6 +401,7 @@ class HybridScanner:
     async def execute_hybrid_scan(self, target_domain: str, business_name: str = "", business_type: str = "auto") -> Dict[str, Any]:
         """Run HTTP, Google and mobile-browser evidence collection."""
         url = self._normalize_url(target_domain)
+        scan_started_at = self._utc_now()
 
         # Keep Playwright on this event loop while moving blocking requests work
         # to worker threads. This avoids executor -> asyncio.run(...) nesting.
@@ -281,9 +467,61 @@ class HybridScanner:
             urllib.parse.urlparse(combined.get("final_url") or url).scheme == "https"
         )
 
+        # First-pass classification helps choose the most commercially relevant internal pages.
+        initial_business_profile = self._classify_business(combined)
+        requested_competitor_type = self._normalize_competitor_business_type(
+            business_type, initial_business_profile.get("vertical")
+        )
+
+        # Bounded multi-page journey inspection. This is passive: GET requests only, same origin,
+        # no form submissions, no cart mutation, no login and no customer data entry.
+        candidate_links = self._union_strings(
+            static_meta.get("internal_links"),
+            dom_meta.get("internal_links"),
+        )
+        journey_meta = await asyncio.to_thread(
+            self._scan_priority_journey_pages,
+            resolved_url,
+            candidate_links,
+            requested_competitor_type,
+            str(initial_business_profile.get("inferred_subtype") or ""),
+        )
+        self._merge_journey_evidence(combined, journey_meta)
+
+        # Render exactly one highest-priority customer-journey page in Chromium. Static GETs remain
+        # the bounded breadth pass; this one extra render catches JavaScript-only widget/form failures.
+        browser_journey_url = str(journey_meta.get("browser_journey_candidate_url") or "")
+        if browser_journey_url:
+            try:
+                browser_journey = await self._run_targeted_playwright(
+                    browser_journey_url, {}, mode="mobile", capture_evidence=True
+                )
+                self._merge_browser_journey_evidence(combined, browser_journey, browser_journey_url)
+            except Exception as exc:
+                combined["browser_journey_probe"] = {"url": browser_journey_url, "browser_loaded": False, "error": str(exc)[:220]}
+                combined["browser_journey_rendered"] = False
+        else:
+            combined["browser_journey_probe"] = {}
+            combined["browser_journey_rendered"] = False
+
+        # Safely verify known third-party booking destinations discovered on the homepage/journey.
+        provider_health = await asyncio.to_thread(
+            self._check_external_booking_provider_health, combined.get("booking_provider_links") or []
+        )
+        combined["external_booking_provider_health"] = provider_health
+        if provider_health.get("error_signals"):
+            existing = list(combined.get("conversion_error_signals") or [])
+            combined["conversion_error_signals"] = existing + list(provider_health.get("error_signals") or [])
+            combined["conversion_path_error_detected"] = True
+
+        # Reclassify after the small journey sample because Team/Services/Booking pages can expose
+        # more reliable vertical evidence than a generic homepage.
         business_profile = self._classify_business(combined)
         combined["business_profile"] = business_profile
         combined["h1_relevance_status"] = self._assess_h1_relevance(combined, business_profile)
+        combined["business_type_validation"] = self._business_type_validation(
+            business_type, business_profile
+        )
 
         # Local competitor benchmarking is contextual evidence only. It does not directly change
         # Revenue Readiness. When a target Place location is available, compare the site with
@@ -303,6 +541,8 @@ class HybridScanner:
         combined["scan_quality"] = self._build_scan_quality(combined)
         combined["evidence_coverage"] = self._evidence_coverage(combined)
         combined["scanner_engine_version"] = self.ENGINE_VERSION
+        combined["scan_started_at"] = scan_started_at
+        combined["scan_completed_at"] = self._utc_now()
         return combined
 
     @staticmethod
@@ -1029,11 +1269,15 @@ class HybridScanner:
         h1_tags = [" ".join(parts).strip() for parts in probe.h1_parts if " ".join(parts).strip()]
         schema_types = self._extract_static_schema_types(probe.schema_scripts)
         links = []
+        raw_internal_link_inputs = []
         for action in probe.actions:
             href = urllib.parse.urljoin(url, str(action.get("href") or ""))
-            links.append({"href": href.lower(), "text": str(action.get("text") or "").lower()})
+            text = str(action.get("text") or "")
+            raw_internal_link_inputs.append({"href": href, "text": text})
+            links.append({"href": href.lower(), "text": text.lower()})
         for link in probe.links:
             href = urllib.parse.urljoin(url, str(link.get("href") or ""))
+            raw_internal_link_inputs.append({"href": href, "text": ""})
             links.append({"href": href.lower(), "text": ""})
 
         detected_phones = sorted(set(match.group(0).strip() for match in PHONE_RE.finditer(visible_text)))
@@ -1089,6 +1333,9 @@ class HybridScanner:
             - {"other"}
         )
 
+        internal_links = self._same_origin_internal_links(url, raw_internal_link_inputs)
+        booking_provider_links = self._extract_booking_provider_links(url, probe.actions)
+        conversion_error_signals = self._detect_conversion_error_signals(visible_text, html_lower, url)
         content_signals = self._static_content_signals(visible_text, links, schema_types, probe)
         ai_flags = {
             "tailwind_classes": len(re.findall(r'\b(?:flex|grid|bg-[\w-]+|text-[\w-]+|rounded|shadow)\b', html_text)),
@@ -1105,8 +1352,12 @@ class HybridScanner:
             "has_retargeting_pixel": False,
         }
 
-        has_ga4 = any(marker in html_lower for marker in ("googletagmanager.com/gtag/js", "gtag(", "gtm.js", "gtm-"))
-        has_meta_pixel = any(marker in html_lower for marker in ("connect.facebook.net", "fbevents.js", "fbq("))
+        measurement_platforms = self._detect_measurement_platforms(html_lower)
+        has_ga4 = "Google Analytics / GTM" in measurement_platforms
+        has_meta_pixel = "Meta Pixel" in measurement_platforms
+        has_clarity = "Microsoft Clarity" in measurement_platforms
+        has_hotjar = "Hotjar" in measurement_platforms
+        has_other_measurement = bool(set(measurement_platforms) - {"Google Analytics / GTM", "Meta Pixel", "Microsoft Clarity", "Hotjar"})
         retargeting = has_meta_pixel or any(
             marker in html_lower for marker in ("googleadservices.com/pagead/conversion", "doubleclick.net", "aw-")
         )
@@ -1154,10 +1405,13 @@ class HybridScanner:
                 "mobile_viewport_configured": bool(viewport_content),
                 "schema_types": schema_types,
                 "schema_present": bool(schema_types or probe.schema_scripts or re.search(r"\bitemscope\b|\btypeof=", html_lower)),
-                "has_clarity": "clarity.ms" in html_lower,
-                "has_hotjar": "hotjar.com" in html_lower or "static.hotjar.com" in html_lower,
+                "has_clarity": has_clarity,
+                "has_hotjar": has_hotjar,
                 "has_ga4": has_ga4,
                 "has_meta_pixel": has_meta_pixel,
+                "has_other_measurement": has_other_measurement,
+                "measurement_layer_present": bool(measurement_platforms),
+                "measurement_platforms": measurement_platforms,
                 "retargeting_pixel_installed": retargeting,
                 "phone_number_visible": bool(detected_phones) or schema_phone,
                 "phone_visibility_status": "verified",
@@ -1191,6 +1445,10 @@ class HybridScanner:
                 "order_online_present": "order" in action_types,
                 "reservation_present": "reserve" in action_types or "book" in action_types,
                 "directions_present": "directions" in action_types,
+                "internal_links": internal_links,
+                "booking_provider_links": booking_provider_links,
+                "conversion_error_signals": conversion_error_signals,
+                "conversion_path_error_detected": bool(conversion_error_signals),
                 "ai_flags": ai_flags,
                 "ai_spectrum_pct": ai_score,
                 "ai_spectrum_status": ai_status,
@@ -1200,6 +1458,7 @@ class HybridScanner:
             }
         )
         results["has_qualitative_analytics"] = bool(results["has_clarity"] or results["has_hotjar"])
+        results["measurement_layer_present"] = bool(results.get("measurement_platforms"))
         return results
 
     @staticmethod
@@ -1249,6 +1508,728 @@ class HybridScanner:
                 return action_type
         return "other"
 
+    @staticmethod
+    def _same_origin_internal_links(base_url: str, links: List[Dict[str, str]]) -> List[str]:
+        parsed = urllib.parse.urlparse(base_url)
+        origin_host = parsed.netloc.lower().split(":")[0]
+        out: List[str] = []
+        seen = set()
+        blocked_ext = re.compile(r"\.(?:jpg|jpeg|png|gif|webp|svg|pdf|zip|css|js|xml|ico|mp4|mp3|woff2?)(?:$|\?)", re.I)
+        for item in links or []:
+            raw = str(item.get("href") or "").strip()
+            if not raw or raw.startswith(("mailto:", "tel:", "javascript:", "data:")):
+                continue
+            absolute = urllib.parse.urljoin(base_url, raw)
+            parts = urllib.parse.urlparse(absolute)
+            host = parts.netloc.lower().split(":")[0]
+            if parts.scheme not in {"http", "https"} or host != origin_host:
+                continue
+            clean = urllib.parse.urlunparse((parts.scheme, parts.netloc, parts.path or "/", "", "", ""))
+            if blocked_ext.search(clean) or re.search(r"/(?:wp-admin|admin|logout|signout)(?:/|$)", parts.path, re.I):
+                continue
+            if clean not in seen:
+                seen.add(clean)
+                out.append(clean)
+            if len(out) >= 120:
+                break
+        return out
+
+    @staticmethod
+    def _detect_credential_signals(visible_text: str, links: Optional[List[Dict[str, str]]] = None, schema_types: Optional[List[str]] = None) -> List[str]:
+        text = str(visible_text or "")
+        lower = text.lower()
+        patterns = (
+            ("general_certification", r"\b(?:licensed|insured|bonded|certified|accredited|bbb accredited|trustpilot)\b"),
+            ("healthcare_registration", r"\b(?:registered physiotherapists?|registered massage therapists?|registered massage therapy|registered nurse|nurse practitioner|licensed practical nurse|occupational therapist|speech[- ]language pathologist|registered clinical counsellor|registered psychologist|registered dietitian)\b"),
+            ("medical_credentials", r"\b(?:medical director|board[- ]certified|licensed physician|physician|doctor of medicine|nurse injector|md\s*,|rn\s*,|np\s*,)\b"),
+            ("legal_credentials", r"\b(?:law society|barrister(?:\s+and\s+solicitor)?|solicitor|licensed lawyer|member of the bar|king'?s counsel|queen'?s counsel)\b"),
+            ("professional_credentials", r"\b(?:chartered professional accountant|professional engineer|p\.?\s*eng\.?|architect\s+aibc|aibc\b|cpa\b|pmp\b)\b"),
+            ("trade_credentials", r"\b(?:red seal|worksafebc|work\s*safe\s*bc|licensed contractor|licensed electrician|licensed plumber)\b"),
+            ("security_compliance", r"\b(?:soc\s*2(?:\s*type\s*[12])?|iso\s*27001|pci\s*dss|hipaa\s+compliant|gdpr\s+compliant)\b"),
+            ("secure_purchase", r"\b(?:secure checkout|secure payment|256[- ]bit encrypted|pci compliant)\b"),
+        )
+        found = [name for name, pattern in patterns if re.search(pattern, lower, re.I)]
+        # Explicit professional validation/member links are additional evidence, but only when the
+        # link text itself describes verification/membership rather than merely naming an association.
+        for item in links or []:
+            label = f"{item.get('text') or ''} {item.get('href') or ''}".lower()
+            if re.search(r"\b(?:verify|verification|registry|member|membership|licen[cs]e)\b", label) and re.search(r"\b(?:college|society|association|board|registry)\b", label):
+                found.append("professional_registry_link")
+                break
+        return sorted(set(found))
+
+    @staticmethod
+    def _detect_conversion_error_signals(visible_text: str, html_lower: str, url: str) -> List[Dict[str, Any]]:
+        # Customer-facing failures must be visible evidence. Searching arbitrary script/source text can
+        # create false positives because libraries often contain dormant error-message strings.
+        haystack = str(visible_text or "")[:300_000]
+        signals: List[Dict[str, Any]] = []
+        for key, pattern, message in CONVERSION_ERROR_PATTERNS:
+            match = re.search(pattern, haystack, re.I)
+            if not match:
+                continue
+            context = " ".join(match.group(0).split())[:180]
+            signals.append({
+                "key": key,
+                "url": str(url or ""),
+                "message": message,
+                "observed_text": context,
+                "evidence_surface": "customer_visible_text",
+                "confidence": "high",
+                "severity": 0.95 if key.startswith("recaptcha_") else 0.85,
+            })
+        return signals
+
+    @staticmethod
+    def _journey_role(url: str) -> str:
+        path = urllib.parse.unquote(urllib.parse.urlparse(str(url or "")).path).lower().strip("/")
+        tokens = [token for token in re.split(r"[/_-]+", path) if token]
+        joined = " ".join(tokens)
+        if any(term in joined for term in ("contact", "enquiry", "inquiry", "quote", "estimate")):
+            return "contact_or_lead"
+        if any(term in joined for term in ("book", "booking", "appointment", "consultation", "reservation", "reserve")):
+            return "booking"
+        if any(term in joined for term in ("cart", "checkout", "order")):
+            return "commerce_conversion"
+        if any(term in joined for term in ("pricing", "plans", "packages", "demo", "trial", "signup", "sign up")):
+            return "evaluation"
+        if any(term in joined for term in ("about", "team", "staff", "reviews", "testimonials", "case studies", "portfolio")):
+            return "proof"
+        if any(term in joined for term in ("privacy", "terms", "legal", "policy")):
+            return "policy"
+        return "support"
+
+    def _select_priority_journey_urls(self, base_url: str, candidates: List[str], business_type: str, limit: int, business_subtype: str = "") -> List[str]:
+        parsed = urllib.parse.urlparse(base_url)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        vertical = str(business_type or "general")
+        subtype = str(business_subtype or vertical)
+        parent_terms = BUSINESS_JOURNEY_TERMS.get(vertical, BUSINESS_JOURNEY_TERMS["general"])
+        subtype_terms = SUBTYPE_JOURNEY_TERMS.get(subtype, ())
+        # Subtype terms are evaluated first so a healthcare booking/patient path can outrank a
+        # generic professional-services page without losing the parent model's broader coverage.
+        terms = tuple(subtype_terms) + tuple(parent_terms)
+        scored: List[Tuple[float, str]] = []
+        seen = set()
+        for url in candidates or []:
+            if url in seen or url.rstrip("/") == base_url.rstrip("/"):
+                continue
+            seen.add(url)
+            low = urllib.parse.unquote(url).lower()
+            score = 0.0
+            for idx, term in enumerate(terms):
+                if term in low:
+                    score += max(2.0, 12.0 - idx * 0.6)
+            if any(term in low for term in POLICY_TERMS):
+                score += 5.5
+            if any(term in low for term in PROOF_TERMS):
+                score += 4.5
+            role = self._journey_role(url)
+            if role in {"contact_or_lead", "booking", "commerce_conversion", "evaluation"}:
+                score += 7.0
+            elif role == "proof":
+                score += 3.0
+            elif role == "policy":
+                score += 2.0
+            if score > 0:
+                scored.append((score, url))
+
+        # Conservative common-path guesses help on sparse/JS navigation. Only same-origin GETs are used.
+        guessed = {
+            "restaurant": ["/contact/", "/menu/", "/reservations/", "/order-online/"],
+            "local_service": ["/contact/", "/request-a-quote/", "/services/", "/about/"],
+            "professional_service": ["/contact/", "/book/", "/services/", "/about-us/", "/our-team/"],
+            "medspa": ["/contact/", "/book/", "/treatments/", "/about/", "/team/"],
+            "legal": ["/contact/", "/consultation/", "/lawyers/", "/about/"],
+            "ecommerce": ["/contact/", "/shop/", "/cart/", "/shipping/", "/returns/"],
+            "saas": ["/pricing/", "/demo/", "/contact/", "/security/"],
+            "agency": ["/contact/", "/services/", "/work/", "/case-studies/"],
+            "b2b": ["/contact/", "/request-a-quote/", "/solutions/", "/case-studies/"],
+            "creator": ["/subscribe/", "/membership/", "/contact/", "/about/"],
+            "general": ["/contact/", "/services/", "/about/"],
+        }.get(vertical, ["/contact/", "/services/", "/about/"])
+        subtype_guessed = SUBTYPE_JOURNEY_GUESSES.get(subtype, [])
+        guessed = list(dict.fromkeys(list(subtype_guessed) + list(guessed)))
+        existing = {url for _, url in scored}
+        for idx, path in enumerate(guessed):
+            guessed_url = urllib.parse.urljoin(origin + "/", path.lstrip("/"))
+            if guessed_url not in existing and guessed_url.rstrip("/") != base_url.rstrip("/"):
+                scored.append((3.0 - idx * 0.15, guessed_url))
+                existing.add(guessed_url)
+
+        ranked = sorted(scored, key=lambda item: (-item[0], len(item[1]), item[1]))
+        ordered = [url for _, url in ranked]
+
+        # Diversity matters more than scanning five near-identical pages. Prefer one direct conversion
+        # destination, then proof, then policy when those roles actually exist, and fill remaining slots
+        # by score. This improves trust/policy evidence without sacrificing the main customer journey.
+        selected: List[str] = []
+        role_groups = (
+            {"contact_or_lead", "booking", "commerce_conversion", "evaluation"},
+            {"proof"},
+            {"policy"},
+        )
+        for allowed in role_groups:
+            candidate = next((url for url in ordered if url not in selected and self._journey_role(url) in allowed), None)
+            if candidate and len(selected) < limit:
+                selected.append(candidate)
+        for url in ordered:
+            if len(selected) >= limit:
+                break
+            if url not in selected:
+                selected.append(url)
+        return selected
+
+    def _scan_priority_journey_pages(self, base_url: str, candidates: List[str], business_type: str, business_subtype: str = "") -> Dict[str, Any]:
+        raw_limit = self._to_int(os.environ.get("TRILLOKA_JOURNEY_MAX_PAGES"), 5) or 5
+        limit = max(2, min(6, raw_limit))
+        urls = self._select_priority_journey_urls(base_url, candidates, business_type, limit, business_subtype)
+        pages: List[Dict[str, Any]] = []
+        errors: List[Dict[str, Any]] = []
+        credential_types: List[str] = []
+        text_samples: List[str] = []
+        booking_provider_links: List[Dict[str, Any]] = []
+        aggregate = {
+            "reviews_visible": False,
+            "social_proof_present": False,
+            "trust_badges_present": False,
+            "credential_signals_present": False,
+            "privacy_policy_linked": False,
+            "terms_linked": False,
+            "about_team_linked": False,
+            "faq_present": False,
+            "case_studies_portfolio_present": False,
+            "return_policy_linked": False,
+            "shipping_info_linked": False,
+            "pricing_linked": False,
+            "blog_present": False,
+        }
+        for url in urls:
+            try:
+                response = self.session.get(url, timeout=(3, 7), allow_redirects=True)
+                status = int(response.status_code)
+                if not (200 <= status < 400):
+                    role = self._journey_role(url)
+                    pages.append({"url": url, "status_code": status, "role": role, "verified": False})
+                    if (status in {404, 410} or status >= 500) and role in {"contact_or_lead", "booking", "commerce_conversion", "evaluation"}:
+                        errors.append({
+                            "key": "conversion_destination_http_error",
+                            "url": str(url),
+                            "message": f"A customer conversion destination returned HTTP {status}.",
+                            "observed_text": f"HTTP {status}",
+                            "evidence_surface": "http_destination_status",
+                            "confidence": "high",
+                            "severity": 0.90,
+                        })
+                    continue
+                # Never carry giant page bodies into memory/evidence.
+                html_text = (response.text or "")[:750_000]
+                evidence = self._extract_static_html_evidence(html_text, response.url, verified=True)
+                page_errors = list(evidence.get("conversion_error_signals") or [])
+                errors.extend(page_errors)
+                page_credential_types = list(evidence.get("credential_signal_types") or [])
+                credential_types.extend(page_credential_types)
+                booking_provider_links.extend(list(evidence.get("booking_provider_links") or []))
+                role = self._journey_role(response.url)
+                for key in aggregate:
+                    aggregate[key] = bool(aggregate[key] or evidence.get(key))
+                path_lower = urllib.parse.urlparse(response.url).path.lower()
+                if role == "policy":
+                    if "privacy" in path_lower:
+                        aggregate["privacy_policy_linked"] = True
+                    if "terms" in path_lower or "legal" in path_lower:
+                        aggregate["terms_linked"] = True
+                if role == "proof":
+                    if any(token in path_lower for token in ("about", "team", "staff")):
+                        aggregate["about_team_linked"] = True
+                    if any(token in path_lower for token in ("review", "testimonial")):
+                        aggregate["reviews_visible"] = True
+                        aggregate["social_proof_present"] = True
+                    if any(token in path_lower for token in ("case-stud", "case_stud", "portfolio", "work", "project", "customer")):
+                        aggregate["case_studies_portfolio_present"] = True
+                        aggregate["social_proof_present"] = True
+                if page_credential_types:
+                    aggregate["credential_signals_present"] = True
+                    aggregate["trust_badges_present"] = True
+                sample = str(evidence.get("page_text") or "")[:5000]
+                if sample:
+                    text_samples.append(sample)
+                pages.append({
+                    "url": response.url,
+                    "status_code": status,
+                    "role": role,
+                    "verified": True,
+                    "forms_present": bool(evidence.get("forms_present")),
+                    "cta_types": evidence.get("mobile_cta_types") or [],
+                    "conversion_error_signals": page_errors,
+                    "credential_signal_types": page_credential_types,
+                    "reviews_visible": bool(evidence.get("reviews_visible")),
+                    "privacy_policy_linked": bool(evidence.get("privacy_policy_linked")),
+                    "terms_linked": bool(evidence.get("terms_linked")),
+                })
+            except Exception as exc:
+                pages.append({"url": url, "status_code": None, "role": self._journey_role(url), "verified": False, "error": str(exc)[:220]})
+
+        verified_count = sum(1 for page in pages if page.get("verified"))
+        return {
+            "journey_evidence_status": "verified" if verified_count else "unavailable",
+            "journey_pages_scanned": pages,
+            "journey_pages_verified": verified_count,
+            "journey_page_limit": limit,
+            "journey_error_signals": errors,
+            "conversion_path_error_detected": bool(errors),
+            "credential_signal_types": sorted(set(credential_types)),
+            "booking_provider_links": self._dedupe_booking_provider_links(booking_provider_links),
+            "browser_journey_candidate_url": next((page.get("url") for page in pages if page.get("role") in {"contact_or_lead", "booking", "commerce_conversion", "evaluation"}), None),
+            "journey_text_sample": "\n".join(text_samples)[:18000],
+            **aggregate,
+        }
+
+    @staticmethod
+    def _merge_journey_evidence(target: Dict[str, Any], journey: Dict[str, Any]) -> None:
+        target["journey_evidence_status"] = journey.get("journey_evidence_status", "unavailable")
+        target["journey_pages_scanned"] = journey.get("journey_pages_scanned") or []
+        target["journey_pages_verified"] = journey.get("journey_pages_verified") or 0
+        target["journey_page_limit"] = journey.get("journey_page_limit") or 0
+        target["journey_text_sample"] = journey.get("journey_text_sample") or ""
+        target["browser_journey_candidate_url"] = journey.get("browser_journey_candidate_url")
+        target["booking_provider_links"] = HybridScanner._dedupe_booking_provider_links(
+            list(target.get("booking_provider_links") or []) + list(journey.get("booking_provider_links") or [])
+        )
+        existing_errors = list(target.get("conversion_error_signals") or [])
+        journey_errors = list(journey.get("journey_error_signals") or [])
+        dedup_errors = []
+        seen = set()
+        for item in existing_errors + journey_errors:
+            marker = (str(item.get("key") or ""), str(item.get("url") or ""), str(item.get("observed_text") or ""))
+            if marker not in seen:
+                seen.add(marker)
+                dedup_errors.append(item)
+        target["conversion_error_signals"] = dedup_errors
+        target["conversion_path_error_detected"] = bool(dedup_errors)
+        target["credential_signal_types"] = sorted(set(
+            list(target.get("credential_signal_types") or []) + list(journey.get("credential_signal_types") or [])
+        ))
+        target["credential_signals_present"] = bool(
+            target.get("credential_signals_present") or journey.get("credential_signals_present") or target["credential_signal_types"]
+        )
+        # Cross-page positives are monotonic. A missing signal on a secondary page never erases a
+        # positive already verified on the homepage.
+        for key in (
+            "reviews_visible", "social_proof_present", "trust_badges_present",
+            "privacy_policy_linked", "terms_linked", "about_team_linked", "faq_present",
+            "case_studies_portfolio_present", "return_policy_linked", "shipping_info_linked",
+            "pricing_linked", "blog_present",
+        ):
+            if journey.get(key) is True:
+                target[key] = True
+        if target.get("credential_signals_present"):
+            target["trust_badges_present"] = True
+        target["social_proof_present"] = bool(
+            target.get("reviews_visible") or target.get("trust_badges_present") or target.get("case_studies_portfolio_present") or target.get("social_proof_present")
+        )
+        target["privacy_terms_linked"] = bool(target.get("privacy_policy_linked") and target.get("terms_linked"))
+
+    @staticmethod
+    def _utc_now() -> str:
+        return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    @staticmethod
+    def _safe_evidence_url(url: str) -> str:
+        try:
+            parts = urllib.parse.urlparse(str(url or ""))
+            host = parts.hostname or ""
+            port = f":{parts.port}" if parts.port else ""
+            return urllib.parse.urlunparse((parts.scheme, host + port, parts.path or "/", "", "", ""))
+        except Exception:
+            return str(url or "")[:500]
+
+    @staticmethod
+    def _booking_provider_for_host(host: str) -> Optional[str]:
+        normalized = str(host or "").lower().split(":")[0].strip(".")
+        for provider, domains in BOOKING_PROVIDER_HOSTS.items():
+            if any(normalized == domain or normalized.endswith("." + domain) for domain in domains):
+                return provider
+        return None
+
+    @classmethod
+    def _extract_booking_provider_links(cls, base_url: str, links: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+        found: List[Dict[str, Any]] = []
+        for item in links or []:
+            raw = str(item.get("href") or "").strip()
+            if not raw:
+                continue
+            absolute = urllib.parse.urljoin(base_url, raw)
+            parts = urllib.parse.urlparse(absolute)
+            if parts.scheme not in {"http", "https"}:
+                continue
+            provider = cls._booking_provider_for_host(parts.hostname or "")
+            if not provider:
+                continue
+            label = str(item.get("text") or "").strip()[:160]
+            found.append({
+                "provider": provider,
+                "url": absolute,
+                "display_url": cls._safe_evidence_url(absolute),
+                "label": label,
+                "action_type": cls._classify_action_text(label, absolute),
+            })
+        return cls._dedupe_booking_provider_links(found)
+
+    @staticmethod
+    def _dedupe_booking_provider_links(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        seen = set()
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            key = (str(item.get("provider") or ""), str(item.get("url") or ""))
+            if not key[1] or key in seen:
+                continue
+            seen.add(key)
+            out.append(dict(item))
+            if len(out) >= 8:
+                break
+        return out
+
+    def _check_external_booking_provider_health(self, links: List[Dict[str, Any]]) -> Dict[str, Any]:
+        checks: List[Dict[str, Any]] = []
+        errors: List[Dict[str, Any]] = []
+        for item in self._dedupe_booking_provider_links(links)[:4]:
+            provider = str(item.get("provider") or "Booking provider")
+            url = str(item.get("url") or "")
+            result = {
+                "provider": provider,
+                "url": self._safe_evidence_url(url),
+                "status": "unknown",
+                "status_code": None,
+                "checked_at": self._utc_now(),
+                "method": "passive external booking destination GET",
+            }
+            try:
+                response = self.session.get(url, timeout=(4, 10), allow_redirects=True)
+                code = int(response.status_code)
+                result["status_code"] = code
+                result["final_url"] = self._safe_evidence_url(response.url)
+                if 200 <= code < 400:
+                    result["status"] = "reachable"
+                elif code in {401, 403, 429}:
+                    result["status"] = "restricted_or_rate_limited_unknown"
+                elif code in {404, 410} or code >= 500:
+                    result["status"] = "broken"
+                    errors.append({
+                        "key": "external_booking_destination_error",
+                        "url": self._safe_evidence_url(url),
+                        "message": f"The external {provider} booking destination returned HTTP {code}.",
+                        "observed_text": f"{provider} HTTP {code}",
+                        "evidence_surface": "external_booking_destination_status",
+                        "confidence": "high",
+                        "severity": 0.95,
+                        "provider": provider,
+                    })
+                else:
+                    result["status"] = "unknown"
+            except Exception as exc:
+                result["status"] = "network_unknown"
+                result["error"] = str(exc)[:180]
+            checks.append(result)
+        return {
+            "checked": bool(checks),
+            "checks": checks,
+            "broken_count": sum(1 for item in checks if item.get("status") == "broken"),
+            "error_signals": errors,
+        }
+
+    @staticmethod
+    def _merge_browser_journey_evidence(target: Dict[str, Any], browser_probe: Dict[str, Any], url: str) -> None:
+        if not isinstance(browser_probe, dict):
+            return
+        summary = {
+            "url": str(url or ""),
+            "browser_loaded": bool(browser_probe.get("browser_loaded")),
+            "dom_complete": bool(browser_probe.get("dom_complete")),
+            "browser_status_code": browser_probe.get("browser_status_code"),
+            "forms_present": browser_probe.get("forms_present"),
+            "form_action_valid": browser_probe.get("form_action_valid"),
+            "cta_types": browser_probe.get("mobile_cta_types") or [],
+            "conversion_error_signals": browser_probe.get("conversion_error_signals") or [],
+            "booking_provider_links": browser_probe.get("booking_provider_links") or [],
+            "evidence_screenshot_mime": browser_probe.get("evidence_screenshot_mime") or "",
+            "evidence_screenshot_b64": browser_probe.get("evidence_screenshot_b64") or "",
+            "evidence_screenshot_sha256": browser_probe.get("evidence_screenshot_sha256") or "",
+        }
+        target["browser_journey_probe"] = summary
+        target["browser_journey_rendered"] = bool(browser_probe.get("browser_loaded"))
+        target["browser_journey_url"] = str(url or "")
+        existing = list(target.get("conversion_error_signals") or [])
+        extra = list(browser_probe.get("conversion_error_signals") or [])
+        merged_errors: List[Dict[str, Any]] = []
+        seen = set()
+        for item in existing + extra:
+            marker = (str(item.get("key") or ""), str(item.get("url") or ""), str(item.get("observed_text") or ""))
+            if marker not in seen:
+                seen.add(marker)
+                merged_errors.append(item)
+        target["conversion_error_signals"] = merged_errors
+        target["conversion_path_error_detected"] = bool(merged_errors)
+        target["booking_provider_links"] = HybridScanner._dedupe_booking_provider_links(
+            list(target.get("booking_provider_links") or []) + list(browser_probe.get("booking_provider_links") or [])
+        )
+        # Positive trust/policy evidence on the rendered journey page can strengthen the aggregate;
+        # negative evidence never erases a homepage/cross-page positive.
+        for key in (
+            "reviews_visible", "social_proof_present", "trust_badges_present", "credential_signals_present",
+            "privacy_policy_linked", "terms_linked", "about_team_linked", "case_studies_portfolio_present",
+            "return_policy_linked", "shipping_info_linked", "pricing_linked",
+        ):
+            if browser_probe.get(key) is True:
+                target[key] = True
+        target["credential_signal_types"] = sorted(set(
+            list(target.get("credential_signal_types") or []) + list(browser_probe.get("credential_signal_types") or [])
+        ))
+        target["privacy_terms_linked"] = bool(target.get("privacy_policy_linked") and target.get("terms_linked"))
+
+    @staticmethod
+    def _infer_business_subtype(vertical: str, text: str) -> str:
+        low = str(text or "").lower()
+        for subtype, terms in BUSINESS_SUBTYPE_TERMS.get(str(vertical or "general"), ()):
+            if any(term in low for term in terms):
+                return subtype
+        return str(vertical or "general")
+
+    @staticmethod
+    def _primary_conversion_gap_present(data: Dict[str, Any], biz_type: str) -> Optional[bool]:
+        if str(data.get("mobile_cta_status") or "unknown").lower() != "verified":
+            return None
+        cta_types = set(str(x) for x in (data.get("mobile_cta_types") or []) if x)
+        form_usable = bool(data.get("forms_present") and data.get("form_action_valid") is not False)
+        call = bool(data.get("click_to_call_present"))
+        if biz_type == "restaurant":
+            return not bool({"order", "reserve", "book", "call", "directions"} & cta_types or call)
+        if biz_type == "ecommerce":
+            return not bool(data.get("add_to_cart_visible") or {"add_to_cart", "buy", "order"} & cta_types)
+        if biz_type == "saas":
+            return not bool({"trial", "demo", "contact"} & cta_types or form_usable)
+        if biz_type in {"legal", "medspa", "local_service", "professional_service", "agency"}:
+            return not bool(form_usable or call or {"quote", "book", "contact", "call", "demo"} & cta_types)
+        if biz_type == "b2b":
+            return not bool(form_usable or {"quote", "demo", "contact", "book", "call"} & cta_types)
+        if biz_type == "creator":
+            return not bool({"subscribe", "contact"} & cta_types or form_usable)
+        return not bool(data.get("mobile_primary_cta_present") or form_usable or call)
+
+    async def confirm_high_impact_findings(
+        self,
+        scan_data: Dict[str, Any],
+        audit_results: Dict[str, Any],
+        business_type: str = "auto",
+        threshold_points: float = 3.5,
+    ) -> Dict[str, Any]:
+        """Passively re-check findings capable of producing a large deduction.
+
+        The final scorer treats a high-impact candidate as UNKNOWN/unscored unless this phase confirms it.
+        Rechecks are bounded and grouped so normal scans do not repeat every collection step.
+        """
+        packages = (audit_results or {}).get("tiered_remediation_packages") or {}
+        raw = [x for x in (packages.get("all_scoring_leaks") or []) if isinstance(x, dict)]
+        candidates: List[Dict[str, Any]] = []
+        seen_rules = set()
+        for leak in raw:
+            loss = self._to_float(leak.get("pre_dedupe_penalty"))
+            if loss is None:
+                loss = self._to_float(leak.get("final_score_loss")) or 0.0
+            rule = str(leak.get("rule_key") or "")
+            if loss >= float(threshold_points) and rule and rule not in seen_rules:
+                seen_rules.add(rule)
+                candidates.append(leak)
+        candidates = candidates[:8]
+        if not candidates:
+            return {
+                "completed": True,
+                "threshold_points": float(threshold_points),
+                "candidate_count": 0,
+                "results": {},
+                "completed_at": self._utc_now(),
+            }
+
+        canonical_type = str((audit_results or {}).get("business_type") or business_type or "general")
+        base_url = str(scan_data.get("final_url") or scan_data.get("url") or scan_data.get("domain") or "")
+        results: Dict[str, Any] = {}
+
+        # One second homepage browser pass can confirm several mobile/form/path candidates at once.
+        browser_rules = {"form_architecture", "primary_conversion_path", "click_to_call", "mobile_sticky_cta", "lead_form_friction"}
+        need_home_browser = any(str(x.get("rule_key")) in browser_rules for x in candidates)
+        second_home: Dict[str, Any] = {}
+        if need_home_browser:
+            try:
+                second_home = await self._run_targeted_playwright(base_url, {}, mode="mobile", capture_evidence=False)
+            except Exception as exc:
+                second_home = {"browser_loaded": False, "browser_error": str(exc)}
+
+        # Re-render the affected journey page only when a severe customer-path error needs proof.
+        error_candidate = next((x for x in candidates if str(x.get("rule_key")) == "conversion_path_error"), None)
+        second_error_probe: Dict[str, Any] = {}
+        error_url = ""
+        if error_candidate:
+            signals = ((error_candidate.get("evidence") or {}).get("error_signals") or [])
+            error_url = next((str(x.get("url") or "") for x in signals if isinstance(x, dict) and x.get("url")), "")
+            if error_url and self._booking_provider_for_host(urllib.parse.urlparse(error_url).hostname or ""):
+                # External booking destinations are confirmed with the provider health checker, not Chromium.
+                health = await asyncio.to_thread(self._check_external_booking_provider_health, [
+                    {"provider": self._booking_provider_for_host(urllib.parse.urlparse(error_url).hostname or ""), "url": error_url}
+                ])
+                second_error_probe = {"external_provider_health": health}
+            elif error_url:
+                try:
+                    second_error_probe = await self._run_targeted_playwright(error_url, {}, mode="mobile", capture_evidence=True)
+                except Exception as exc:
+                    second_error_probe = {"browser_loaded": False, "browser_error": str(exc)}
+
+        second_http = None
+        if any(str(x.get("rule_key")) == "unsecured_ssl" for x in candidates):
+            second_http = await asyncio.to_thread(self._fast_http_preflight, base_url)
+
+        second_perf: Dict[str, Any] = {}
+        if any(str(x.get("rule_key")) == "core_web_vitals" for x in candidates):
+            second_perf = await asyncio.to_thread(self._fetch_google_pagespeed, base_url)
+            # CrUX can independently corroborate performance without forcing a duplicate lab failure.
+            second_perf.update(await asyncio.to_thread(self._fetch_crux_telemetry, base_url))
+
+        # A small second static pass supports negative policy/ecommerce/B2B evidence without another full crawl.
+        static_rules = {
+            "checkout_cost_transparency", "guest_checkout_barrier", "checkout_complexity",
+            "return_policy_discoverability", "shipping_info_discoverability", "delivery_expectation_clarity",
+            "b2b_pricing_transparency",
+        }
+        need_static = any(str(x.get("rule_key")) in static_rules for x in candidates)
+        second_static_combined: Dict[str, Any] = {}
+        if need_static:
+            try:
+                r = await asyncio.to_thread(self.session.get, base_url, timeout=(4, 10), allow_redirects=True)
+                if 200 <= int(r.status_code) < 400:
+                    second_static_combined = self._extract_static_html_evidence((r.text or "")[:750000], r.url, verified=True)
+                    links = self._union_strings(scan_data.get("internal_links"), [str(x.get("url")) for x in scan_data.get("journey_pages_scanned", []) if isinstance(x, dict) and x.get("url")])
+                    j2 = await asyncio.to_thread(self._scan_priority_journey_pages, r.url, links, canonical_type)
+                    self._merge_journey_evidence(second_static_combined, j2)
+            except Exception as exc:
+                second_static_combined = {"confirmation_error": str(exc)[:220]}
+
+        for leak in candidates:
+            rule = str(leak.get("rule_key") or "")
+            confirmed: Optional[bool] = None
+            method = ""
+            observed: Dict[str, Any] = {}
+            if rule == "unsecured_ssl" and isinstance(second_http, dict):
+                confirmed = bool(second_http.get("is_reachable") and second_http.get("has_ssl") is False)
+                method = "second HTTP preflight"
+                observed = {"final_url": second_http.get("final_url"), "has_ssl": second_http.get("has_ssl"), "status_code": second_http.get("status_code")}
+            elif rule == "core_web_vitals" and second_perf:
+                perf = self._to_float(second_perf.get("performance_score"))
+                crux_grade = str(second_perf.get("real_user_speed_grade") or "UNKNOWN")
+                if perf is not None:
+                    confirmed = perf < 60 or crux_grade == "POOR"
+                elif crux_grade != "UNKNOWN":
+                    confirmed = crux_grade == "POOR"
+                method = "second Google PageSpeed/CrUX collection"
+                observed = {"performance_score": perf, "crux_grade": crux_grade}
+            elif rule == "conversion_path_error":
+                if second_error_probe.get("external_provider_health"):
+                    health = second_error_probe["external_provider_health"]
+                    confirmed = bool((health or {}).get("broken_count"))
+                    observed = health
+                    method = "second external booking-provider health check"
+                elif second_error_probe:
+                    confirmed = bool(second_error_probe.get("conversion_error_signals")) if second_error_probe.get("browser_loaded") else None
+                    observed = {"url": error_url, "error_signals": second_error_probe.get("conversion_error_signals") or [], "browser_loaded": second_error_probe.get("browser_loaded")}
+                    method = "second rendered customer-journey pass"
+            elif rule == "form_architecture" and second_home:
+                if second_home.get("browser_loaded"):
+                    confirmed = bool(second_home.get("forms_present") and second_home.get("form_action_valid") is False)
+                method = "second rendered homepage form inspection"
+                observed = {"forms_present": second_home.get("forms_present"), "form_action_valid": second_home.get("form_action_valid")}
+            elif rule == "primary_conversion_path" and second_home:
+                confirmed = self._primary_conversion_gap_present(second_home, canonical_type)
+                method = "second rendered primary-action inspection"
+                observed = {"mobile_cta_types": second_home.get("mobile_cta_types") or [], "forms_present": second_home.get("forms_present"), "click_to_call_present": second_home.get("click_to_call_present")}
+            elif rule == "click_to_call" and second_home:
+                if str(second_home.get("click_to_call_status") or "").lower() == "verified":
+                    confirmed = not bool(second_home.get("click_to_call_present"))
+                method = "second rendered mobile click-to-call inspection"
+                observed = {"click_to_call_present": second_home.get("click_to_call_present"), "status": second_home.get("click_to_call_status")}
+            elif rule == "mobile_sticky_cta" and second_home:
+                if str(second_home.get("mobile_cta_status") or "").lower() == "verified":
+                    confirmed = not bool(second_home.get("mobile_sticky_cta_present"))
+                method = "second rendered mobile sticky-action inspection"
+                observed = {"mobile_sticky_cta_present": second_home.get("mobile_sticky_cta_present"), "mobile_cta_types": second_home.get("mobile_cta_types") or []}
+            elif rule == "lead_form_friction" and second_home:
+                fields = self._to_float(second_home.get("form_max_field_count"))
+                confirmed = fields is not None and fields > 8
+                method = "second rendered lead-form field count"
+                observed = {"form_max_field_count": fields}
+            elif rule in static_rules and second_static_combined:
+                if rule == "checkout_cost_transparency":
+                    confirmed = bool(second_static_combined.get("late_cost_disclosure_risk"))
+                elif rule == "guest_checkout_barrier":
+                    v = second_static_combined.get("guest_checkout_available")
+                    confirmed = (v is False) if v is not None else None
+                elif rule == "checkout_complexity":
+                    fields = self._to_float(second_static_combined.get("checkout_form_field_count"))
+                    confirmed = fields is not None and fields > 12
+                elif rule == "return_policy_discoverability":
+                    confirmed = not bool(second_static_combined.get("return_policy_linked"))
+                elif rule == "shipping_info_discoverability":
+                    confirmed = not bool(second_static_combined.get("shipping_info_linked"))
+                elif rule == "delivery_expectation_clarity":
+                    v = second_static_combined.get("delivery_date_visible")
+                    confirmed = (v is False) if v is not None else None
+                elif rule == "b2b_pricing_transparency":
+                    confirmed = not bool(second_static_combined.get("pricing_linked"))
+                method = "second bounded static journey inspection"
+                observed = {
+                    "return_policy_linked": second_static_combined.get("return_policy_linked"),
+                    "shipping_info_linked": second_static_combined.get("shipping_info_linked"),
+                    "pricing_linked": second_static_combined.get("pricing_linked"),
+                    "checkout_form_field_count": second_static_combined.get("checkout_form_field_count"),
+                }
+
+            status = "CONFIRMED" if confirmed is True else "DISPUTED" if confirmed is False else "UNCONFIRMED"
+            results[rule] = {
+                "status": status,
+                "candidate_pre_dedupe_points": self._to_float(leak.get("pre_dedupe_penalty")) or self._to_float(leak.get("final_score_loss")) or 0.0,
+                "method": method or "No safe passive recheck was available",
+                "observed": observed,
+                "checked_at": self._utc_now(),
+            }
+
+        return {
+            "completed": True,
+            "threshold_points": float(threshold_points),
+            "candidate_count": len(candidates),
+            "results": results,
+            "completed_at": self._utc_now(),
+            "policy": "High-impact candidates at or above the threshold require a second passive confirmation before the final score may deduct them.",
+        }
+
+    @staticmethod
+    def _business_type_validation(requested: str, automatic: Dict[str, Any]) -> Dict[str, Any]:
+        raw = str(requested or "auto").strip().lower().replace("-", "_").replace(" ", "_")
+        aliases = {"professional_services": "professional_service", "home_service": "local_service", "aesthetics": "medspa", "law": "legal", "software": "saas"}
+        requested_norm = aliases.get(raw, raw)
+        auto_vertical = str((automatic or {}).get("vertical") or "general")
+        confidence = HybridScanner._to_float((automatic or {}).get("confidence")) or 0.0
+        explicit = requested_norm not in {"", "auto", "unknown", "none"}
+        mismatch = bool(explicit and requested_norm != auto_vertical and confidence >= 0.72)
+        return {
+            "requested": requested_norm if explicit else "auto",
+            "automatic": auto_vertical,
+            "automatic_confidence": round(confidence, 2),
+            "mismatch_warning": mismatch,
+            "message": (
+                f"Selected business type '{requested_norm}' differs from high-confidence site evidence suggesting '{auto_vertical}'. Review the selection before using the score commercially."
+                if mismatch else "Business-type selection is consistent with available evidence or automatic confidence is not high enough to challenge it."
+            ),
+        }
+
     def _static_content_signals(
         self,
         visible_text: str,
@@ -1269,7 +2250,8 @@ class HybridScanner:
             or any("maps.google" in href or "google.com/maps" in href for href in hrefs)
             or "postaladdress" in schema_lower
         )
-        trust_badges = bool(re.search(r"\b(verified|secure checkout|bbb accredited|trustpilot|licensed|insured|certified)\b", text_lower))
+        credential_signal_types = self._detect_credential_signals(visible_text, links, schema_types)
+        trust_badges = bool(credential_signal_types)
         reviews_visible = bool("aggregaterating" in schema_lower or re.search(r"\b(testimonials?|customer reviews?|client reviews?|reviews?)\b", text_lower))
         guarantee_refund = bool(re.search(r"\b(money[- ]back|refund policy|satisfaction guarantee|guaranteed)\b", text_lower))
         about_team = any(re.search(r"\b(about|our team|team|our story|who we are)\b", text) for text in link_text)
@@ -1350,10 +2332,12 @@ class HybridScanner:
         return {
             "address_location_visible": address_visible,
             "trust_badges_present": trust_badges,
+            "credential_signals_present": bool(credential_signal_types),
+            "credential_signal_types": credential_signal_types,
             "reviews_visible": reviews_visible,
             "guarantee_refund_present": guarantee_refund,
             "about_team_linked": about_team,
-            "social_proof_present": reviews_visible or trust_badges,
+            "social_proof_present": reviews_visible or trust_badges or case_studies,
             "faq_present": faq,
             "case_studies_portfolio_present": case_studies,
             "blog_present": blog,
@@ -1530,8 +2514,8 @@ class HybridScanner:
             "phone_number_visible", "click_to_call_present", "whatsapp_present", "live_chat_present",
             "favicon_present", "html_lang_present", "canonical_present", "mobile_viewport_configured",
             "schema_present", "has_clarity", "has_hotjar", "has_qualitative_analytics",
-            "has_ga4", "has_meta_pixel", "retargeting_pixel_installed", "forms_present",
-            "address_location_visible", "trust_badges_present", "reviews_visible",
+            "has_other_measurement", "measurement_layer_present", "has_ga4", "has_meta_pixel", "retargeting_pixel_installed", "forms_present",
+            "address_location_visible", "trust_badges_present", "credential_signals_present", "reviews_visible",
             "guarantee_refund_present", "about_team_linked", "social_proof_present",
             "faq_present", "case_studies_portfolio_present", "blog_present", "social_links_present",
             "privacy_policy_linked", "terms_linked", "privacy_terms_linked", "cookie_banner_present",
@@ -1557,6 +2541,19 @@ class HybridScanner:
             first.get("detected_phone_numbers"), second.get("detected_phone_numbers")
         )
         merged["schema_types"] = self._union_strings(first.get("schema_types"), second.get("schema_types"))
+        merged["credential_signal_types"] = self._union_strings(first.get("credential_signal_types"), second.get("credential_signal_types"))
+        merged["measurement_platforms"] = self._union_strings(first.get("measurement_platforms"), second.get("measurement_platforms"))
+        merged["measurement_layer_present"] = bool(merged.get("measurement_platforms") or merged.get("measurement_layer_present"))
+        merged["credential_signals_present"] = bool(merged.get("credential_signal_types") or merged.get("credential_signals_present"))
+        merged["internal_links"] = self._union_strings(first.get("internal_links"), second.get("internal_links"))
+        merged["booking_provider_links"] = self._dedupe_booking_provider_links(
+            list(first.get("booking_provider_links") or []) + list(second.get("booking_provider_links") or [])
+        )
+        merged["conversion_error_signals"] = list(first.get("conversion_error_signals") or []) + [
+            item for item in (second.get("conversion_error_signals") or [])
+            if item not in (first.get("conversion_error_signals") or [])
+        ]
+        merged["conversion_path_error_detected"] = bool(merged["conversion_error_signals"])
 
         if merged.get("phone_number_visible") is not None:
             merged["phone_visibility_status"] = "verified"
@@ -1665,13 +2662,24 @@ class HybridScanner:
             merged[key] = consensus
 
         merged["schema_types"] = self._union_strings(static.get("schema_types"), dom.get("schema_types"))
+        merged["credential_signal_types"] = self._union_strings(static.get("credential_signal_types"), dom.get("credential_signal_types"))
+        merged["credential_signals_present"] = bool(merged.get("credential_signal_types") or static.get("credential_signals_present") or dom.get("credential_signals_present"))
+        merged["internal_links"] = self._union_strings(static.get("internal_links"), dom.get("internal_links"))
+        merged["booking_provider_links"] = self._dedupe_booking_provider_links(
+            list(static.get("booking_provider_links") or []) + list(dom.get("booking_provider_links") or [])
+        )
+        merged["conversion_error_signals"] = list(static.get("conversion_error_signals") or []) + [
+            item for item in (dom.get("conversion_error_signals") or [])
+            if item not in (static.get("conversion_error_signals") or [])
+        ]
+        merged["conversion_path_error_detected"] = bool(merged["conversion_error_signals"])
         if merged["schema_types"]:
             merged["schema_present"] = True
 
         # Visible/trust/contact signals: any positive source wins. A raw-HTML miss by itself is not
         # enough to fail because client-rendered/lazy content may not exist in the initial source.
         visible_presence_keys = (
-            "address_location_visible", "trust_badges_present", "reviews_visible",
+            "address_location_visible", "trust_badges_present", "credential_signals_present", "reviews_visible",
             "guarantee_refund_present", "about_team_linked", "social_proof_present",
             "faq_present", "case_studies_portfolio_present", "blog_present", "social_links_present",
             "privacy_policy_linked", "terms_linked", "privacy_terms_linked", "cookie_banner_present",
@@ -1745,8 +2753,8 @@ class HybridScanner:
         # Tracking presence: a positive in either source wins. A rendered negative is conclusive;
         # static-only negatives stay UNKNOWN because tags can be injected dynamically.
         for key in (
-            "has_clarity", "has_hotjar", "has_qualitative_analytics", "has_ga4",
-            "has_meta_pixel", "retargeting_pixel_installed",
+            "has_clarity", "has_hotjar", "has_qualitative_analytics", "has_other_measurement",
+            "measurement_layer_present", "has_ga4", "has_meta_pixel", "retargeting_pixel_installed",
         ):
             consensus = self._presence_consensus(
                 static.get(key),
@@ -1757,6 +2765,9 @@ class HybridScanner:
                 allow_second_only_negative=True,
             )
             merged[key] = consensus
+
+        merged["measurement_platforms"] = self._union_strings(static.get("measurement_platforms"), dom.get("measurement_platforms"))
+        merged["measurement_layer_present"] = bool(merged.get("measurement_platforms") or merged.get("measurement_layer_present"))
 
         # Forms can be inserted by JavaScript. Positive evidence wins; static-only absence is unknown.
         forms_consensus = self._presence_consensus(
@@ -1896,6 +2907,9 @@ class HybridScanner:
             "has_clarity": False,
             "has_hotjar": False,
             "has_qualitative_analytics": False,
+            "has_other_measurement": False,
+            "measurement_layer_present": False,
+            "measurement_platforms": [],
             "has_ga4": False,
             "has_meta_pixel": False,
             "retargeting_pixel_installed": False,
@@ -1908,6 +2922,8 @@ class HybridScanner:
             "lazy_loading_status": "UNKNOWN",
             "address_location_visible": None,
             "trust_badges_present": None,
+            "credential_signals_present": None,
+            "credential_signal_types": [],
             "reviews_visible": None,
             "guarantee_refund_present": None,
             "about_team_linked": None,
@@ -1931,6 +2947,17 @@ class HybridScanner:
             "product_ui_preview_signal": None,
             "author_bylines_present": None,
             "publication_dates_visible": None,
+            "internal_links": [],
+            "booking_provider_links": [],
+            "conversion_error_signals": [],
+            "evidence_screenshot_mime": "",
+            "evidence_screenshot_b64": "",
+            "evidence_screenshot_sha256": "",
+            "conversion_path_error_detected": False,
+            "journey_evidence_status": "unknown",
+            "journey_pages_scanned": [],
+            "journey_pages_verified": 0,
+            "journey_text_sample": "",
             "custom_photography_status": "UNKNOWN",
             "custom_photography_signal": False,
         }
@@ -1968,7 +2995,9 @@ class HybridScanner:
             # Lazy hydration is an evidence enhancer, never a reason to fail the scan.
             return
 
-    async def _run_targeted_playwright(self, url: str, psi_data: Dict[str, Any], mode: str = "mobile") -> Dict[str, Any]:
+    async def _run_targeted_playwright(
+        self, url: str, psi_data: Dict[str, Any], mode: str = "mobile", capture_evidence: bool = False
+    ) -> Dict[str, Any]:
         results = self._empty_dom_meta()
         audits = (psi_data.get("lighthouseResult") or {}).get("audits") or {}
         tap_items = ((audits.get("tap-targets") or {}).get("details") or {}).get("items")
@@ -2144,17 +3173,17 @@ class HybridScanner:
                     '[itemscope], [typeof], script[type="application/ld+json"]'
                 ).count() > 0
 
-                # Analytics and tracking evidence.
-                results["has_clarity"] = "clarity.ms" in content_lower
-                results["has_hotjar"] = "hotjar.com" in content_lower or "static.hotjar.com" in content_lower
+                # Analytics and tracking evidence. Recognize common alternatives so absence of GA4
+                # alone does not become a false "no measurement" conclusion.
+                measurement_platforms = self._detect_measurement_platforms(content_lower)
+                results["measurement_platforms"] = measurement_platforms
+                results["has_ga4"] = "Google Analytics / GTM" in measurement_platforms
+                results["has_meta_pixel"] = "Meta Pixel" in measurement_platforms
+                results["has_clarity"] = "Microsoft Clarity" in measurement_platforms
+                results["has_hotjar"] = "Hotjar" in measurement_platforms
                 results["has_qualitative_analytics"] = results["has_clarity"] or results["has_hotjar"]
-                results["has_ga4"] = any(
-                    marker in content_lower
-                    for marker in ("googletagmanager.com/gtag/js", "gtag(", "gtm.js", "gtm-")
-                )
-                results["has_meta_pixel"] = any(
-                    marker in content_lower for marker in ("connect.facebook.net", "fbevents.js", "fbq(")
-                )
+                results["has_other_measurement"] = bool(set(measurement_platforms) - {"Google Analytics / GTM", "Meta Pixel", "Microsoft Clarity", "Hotjar"})
+                results["measurement_layer_present"] = bool(measurement_platforms)
                 results["retargeting_pixel_installed"] = results["has_meta_pixel"] or any(
                     marker in content_lower
                     for marker in ("googleadservices.com/pagead/conversion", "doubleclick.net", "aw-")
@@ -2240,6 +3269,24 @@ class HybridScanner:
 
                 # Content / trust / navigation signals used only when observed.
                 results.update(await self._collect_content_signals(page, visible_text, schema_types))
+                dom_links = await page.locator("a[href]").evaluate_all(
+                    "els => els.map(a => ({href:(a.href||''), text:(a.innerText||a.getAttribute('aria-label')||'')}))"
+                )
+                iframe_links = await page.locator("iframe[src]").evaluate_all(
+                    "els => els.map(x => ({href:(x.src||''), text:(x.title||x.getAttribute('aria-label')||'')}))"
+                )
+                results["internal_links"] = self._same_origin_internal_links(page.url, dom_links)
+                results["booking_provider_links"] = self._extract_booking_provider_links(page.url, dom_links + iframe_links)
+                results["conversion_error_signals"] = self._detect_conversion_error_signals(visible_text, content_lower, page.url)
+                results["conversion_path_error_detected"] = bool(results["conversion_error_signals"])
+                if capture_evidence and results["conversion_error_signals"] and str(os.environ.get("TRILLOKA_EVIDENCE_SCREENSHOTS", "1")).lower() not in {"0", "false", "no"}:
+                    try:
+                        shot = await page.screenshot(type="jpeg", quality=45, full_page=False)
+                        results["evidence_screenshot_mime"] = "image/jpeg"
+                        results["evidence_screenshot_b64"] = base64.b64encode(shot).decode("ascii")
+                        results["evidence_screenshot_sha256"] = hashlib.sha256(shot).hexdigest()
+                    except Exception as shot_exc:
+                        results["evidence_screenshot_error"] = str(shot_exc)[:180]
                 results["checkout_form_field_count"] = (
                     results.get("form_max_field_count")
                     if results.get("checkout_context_detected")
@@ -2291,6 +3338,25 @@ class HybridScanner:
             except Exception:
                 continue
         return sorted(set(x.strip() for x in found if str(x).strip()))
+
+    @staticmethod
+    def _detect_measurement_platforms(content_lower: str) -> List[str]:
+        text = str(content_lower or "").lower()
+        markers = (
+            ("Google Analytics / GTM", ("googletagmanager.com/gtag/js", "googletagmanager.com/gtm.js", "google-analytics.com/analytics.js", "gtag(", "gtm-")),
+            ("Meta Pixel", ("connect.facebook.net", "fbevents.js", "fbq(")),
+            ("Microsoft Clarity", ("clarity.ms",)),
+            ("Hotjar", ("hotjar.com", "static.hotjar.com")),
+            ("Matomo", ("matomo.js", "matomo.php", "piwik.js", "piwik.php")),
+            ("Plausible", ("plausible.io/js", "plausible.io/api/event")),
+            ("Adobe Analytics", ("omtrdc.net", "assets.adobedtm.com", "adobedtm.com", "s_code.js", "alloy.min.js")),
+            ("Segment", ("cdn.segment.com/analytics.js", "analytics.load(")),
+            ("Mixpanel", ("cdn.mxpnl.com", "mixpanel.init(")),
+            ("Amplitude", ("cdn.amplitude.com", "amplitude.init(", "amplitude.getinstance")),
+            ("Heap", ("cdn.heapanalytics.com", "heap.load(")),
+            ("HubSpot Analytics", ("js.hs-analytics.net", "js.hubspot.com/analytics")),
+        )
+        return [name for name, needles in markers if any(needle in text for needle in needles)]
 
     @staticmethod
     def _detect_live_chat(content_lower: str, visible_text: str) -> bool:
@@ -2380,9 +3446,8 @@ class HybridScanner:
             or any("maps.google" in href or "google.com/maps" in href for href in hrefs)
             or "postaladdress" in schema_lower
         )
-        trust_badges = bool(
-            re.search(r"\b(verified|secure checkout|bbb accredited|trustpilot|licensed|insured|certified)\b", text_lower)
-        )
+        credential_signal_types = self._detect_credential_signals(visible_text, links, schema_types)
+        trust_badges = bool(credential_signal_types)
         reviews_visible = bool(
             "aggregaterating" in schema_lower
             or re.search(
@@ -2473,10 +3538,12 @@ class HybridScanner:
         return {
             "address_location_visible": address_visible,
             "trust_badges_present": trust_badges,
+            "credential_signals_present": bool(credential_signal_types),
+            "credential_signal_types": credential_signal_types,
             "reviews_visible": reviews_visible,
             "guarantee_refund_present": guarantee_refund,
             "about_team_linked": about_team,
-            "social_proof_present": reviews_visible or trust_badges,
+            "social_proof_present": reviews_visible or trust_badges or case_studies,
             "faq_present": faq,
             "case_studies_portfolio_present": case_studies,
             "blog_present": blog,
@@ -2624,6 +3691,7 @@ class HybridScanner:
                 str(data.get("meta_description") or ""),
                 " ".join(data.get("h1_tags") or []),
                 str(data.get("page_text") or "")[:20000],
+                str(data.get("journey_text_sample") or "")[:18000],
                 " ".join(data.get("schema_types") or []),
                 " ".join(data.get("mobile_cta_types") or []),
             ]
@@ -2652,11 +3720,16 @@ class HybridScanner:
             ),
             "local_service": (
                 "service area", "free estimate", "get a quote", "plumbing", "electrician", "cleaning service",
-                "roofing", "moving", "contractor", "landscaping", "hvac", "repair service",
+                "roofing", "moving", "movers", "contractor", "general contractor", "landscaping", "hvac", "repair service",
+                "renovation", "remodeling", "remodelling", "custom home", "house cleaning", "office cleaning", "janitorial",
             ),
             "professional_service": (
                 "consulting", "consultant", "accounting", "bookkeeping",
                 "architecture firm", "engineering firm", "professional services",
+                "physiotherapy", "physiotherapist", "physical therapy", "rehabilitation",
+                "chiropractic", "chiropractor", "massage therapy", "podiatry",
+                "dentist", "dental clinic", "psychologist", "counselling", "counseling",
+                "occupational therapy", "speech therapy", "registered massage therapist",
             ),
         }
 
@@ -2667,6 +3740,28 @@ class HybridScanner:
                 if phrase in text:
                     score_map[vertical] += 1
                     signal_map[vertical].append(phrase)
+
+        # Strong healthcare language should not be mistaken for aesthetics/medspa merely because
+        # both businesses use appointments and treatment language.
+        healthcare_terms = (
+            "physiotherapy", "physiotherapist", "physical therapy", "rehabilitation",
+            "chiropractic", "chiropractor", "registered massage therapist", "podiatry",
+            "dental clinic", "dentist", "occupational therapy", "speech therapy",
+        )
+        healthcare_hits = [term for term in healthcare_terms if term in text]
+        if healthcare_hits:
+            score_map["professional_service"] += min(8, 2 + len(healthcare_hits) * 2)
+            signal_map["professional_service"].extend(healthcare_hits[:4])
+
+        local_service_terms = (
+            "general contractor", "custom home", "renovation", "remodeling", "remodelling",
+            "plumbing", "electrician", "hvac", "roofing", "moving company", "movers",
+            "cleaning service", "house cleaning", "office cleaning", "janitorial", "landscaping",
+        )
+        local_hits = [term for term in local_service_terms if term in text]
+        if local_hits:
+            score_map["local_service"] += min(7, 1 + len(local_hits) * 2)
+            signal_map["local_service"].extend(local_hits[:4])
 
         # Strong structured/action evidence gets extra weight.
         schema_text = " ".join(data.get("schema_types") or []).lower()
@@ -2701,8 +3796,13 @@ class HybridScanner:
             signals = signal_map.get(best_vertical, [])[:8]
 
         primary, secondary = self._conversion_model(best_vertical, cta_types)
+        inferred_subtype = self._infer_business_subtype(best_vertical, text)
+        # Strong healthcare terms override broader professional-service subtype labels.
+        if best_vertical == "professional_service" and healthcare_hits and inferred_subtype not in {"dental_clinic"}:
+            inferred_subtype = "healthcare_clinic"
         return {
             "vertical": best_vertical,
+            "inferred_subtype": inferred_subtype,
             "confidence": round(confidence, 2),
             "primary_conversion": primary,
             "secondary_conversions": secondary,
@@ -2755,7 +3855,7 @@ class HybridScanner:
             "b2b": ("enterprise", "business", "industrial", "wholesale", "manufacturer", "distribution", "solutions"),
             "creator": ("creator", "newsletter", "podcast", "membership", "subscribe", "content"),
             "local_service": ("service", "repair", "cleaning", "contractor", "plumbing", "moving"),
-            "professional_service": ("consulting", "services", "architecture", "engineering", "accounting"),
+            "professional_service": ("consulting", "services", "architecture", "engineering", "accounting", "physiotherapy", "physiotherapist", "dental", "dentist", "rehabilitation"),
         }.get(vertical, ())
         if any(keyword in h1 for keyword in keywords):
             return "PASS"
@@ -2801,6 +3901,7 @@ class HybridScanner:
             "tracking": str(data.get("tracking_evidence_status") or "").lower() == "verified",
             "images": str(data.get("image_evidence_status") or "").lower() == "verified",
             "forms": str(data.get("form_evidence_status") or "").lower() == "verified",
+            "journey": str(data.get("journey_evidence_status") or "").lower() == "verified",
             "pagespeed": data.get("pagespeed_api_status") == "success",
             "crux": bool(data.get("crux_available")),
         }

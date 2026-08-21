@@ -1,11 +1,22 @@
 """Trilloka evidence-weighted Revenue Readiness scorer.
 
+V6.9 final score-calibration guardrails:
+- High score bands are gated by verified commercial maturity; ordinary strengths cannot accumulate into elite scores by themselves.
+- Evidence Confidence is published separately from website quality.
+- Revenue Readiness explicitly excludes demand, product-market fit, traffic quality, pricing and sales-team execution.
+- Auxiliary Presence/Conversion surfaces are computed from their own applicable checkpoint evidence instead of copying the overall score.
+
+V6.8 proof guardrails:
+- High-impact candidates at/above the configured threshold must survive a second passive confirmation pass.
+- Disputed/unconfirmed severe candidates become unscored observations rather than deductions.
+- Every scored finding receives an evidence receipt with URL, signal, method, timestamp and confidence.
+
 Scoring philosophy:
 - A functioning site begins from a 50-point operating baseline, not 100.
 - Verified strengths must be earned from real telemetry.
 - Verified leaks subtract weighted points.
 - Unknown evidence is neutral: it earns no strength and creates no penalty.
-- Ordinary good sites should typically land around 65-75.
+- Ordinary good sites should typically land around 60-69 unless core commercial maturity is independently verified.
 - Scores above 70 enter a soft-ceiling zone so very strong sites remain distinguishable without implying near-perfect commercial readiness.
 - The public Revenue Readiness score can never exceed 78/100.
 
@@ -14,6 +25,8 @@ This score is a Revenue Readiness INDEX, NOT a literal visitor conversion percen
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import secrets
 import string
@@ -21,7 +34,7 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
 from behavioural_engine import BehaviouralEngine
-from checkpoint_engine import FAIL, build_50_checkpoints, checkpoint_summary
+from checkpoint_engine import FAIL, PASS, UNKNOWN, NA, build_50_checkpoints, checkpoint_summary
 
 
 # -------------------------------
@@ -120,6 +133,19 @@ RULE_BASE_WEIGHTS: Dict[str, Dict[str, float]] = {
         "b2b": 10.0,
         "creator": 6.0,
     },
+    "conversion_path_error": {
+        "default": 8.0,
+        "restaurant": 8.0,
+        "local_service": 10.0,
+        "professional_service": 9.0,
+        "medspa": 10.0,
+        "legal": 10.0,
+        "ecommerce": 10.0,
+        "saas": 9.0,
+        "agency": 9.0,
+        "b2b": 9.5,
+        "creator": 7.0,
+    },
     "lead_form_friction": {
         "default": 4.0,
         "local_service": 6.0,
@@ -206,6 +232,7 @@ RESEARCH_MULTIPLIER_BY_RULE: Dict[str, Any] = {
     "unsecured_ssl": 1.10,
     "core_web_vitals": 1.15,
     "form_architecture": 1.15,
+    "conversion_path_error": 1.00,
     "primary_conversion_path": 1.20,
     "lead_form_friction": 1.10,
     "checkout_cost_transparency": 1.00,
@@ -277,6 +304,7 @@ RESEARCH_MULTIPLIER_BY_RULE: Dict[str, Any] = {
 }
 
 RESEARCH_BASIS_BY_RULE: Dict[str, Dict[str, str]] = {
+    "conversion_path_error": {"source": "Site-specific passive journey evidence", "class": "direct observed customer-path error", "scope": "same-origin conversion pages"},
     "checkout_cost_transparency": {"source": "Baymard Institute", "class": "quantitative checkout abandonment", "scope": "ecommerce checkout"},
     "guest_checkout_barrier": {"source": "Baymard Institute", "class": "quantitative checkout abandonment", "scope": "ecommerce checkout"},
     "checkout_complexity": {"source": "Baymard Institute", "class": "quantitative checkout abandonment + usability testing", "scope": "ecommerce checkout"},
@@ -346,11 +374,18 @@ MAX_REVENUE_READINESS_SCORE = 78.0
 SOFT_CEILING_START_SCORE = 70.0
 SOFT_CEILING_SCALE = 10.0
 
+# Maturity-band caps are eligibility guardrails, not extra deductions.
+FOUNDATIONAL_MATURITY_CAP = 69.0
+STRONG_MATURITY_CAP = 74.0
+EXCEPTIONAL_MATURITY_CAP = 76.0
+REFERENCE_MATURITY_CAP = 78.0
+
 LEAK_FAMILY = {
     "click_to_call": "mobile_direct_action",
     "mobile_sticky_cta": "mobile_direct_action",
     "primary_conversion_path": "conversion_execution",
     "form_architecture": "conversion_execution",
+    "conversion_path_error": "conversion_execution",
     "lead_form_friction": "conversion_execution",
     "checkout_cost_transparency": "checkout_cost",
     "guest_checkout_barrier": "checkout_account",
@@ -520,7 +555,11 @@ class RevenueScorer:
                 biz_type=biz_type,
             )
         )
+        raw_leaks, unconfirmed_high_impact = self._apply_high_impact_confirmation_guardrail(
+            raw_leaks, scan_data
+        )
         leaks, overlap_adjustments = self._apply_family_deduplication(raw_leaks)
+        self._attach_evidence_receipts(leaks, scan_data)
 
         # Harsh-but-defensible calibration:
         # 50 operating baseline + earned verified strengths + gated elite maturity - verified leaks.
@@ -552,7 +591,32 @@ class RevenueScorer:
             - total_loss
         )
         raw_readiness = max(0.0, min(100.0, pre_clamp))
-        overall = round(self._apply_readiness_ceiling(raw_readiness), 1)
+        preliminary_public_score = round(self._apply_readiness_ceiling(raw_readiness), 3)
+
+        evidence_confidence = self._build_evidence_confidence(
+            cp_summary=cp_summary,
+            scan_quality=scan_quality,
+            coverage=coverage,
+            browser_loaded=bool(scan_data.get("browser_loaded")),
+            unconfirmed_high_impact=unconfirmed_high_impact,
+        )
+        maturity_gate = self._evaluate_maturity_gate(
+            scan_data=scan_data,
+            biz_type=biz_type,
+            profile=profile,
+            checkpoints=checkpoints,
+            leaks=leaks,
+            cp_summary=cp_summary,
+            evidence_confidence=evidence_confidence,
+            standard_strength=standard_strength,
+            elite_bonus=elite_bonus,
+            total_loss=total_loss,
+            unconfirmed_high_impact=unconfirmed_high_impact,
+        )
+        overall = round(min(preliminary_public_score, float(maturity_gate["score_cap"])), 1)
+        maturity_gate["pre_gate_score"] = round(preliminary_public_score, 1)
+        maturity_gate["final_score"] = overall
+        maturity_gate["cap_applied"] = bool(preliminary_public_score > float(maturity_gate["score_cap"]) + 1e-9)
 
         sorted_leaks = sorted(leaks, key=lambda item: item.get("final_score_loss", 0.0), reverse=True)
         report_leaks = self._consolidate_report_families(sorted_leaks)
@@ -571,7 +635,8 @@ class RevenueScorer:
         ai_pct = self._safe_float(scan_data.get("ai_spectrum_pct"))
         perf = self._safe_float(scan_data.get("performance_score"))
         seo = self._safe_float(scan_data.get("google_seo_score"))
-        exposure = self._revenue_exposure(overall, biz_type, total_loss)
+        # Maturity caps express unverified readiness; they must not create extra modeled dollar exposure.
+        exposure = self._revenue_exposure(preliminary_public_score, biz_type, total_loss)
 
         # Preserve the public keys, but do not represent unavailable telemetry as a
         # real score of zero. Availability flags remain explicit for the frontend.
@@ -592,8 +657,14 @@ class RevenueScorer:
             "mobile_performance_score": round(perf) if perf is not None else None,
             "seo_health_index": round(seo) if seo is not None else None,
             "ai_spectrum_pct": round(ai_pct, 1) if ai_pct is not None else None,
-            "online_presence_index": round(overall, 1),
-            "conversion_efficiency": round(overall, 1),
+            "online_presence_index": self._checkpoint_surface_index(
+                checkpoints,
+                checkpoint_ids={1, 2, 6, 9, 10, 11, 13, 14, 16, 17, 18, 19, 20, 21, 22, 23, 24, 27, 34, 39, 40, 41, 42, 45, 46, 47, 48},
+            ),
+            "conversion_efficiency": self._checkpoint_surface_index(
+                checkpoints,
+                checkpoint_ids={3, 4, 5, 7, 8, 10, 11, 13, 14, 43, 48, 50},
+            ),
             "competitor_gap_score": competitor_gap,
             "competitor_gap_kind": competitor_gap_kind,
             "competitor_data_available": measured_competitor or bool(competitor_data_present),
@@ -607,6 +678,10 @@ class RevenueScorer:
             "seo_health_available": seo is not None,
             "ai_spectrum_available": ai_pct is not None,
             "pagespeed_api_status": str(scan_data.get("pagespeed_api_status") or "unavailable"),
+            "surface_metric_notes": {
+                "online_presence_index": "Checkpoint-based public presence/trust/technical surface; not traffic, demand or brand awareness.",
+                "conversion_efficiency": "Checkpoint-based observable conversion-path readiness; not measured conversion rate.",
+            },
         }
 
         tiered = {
@@ -628,6 +703,9 @@ class RevenueScorer:
             "overall_score": overall,
             "score_status": "available",
             "score_rating": self._get_score_rating(overall),
+            "score_scope": "Observable website Revenue Readiness only. It does not measure product-market fit, market demand, traffic quality, pricing, sales-team performance, offline operations or actual revenue.",
+            "evidence_confidence": evidence_confidence,
+            "maturity_gate": maturity_gate,
             "surface_metrics": surface_metrics,
             "competitor_benchmark": competitor_benchmark,
             "key_friction_insight": key_friction,
@@ -651,14 +729,19 @@ class RevenueScorer:
             "tiered_remediation_packages": tiered,
             "vault_id": self._get_vault_id(overall),
             "cms_platform": str(scan_data.get("cms_platform") or "Not confidently identified"),
+            "scanner_engine_version": scan_data.get("scanner_engine_version", "unknown"),
             "scan_quality": scan_quality,
             "checkpoint_summary": cp_summary,
             "full_50_checkpoint_basis": checkpoints,
             "scoring_ledger": [self._ledger_row(leak) for leak in sorted_leaks],
+            "evidence_receipts": [dict(leak.get("evidence_receipt") or {}) for leak in report_leaks if leak.get("evidence_receipt")],
+            "high_impact_confirmation": scan_data.get("high_impact_confirmation") or {},
+            "unconfirmed_high_impact_observations": unconfirmed_high_impact,
             "strength_ledger": strength_ledger,
             "elite_strength_ledger": elite_ledger,
             "overlap_adjustments": overlap_adjustments,
-                        "score_semantics": "Revenue Readiness index; not a literal visitor conversion percentage.",
+            "score_semantics": "Revenue Readiness index for observable website architecture; not a literal visitor conversion percentage, sales forecast or business-quality score.",
+            "score_scope_exclusions": ["product-market fit", "market demand", "traffic quality", "pricing", "sales-team execution", "offline operations", "actual revenue"],
             "score_ceiling": MAX_REVENUE_READINESS_SCORE,
             "score_ceiling_note": "78/100 is the maximum public readiness index. It does not mean 78% of visitors convert.",
             "research_calibration": {
@@ -679,9 +762,13 @@ class RevenueScorer:
                 "total_final_penalty": total_loss,
                 "pre_clamp_score": round(pre_clamp, 2),
                 "raw_pre_ceiling_score": round(raw_readiness, 2),
+                "pre_maturity_gate_public_score": round(preliminary_public_score, 2),
+                "maturity_band_cap": maturity_gate.get("score_cap"),
+                "maturity_band": maturity_gate.get("band"),
+                "maturity_cap_applied": maturity_gate.get("cap_applied"),
                 "public_score_ceiling": MAX_REVENUE_READINESS_SCORE,
                 "soft_ceiling_starts_at": SOFT_CEILING_START_SCORE,
-                "ceiling_method": "soft saturation above 70; no public score can exceed 78",
+                "ceiling_method": "soft saturation above 70 plus evidence-backed maturity-band caps; no public score can exceed 78",
                 "final_score": overall,
             },
         }
@@ -713,7 +800,23 @@ class RevenueScorer:
             return profile, "general"
         if requested_raw not in {"", "auto", "unknown", "none"} and requested_norm != "general":
             profile = automatic
-            profile.update({"vertical": requested_norm, "confidence": 1.0, "source": "explicit_request"})
+            automatic_vertical = auto_vertical
+            mismatch = bool(automatic_vertical != "general" and automatic_vertical != requested_norm and auto_conf >= 0.72)
+            automatic_subtype = str(profile.get("inferred_subtype") or automatic_vertical)
+            profile.update({
+                "vertical": requested_norm,
+                "inferred_subtype": requested_norm if mismatch else automatic_subtype,
+                "automatic_subtype": automatic_subtype,
+                "confidence": 1.0,
+                "source": "explicit_request",
+                "automatic_vertical": automatic_vertical,
+                "automatic_confidence": round(auto_conf, 2),
+                "type_mismatch_warning": mismatch,
+                "type_mismatch_message": (
+                    f"Selected business type '{requested_norm}' differs from high-confidence site evidence suggesting '{automatic_vertical}'."
+                    if mismatch else ""
+                ),
+            })
             return profile, requested_norm
 
         if auto_vertical != "general" and auto_conf >= 0.55:
@@ -1131,6 +1234,185 @@ class RevenueScorer:
             return REFERENCE_COMPLETENESS_BONUS
         return 0.0
 
+    @staticmethod
+    def _build_evidence_confidence(
+        cp_summary: Dict[str, Any],
+        scan_quality: Dict[str, Any],
+        coverage: Dict[str, Any],
+        browser_loaded: bool,
+        unconfirmed_high_impact: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Describe confidence in the score separately from the site's quality."""
+        verified_ratio = RevenueScorer._safe_float(cp_summary.get("verified_applicable_ratio")) or 0.0
+        coverage_ratio = RevenueScorer._safe_float(coverage.get("ratio")) or 0.0
+        quality_label = str(scan_quality.get("confidence") or "unknown").lower()
+        quality_factor = {"high": 1.0, "medium": 0.78, "moderate": 0.72, "low": 0.52, "unknown": 0.45}.get(quality_label, 0.45)
+        blended = (0.58 * verified_ratio) + (0.27 * coverage_ratio) + (0.15 * quality_factor)
+        unresolved_count = len([x for x in (unconfirmed_high_impact or []) if isinstance(x, dict)])
+        if unresolved_count:
+            blended = min(blended, 0.79)
+        if not browser_loaded:
+            blended = min(blended, 0.72)
+        score = round(max(0.0, min(1.0, blended)) * 100.0, 1)
+        level = "HIGH" if score >= 82 else ("MEDIUM" if score >= 65 else "LIMITED")
+        return {
+            "level": level,
+            "score": score,
+            "verified_applicable_ratio": round(verified_ratio, 3),
+            "scanner_coverage_ratio": round(coverage_ratio, 3),
+            "scan_quality_confidence": quality_label,
+            "verified_checkpoints": int(cp_summary.get("verified") or 0),
+            "applicable_checkpoints": int(cp_summary.get("applicable") or 0),
+            "unknown_checkpoints": int(cp_summary.get("unknown") or 0),
+            "not_applicable_checkpoints": int(cp_summary.get("not_applicable") or 0),
+            "unresolved_high_impact_observations": unresolved_count,
+            "note": "Evidence Confidence describes how much applicable public evidence was independently verified. It is not a grade for the business.",
+        }
+
+    @staticmethod
+    def _checkpoint_surface_index(checkpoints: List[Dict[str, Any]], checkpoint_ids: set[int]) -> Optional[float]:
+        relevant = [cp for cp in (checkpoints or []) if int(cp.get("id") or 0) in checkpoint_ids and str(cp.get("status") or "") != NA]
+        if not relevant:
+            return None
+        verified = [cp for cp in relevant if str(cp.get("status") or "") in {PASS, FAIL}]
+        if len(verified) < 2:
+            return None
+        passed = sum(1 for cp in verified if str(cp.get("status") or "") == PASS)
+        pass_ratio = passed / len(verified)
+        verification_ratio = len(verified) / len(relevant)
+        index = 100.0 * ((0.90 * pass_ratio) + (0.10 * verification_ratio))
+        return round(max(0.0, min(100.0, index)), 1)
+
+    @staticmethod
+    def _maturity_trust_state(scan_data: Dict[str, Any], biz_type: str, profile: Dict[str, Any]) -> Dict[str, Any]:
+        subtype = str(profile.get("inferred_subtype") or biz_type)
+        credentials = bool(scan_data.get("credential_signals_present") or scan_data.get("credential_signal_types"))
+        reviews = bool(scan_data.get("reviews_visible"))
+        social = bool(scan_data.get("social_proof_present"))
+        badges = bool(scan_data.get("trust_badges_present"))
+        about = bool(scan_data.get("about_team_linked"))
+        proof_work = bool(scan_data.get("case_studies_portfolio_present"))
+        signal_count = sum((credentials, reviews, social, badges, about, proof_work))
+        if biz_type in {"legal", "medspa"} or subtype in {"healthcare_clinic", "dental_clinic"}:
+            passed = credentials and bool(reviews or social or about)
+            rationale = "regulated/professional trust requires a credential plus an independent proof/identity signal"
+        elif biz_type in {"saas", "agency", "b2b"}:
+            passed = bool(reviews or social or proof_work) and about
+            rationale = "evaluation-led businesses require proof-of-work/customer proof plus clear company/team identity"
+        elif biz_type == "ecommerce":
+            passed = bool(reviews or social or badges)
+            rationale = "commerce trust requires at least one verified customer/trust signal"
+        elif biz_type in {"restaurant", "local_service"}:
+            passed = bool(reviews or social)
+            rationale = "local purchase decisions require at least one verified review/social-proof signal for elite readiness"
+        else:
+            passed = bool(signal_count >= 1)
+            rationale = "at least one independently verified trust, proof or identity signal is required for elite readiness"
+        return {
+            "passed": passed, "signal_count": signal_count, "credentials": credentials, "reviews": reviews,
+            "social_proof": social, "trust_badges": badges, "about_team": about, "proof_of_work": proof_work,
+            "rationale": rationale,
+        }
+
+    def _evaluate_maturity_gate(
+        self, scan_data: Dict[str, Any], biz_type: str, profile: Dict[str, Any],
+        checkpoints: List[Dict[str, Any]], leaks: List[Dict[str, Any]], cp_summary: Dict[str, Any],
+        evidence_confidence: Dict[str, Any], standard_strength: float, elite_bonus: float,
+        total_loss: float, unconfirmed_high_impact: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        by_id = {int(cp.get("id") or 0): cp for cp in (checkpoints or [])}
+        def status(cp_id: int) -> str:
+            return str((by_id.get(cp_id) or {}).get("status") or UNKNOWN)
+
+        subtype = str(profile.get("inferred_subtype") or biz_type)
+        conversion_points, conversion_evidence = self._business_conversion_strength(scan_data, biz_type, profile)
+        secure = bool(scan_data.get("response_ok") and scan_data.get("has_ssl") is True)
+        conversion = bool(conversion_points >= 1.5 and status(50) != FAIL)
+        trust_state = self._maturity_trust_state(scan_data, biz_type, profile)
+        measurement = bool(scan_data.get("measurement_layer_present") or scan_data.get("has_ga4") or scan_data.get("has_meta_pixel") or scan_data.get("has_other_measurement") or scan_data.get("has_qualitative_analytics"))
+
+        perf = self._safe_float(scan_data.get("performance_score"))
+        psi_success = scan_data.get("pagespeed_api_status") == "success" and perf is not None
+        crux_grade = str(scan_data.get("real_user_speed_grade") or "UNKNOWN").upper()
+        performance_foundation = bool((psi_success and perf >= 60) or crux_grade == "GOOD")
+        performance_exceptional = bool((psi_success and perf >= 75 and crux_grade != "POOR") or (not psi_success and crux_grade == "GOOD"))
+        performance_reference = bool((psi_success and perf >= 90 and crux_grade != "POOR") or (not psi_success and crux_grade == "GOOD"))
+
+        evidence_score = float(evidence_confidence.get("score") or 0.0)
+        unresolved = len([x for x in (unconfirmed_high_impact or []) if isinstance(x, dict)])
+        confirmed_major = [leak for leak in (leaks or []) if float(leak.get("pre_dedupe_penalty") or leak.get("final_score_loss") or 0.0) >= 3.5]
+
+        critical_ids = {1, 7, 31}
+        critical_by_business = {
+            "restaurant": {8, 9, 11}, "local_service": {8, 9, 11}, "professional_service": {13},
+            "medspa": {9, 10, 11, 13, 48}, "legal": {9, 10, 13, 48}, "ecommerce": {48},
+            "saas": {13, 45, 48}, "agency": {13, 45}, "b2b": {13, 45}, "creator": {13}, "general": set(),
+        }
+        critical_ids |= critical_by_business.get(biz_type, set())
+        if subtype in {"healthcare_clinic", "dental_clinic"}:
+            critical_ids |= {9, 10, 11, 48}
+        critical_failures = [{"id": cp_id, "check": (by_id.get(cp_id) or {}).get("check")} for cp_id in sorted(critical_ids) if status(cp_id) == FAIL]
+
+        foundational_gates = {
+            "secure_foundation": secure,
+            "business_conversion_path": conversion,
+            "business_appropriate_trust": bool(trust_state["passed"]),
+            "performance_foundation": performance_foundation,
+            "measurement_layer": measurement,
+            "evidence_confidence_at_least_70": evidence_score >= 70.0,
+            "no_confirmed_major_leak": len(confirmed_major) == 0,
+            "no_unresolved_major_observation": unresolved == 0,
+            "no_business_critical_checkpoint_failure": len(critical_failures) == 0,
+        }
+        foundational_pass = all(foundational_gates.values())
+        policy_clear = status(48) in {PASS, NA}
+        form_clear = status(5) in {PASS, NA}
+        exceptional_gates = {
+            "foundational_maturity": foundational_pass,
+            "performance_at_least_strong": performance_exceptional,
+            "high_evidence_confidence": evidence_score >= 82.0,
+            "policy_context_clear": policy_clear,
+            "form_architecture_clear_when_applicable": form_clear,
+            "no_more_than_two_applicable_failures": int(cp_summary.get("failed") or 0) <= 2,
+            "verified_penalty_burden_at_most_4": total_loss <= 4.0,
+        }
+        exceptional_pass = all(exceptional_gates.values())
+        reference_gates = {
+            "exceptional_maturity": exceptional_pass,
+            "reference_performance": performance_reference,
+            "evidence_confidence_at_least_90": evidence_score >= 90.0,
+            "at_most_one_applicable_failure": int(cp_summary.get("failed") or 0) <= 1,
+            "verified_penalty_burden_at_most_1_5": total_loss <= 1.5,
+            "strongest_business_conversion_path": conversion_points >= 2.5,
+            "at_least_two_trust_proof_signals": int(trust_state["signal_count"]) >= 2,
+            "substantial_standard_strength": standard_strength >= 24.0,
+            "meaningful_elite_strength": elite_bonus >= 4.0,
+        }
+        reference_pass = all(reference_gates.values())
+
+        if not foundational_pass:
+            band, cap = "FOUNDATIONAL_MATURITY_NOT_FULLY_VERIFIED", FOUNDATIONAL_MATURITY_CAP
+        elif not exceptional_pass:
+            band, cap = "STRONG_VERIFIED_MATURITY", STRONG_MATURITY_CAP
+        elif not reference_pass:
+            band, cap = "EXCEPTIONAL_VERIFIED_MATURITY", EXCEPTIONAL_MATURITY_CAP
+        else:
+            band, cap = "REFERENCE_LEVEL_ELIGIBLE", REFERENCE_MATURITY_CAP
+
+        active = list(foundational_gates.items()) if not foundational_pass else (list(exceptional_gates.items()) if not exceptional_pass else (list(reference_gates.items()) if not reference_pass else []))
+        failed_gate_names = [name for name, passed in active if not passed]
+        return {
+            "band": band, "score_cap": cap, "foundational_pass": foundational_pass,
+            "exceptional_pass": exceptional_pass, "reference_pass": reference_pass,
+            "foundational_gates": foundational_gates, "exceptional_gates": exceptional_gates, "reference_gates": reference_gates,
+            "failed_gate_names": failed_gate_names, "critical_checkpoint_failures": critical_failures, "trust_state": trust_state,
+            "performance": {"pagespeed_score": perf, "crux_grade": crux_grade, "foundation": performance_foundation, "exceptional": performance_exceptional, "reference": performance_reference},
+            "conversion_strength_points": conversion_points, "conversion_evidence": conversion_evidence,
+            "policy_checkpoint_status": status(48), "form_checkpoint_status": status(5),
+            "confirmed_major_leak_count": len(confirmed_major), "unresolved_major_observation_count": unresolved,
+            "note": "This cap is an eligibility guardrail, not an extra penalty. Ordinary strengths cannot accumulate into elite score bands unless core commercial maturity is independently verified.",
+        }
+
     def _evaluate_leaks(
         self,
         data: Dict[str, Any],
@@ -1214,7 +1496,8 @@ class RevenueScorer:
         # 3. Phone visibility vs click-to-call
         call_status = str(data.get("click_to_call_status") or "unknown").lower()
         phone_status = str(data.get("phone_visibility_status") or "unknown").lower()
-        if call_status == "verified" and phone_status == "verified" and not bool(data.get("click_to_call_present")):
+        call_relevant = biz_type in {"restaurant", "local_service", "professional_service", "medspa", "legal"}
+        if call_relevant and call_status == "verified" and phone_status == "verified" and not bool(data.get("click_to_call_present")):
             phone_visible = bool(data.get("phone_number_visible"))
             severity = 0.40 if phone_visible else 0.85
             substitution = self._conversion_substitution("click_to_call", biz_type, data, profile)
@@ -1244,8 +1527,11 @@ class RevenueScorer:
                 )
             )
 
-        # 4. Sticky CTA, distinct from normal CTA
-        if str(data.get("mobile_cta_status") or "unknown").lower() == "verified" and not bool(data.get("mobile_sticky_cta_present")):
+        # 4. Sticky CTA, distinct from normal CTA. It is not a universal requirement.
+        sticky_url = str(data.get("final_url") or data.get("url") or "").lower()
+        sticky_product_context = bool(data.get("add_to_cart_visible") or data.get("checkout_context_detected") or any(token in sticky_url for token in ("/product/", "/products/", "/item/", "/p/")))
+        sticky_relevant = call_relevant or (biz_type == "ecommerce" and sticky_product_context)
+        if sticky_relevant and str(data.get("mobile_cta_status") or "unknown").lower() == "verified" and not bool(data.get("mobile_sticky_cta_present")):
             primary_present = bool(data.get("mobile_primary_cta_present"))
             severity = 0.45 if primary_present else 0.90
             substitution = self._conversion_substitution("mobile_sticky_cta", biz_type, data, profile)
@@ -1696,25 +1982,58 @@ class RevenueScorer:
                 )
             )
 
-        # 11. Measurement telemetry - evidence-backed absence, not universal catastrophe.
-        if data.get("browser_loaded") and not data.get("has_ga4") and not data.get("has_meta_pixel"):
+        # 11. Explicit customer-path errors discovered on bounded same-origin journey pages.
+        error_signals = data.get("conversion_error_signals") or []
+        if data.get("conversion_path_error_detected") and isinstance(error_signals, list) and error_signals:
+            high_conf = [item for item in error_signals if str(item.get("confidence") or "").lower() == "high"]
+            chosen = high_conf or error_signals
+            severity = max(0.50, min(1.0, max(self._safe_float(item.get("severity")) or 0.75 for item in chosen)))
+            first = chosen[0]
+            observed = str(first.get("message") or "A public customer conversion path exposes a verified error state.")
+            affected_urls = sorted({str(item.get("url") or "") for item in chosen if item.get("url")})[:5]
             leaks.append(
                 self._build_leak(
-                    "measurement_telemetry",
-                    "Measurement Telemetry Blind Spot",
-                    "No GA4/GTM-style analytics or Meta Pixel signal was detected in the rendered page source.",
-                    "measurement",
+                    "conversion_path_error",
+                    "Broken Customer Conversion Path",
+                    observed + " The scanner observed this passively; it did not submit the form or mutate customer data.",
+                    "trust_conversion",
                     biz_type,
-                    severity_factor=0.45,
-                    confidence="medium",
+                    severity_factor=severity,
+                    confidence="high",
                     substitution_factor=1.0,
                     competitor_verified=False,
-                    evidence={"has_ga4": False, "has_meta_pixel": False},
-                    source="Rendered source/script inspection",
+                    evidence={
+                        "error_signals": chosen[:6],
+                        "affected_urls": affected_urls,
+                        "journey_pages_verified": data.get("journey_pages_verified"),
+                    },
+                    source="Passive multi-page journey and allow-listed booking-destination inspection",
                 )
             )
 
-        # 12. Form architecture - only when a form is actually present and structurally invalid.
+        # 12. Measurement telemetry - evidence-backed absence, not universal catastrophe.
+        measurement_present = data.get("measurement_layer_present")
+        if measurement_present is None:
+            measurement_present = bool(data.get("has_ga4") or data.get("has_meta_pixel") or data.get("has_qualitative_analytics") or data.get("has_other_measurement"))
+        tracking_verified = str(data.get("tracking_evidence_status") or "").lower() == "verified" or bool(data.get("browser_loaded"))
+        if tracking_verified and not measurement_present:
+            leaks.append(
+                self._build_leak(
+                    "measurement_telemetry",
+                    "Common Measurement Layer Not Detected",
+                    "No supported common analytics/measurement platform was detected in the verified rendered/source evidence. This does not prove the business has no server-side or proprietary analytics.",
+                    "measurement",
+                    biz_type,
+                    severity_factor=0.40,
+                    confidence="medium",
+                    substitution_factor=1.0,
+                    competitor_verified=False,
+                    evidence={"measurement_platforms": data.get("measurement_platforms") or [], "measurement_layer_present": False},
+                    source="Rendered/source measurement-platform inspection",
+                )
+            )
+
+        # 13. Form architecture - only when a form is actually present and structurally invalid.
         if data.get("forms_present") and data.get("form_action_valid") is False:
             leaks.append(
                 self._build_leak(
@@ -1805,6 +2124,11 @@ class RevenueScorer:
     def _checkpoint_failure_copy(checkpoint: Dict[str, Any]) -> Tuple[str, str]:
         rule_key = str(checkpoint.get("rule_key") or "")
         name = str(checkpoint.get("check") or "Verified checkpoint failure")
+        evidence = checkpoint.get("evidence") if isinstance(checkpoint.get("evidence"), dict) else {}
+        if rule_key == "privacy_terms_missing":
+            if evidence.get("requirement") == "privacy_only":
+                return ("Privacy Policy Trust Gap", "A Privacy policy link was not detected even though the verified site context collects data or operates in a sensitive professional/healthcare context. Terms are not being required by this finding.")
+            return ("Policy Trust Gap", "Privacy and Terms links were not both detected where transaction/account or checkout context makes both policies applicable.")
         copy_map = {
             "https_redirect": ("HTTPS Redirect Gap", "The secure site is available, but HTTP-to-HTTPS enforcement was not verified as correctly implemented."),
             "retargeting_telemetry": ("Retargeting Measurement Gap", "No verified retargeting/marketing pixel signal was found, limiting campaign attribution and remarketing readiness."),
@@ -1817,9 +2141,9 @@ class RevenueScorer:
             "social_proof_signal": ("Social Proof Gap", "The inspected page did not expose a strong review, credential or comparable proof signal."),
             "instant_query_channel": ("Instant Query Channel Gap", "No live-chat or WhatsApp-style instant query option was detected."),
             "meta_description_missing": ("Missing Search Description", "The page did not expose a meta description, weakening search-result message control."),
-            "meta_description_length": ("Weak Search Snippet Length", "The verified meta description exists but falls outside the scanner's preferred concise search-snippet range."),
+            "meta_description_length": ("Search Description Length Outlier", "The verified meta description falls outside the scanner's broad readability/snippet heuristic range; this is not treated as an exact ranking cutoff."),
             "h1_topic_relevance": ("Hero Topic Relevance Gap", "The verified H1 does not strongly support the inferred primary topic/value proposition."),
-            "title_length": ("Title Tag Clarity Gap", "The verified title length falls outside the scanner's preferred search-title range."),
+            "title_length": ("Title Tag Length Outlier", "The verified title falls outside the scanner's broad title-length heuristic range; this is not treated as an exact ranking cutoff."),
             "structured_data_missing": ("Structured Data Gap", "No verified Schema.org structured-data signal was detected."),
             "canonical_missing": ("Canonical Signal Missing", "No canonical URL declaration was detected in the verified document evidence."),
             "sitemap_missing": ("XML Sitemap Gap", "The scanner could not find a valid XML sitemap at the standard/declarative locations it checked."),
@@ -1843,8 +2167,7 @@ class RevenueScorer:
             "case_studies_missing": ("Proof-of-Work Gap", "No case-study/portfolio proof path was detected for a business model where proof-of-work is commercially relevant."),
             "content_hub_missing": ("Content Authority Gap", "No blog/content-hub path was detected for a model where ongoing expertise content is relevant."),
             "social_links_missing": ("Social Identity Link Gap", "No verified outbound social-profile links were detected."),
-            "privacy_terms_missing": ("Policy Trust Gap", "Privacy and Terms links were not both detected in the verified site evidence."),
-        }
+                    }
         return copy_map.get(rule_key, (name, f"Verified checkpoint failure: {name}."))
 
     def _build_leak(
@@ -1906,6 +2229,110 @@ class RevenueScorer:
             "evidence": evidence,
             "source": source,
         }
+
+    def _apply_high_impact_confirmation_guardrail(
+        self,
+        leaks: List[Dict[str, Any]],
+        scan_data: Dict[str, Any],
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        confirmation = scan_data.get("high_impact_confirmation") if isinstance(scan_data, dict) else {}
+        if not isinstance(confirmation, dict) or not confirmation.get("completed"):
+            # Preliminary scoring pass: confirmation has not run yet, so preserve normal behavior.
+            return leaks, []
+        threshold = self._safe_float(confirmation.get("threshold_points")) or 3.5
+        result_map = confirmation.get("results") if isinstance(confirmation.get("results"), dict) else {}
+        kept: List[Dict[str, Any]] = []
+        unscored: List[Dict[str, Any]] = []
+        for leak in leaks:
+            potential = self._safe_float(leak.get("pre_dedupe_penalty"))
+            if potential is None:
+                potential = self._safe_float(leak.get("final_score_loss")) or 0.0
+            rule = str(leak.get("rule_key") or "")
+            if potential < threshold:
+                kept.append(leak)
+                continue
+            record = result_map.get(rule) if isinstance(result_map.get(rule), dict) else {}
+            status = str(record.get("status") or "UNCONFIRMED").upper()
+            if status == "CONFIRMED":
+                leak["confirmation"] = dict(record)
+                kept.append(leak)
+                continue
+            observation = {
+                "rule_key": rule,
+                "title": leak.get("title"),
+                "potential_pre_dedupe_points": round(float(potential), 2),
+                "status": status,
+                "confirmation": dict(record),
+                "evidence": leak.get("evidence") or {},
+                "source": leak.get("source"),
+                "score_effect": 0.0,
+                "customer_note": "This first-pass signal could have produced a large deduction, but it did not survive the required second passive confirmation. It is therefore treated as UNKNOWN/unscored.",
+            }
+            unscored.append(observation)
+        return kept, unscored
+
+    def _attach_evidence_receipts(self, leaks: List[Dict[str, Any]], scan_data: Dict[str, Any]) -> None:
+        scan_time = str(scan_data.get("scan_completed_at") or scan_data.get("scan_started_at") or "")
+        primary_url = str(scan_data.get("final_url") or scan_data.get("url") or scan_data.get("domain") or "")
+        browser_journey = scan_data.get("browser_journey_probe") if isinstance(scan_data.get("browser_journey_probe"), dict) else {}
+        screenshot_url = str(browser_journey.get("url") or "")
+        screenshot_b64 = str(browser_journey.get("evidence_screenshot_b64") or "")
+        screenshot_mime = str(browser_journey.get("evidence_screenshot_mime") or "")
+        screenshot_sha = str(browser_journey.get("evidence_screenshot_sha256") or "")
+
+        for leak in leaks:
+            evidence = leak.get("evidence") if isinstance(leak.get("evidence"), dict) else {}
+            error_signals = evidence.get("error_signals") if isinstance(evidence.get("error_signals"), list) else []
+            first_error = next((x for x in error_signals if isinstance(x, dict)), {})
+            affected = evidence.get("affected_urls") if isinstance(evidence.get("affected_urls"), list) else []
+            evidence_url = str(
+                first_error.get("url")
+                or (affected[0] if affected else "")
+                or evidence.get("final_url")
+                or evidence.get("url")
+                or primary_url
+            )
+            if first_error:
+                observed = str(first_error.get("observed_text") or first_error.get("message") or "")[:360]
+                method = str(first_error.get("evidence_surface") or leak.get("source") or "public evidence inspection")
+            else:
+                # Keep a compact, explainable evidence excerpt rather than dumping the whole telemetry object.
+                preferred_keys = (
+                    "performance_score", "crux_grade", "crux_lcp_ms", "crux_inp_ms", "crux_cls",
+                    "form_action_valid", "form_max_field_count", "mobile_cta_types", "mobile_sticky_cta_present",
+                    "click_to_call_present", "privacy_policy_linked", "terms_linked", "credential_signal_types",
+                    "detected_phone_numbers", "ai_template_pattern_index", "checkpoint", "checkpoint_id",
+                )
+                compact = {k: evidence.get(k) for k in preferred_keys if k in evidence and evidence.get(k) not in (None, [], "")}
+                if not compact:
+                    compact = {k: v for k, v in list(evidence.items())[:5] if v not in (None, [], "")}
+                try:
+                    observed = json.dumps(compact, ensure_ascii=False, default=str)[:360]
+                except Exception:
+                    observed = str(compact)[:360]
+                method = str(leak.get("source") or "public evidence inspection")
+
+            receipt = {
+                "rule_key": leak.get("rule_key"),
+                "url": evidence_url,
+                "observed_signal": observed,
+                "observed_at": scan_time,
+                "collection_method": method,
+                "confidence": leak.get("confidence", "unknown"),
+                "confirmation": leak.get("confirmation") or {},
+                "evidence_hash": hashlib.sha256(
+                    (str(leak.get("rule_key")) + "|" + evidence_url + "|" + observed + "|" + scan_time).encode("utf-8", errors="ignore")
+                ).hexdigest(),
+                "screenshot_available": False,
+            }
+            if screenshot_b64 and screenshot_url and evidence_url and screenshot_url.rstrip("/") == evidence_url.rstrip("/"):
+                receipt.update({
+                    "screenshot_available": True,
+                    "screenshot_mime": screenshot_mime or "image/jpeg",
+                    "screenshot_sha256": screenshot_sha,
+                    "screenshot_data_uri": f"data:{screenshot_mime or 'image/jpeg'};base64,{screenshot_b64}",
+                })
+            leak["evidence_receipt"] = receipt
 
     def _apply_family_deduplication(self, leaks: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         grouped: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
@@ -2019,8 +2446,17 @@ class RevenueScorer:
                 COMMERCIAL_PRIORITY_BY_FAMILY.get(superfamily, 2.5),
             )
             if len(ordered) > 1 and superfamily in CONSOLIDATED_FAMILY_LABELS:
-                primary["title"] = CONSOLIDATED_FAMILY_LABELS[superfamily]
-                primary["leak_name"] = CONSOLIDATED_FAMILY_LABELS[superfamily]
+                label = CONSOLIDATED_FAMILY_LABELS[superfamily]
+                if superfamily == "trust_proof":
+                    rules = {str(x.get("rule_key") or "") for x in ordered}
+                    credential_failed = "trust_credentials" in rules
+                    social_failed = bool(rules & {"reviews_social_proof", "social_proof_signal", "case_studies_missing"})
+                    if credential_failed and not social_failed:
+                        label = "Professional Credential / Trust Signal Gap"
+                    elif social_failed and not credential_failed:
+                        label = "Review / Social Proof Gap"
+                primary["title"] = label
+                primary["leak_name"] = label
             primary["supporting_rule_keys"] = [str(x.get("rule_key") or "") for x in ordered]
             primary["supporting_findings"] = [
                 {
@@ -2108,6 +2544,8 @@ class RevenueScorer:
             "commercial_priority": leak.get("commercial_priority", COMMERCIAL_PRIORITY_BY_FAMILY.get(str(leak.get("family") or ""), 2.5)),
             "supporting_rule_keys": leak.get("supporting_rule_keys") or [leak.get("rule_key")],
             "supporting_findings": leak.get("supporting_findings") or [],
+            "evidence_receipt": leak.get("evidence_receipt") or {},
+            "confirmation": leak.get("confirmation") or {},
         }
 
     @staticmethod
@@ -2130,6 +2568,8 @@ class RevenueScorer:
             "final_score_loss",
             "evidence",
             "source",
+            "confirmation",
+            "evidence_receipt",
         )
         return {key: leak.get(key) for key in keys}
 
@@ -2154,18 +2594,18 @@ class RevenueScorer:
     @staticmethod
     def _get_score_rating(score: float) -> str:
         if score >= 77:
-            return "REFERENCE-LEVEL READINESS — HEADROOM STILL EXISTS"
+            return "REFERENCE-LEVEL WEBSITE READINESS — HEADROOM STILL EXISTS"
         if score >= 75:
-            return "EXCEPTIONAL — LEAKS STILL REMAIN"
+            return "EXCEPTIONAL VERIFIED WEBSITE READINESS"
         if score >= 70:
-            return "VERY STRONG — OPTIMIZATION REMAINS"
+            return "STRONG VERIFIED COMMERCIAL MATURITY"
         if score >= 65:
-            return "GOOD — LEAKS REMAIN"
+            return "STRONG FUNDAMENTALS — ELITE MATURITY NOT FULLY VERIFIED"
         if score >= 50:
-            return "NEEDS REMEDIATION"
+            return "MATERIAL REMEDIATION OPPORTUNITY"
         if score >= 35:
-            return "CRITICAL RISK"
-        return "SEVERE STRUCTURAL RISK"
+            return "HIGH STRUCTURAL / CONVERSION RISK"
+        return "SEVERE STRUCTURAL / CONVERSION RISK"
 
     def _get_vault_id(self, score: float) -> str:
         if score >= 77:

@@ -1,5 +1,8 @@
 """Trilloka report/vault engine.
 
+V6.9: exposes score scope, Evidence Confidence and maturity-band eligibility so a high
+Revenue Readiness number cannot be mistaken for product-market fit, sales performance or revenue.
+
 Keeps the existing report presentation and sales architecture while replacing
 hard-coded passes and title-substring remediation with evidence-backed logic.
 """
@@ -78,6 +81,9 @@ class ReportGenerator:
             "business_profile": business_profile,
             "overall_health_score": overall,
             "score_rating": audit.get("score_rating", ""),
+            "score_scope": audit.get("score_scope", ""),
+            "evidence_confidence": audit.get("evidence_confidence") or {},
+            "maturity_gate": audit.get("maturity_gate") or {},
             "vault_id": audit.get("vault_id", ""),
             "estimated_revenue_leak": revenue_display,
             "revenue_exposure": audit.get("revenue_leak") or {},
@@ -103,10 +109,18 @@ class ReportGenerator:
             "ai_spectrum_status": audit.get("ai_spectrum_status", scan.get("ai_spectrum_status", "unknown")),
             "cms_platform": scan.get("cms_platform", "Not confidently identified"),
             "cms_confidence": scan.get("cms_confidence", "low"),
+            "scanner_engine_version": scan.get("scanner_engine_version", "unknown"),
             "scan_quality": audit.get("scan_quality") or scan.get("scan_quality") or {},
             "scoring_ledger": audit.get("scoring_ledger") or [],
             "overlap_adjustments": audit.get("overlap_adjustments") or [],
             "score_formula": audit.get("score_formula") or {},
+            "evidence_receipts": audit.get("evidence_receipts") or [],
+            "high_impact_confirmation": audit.get("high_impact_confirmation") or scan.get("high_impact_confirmation") or {},
+            "unconfirmed_high_impact_observations": audit.get("unconfirmed_high_impact_observations") or [],
+            "rescan_comparison": audit.get("rescan_comparison") or {},
+            "browser_journey_probe": scan.get("browser_journey_probe") or {},
+            "external_booking_provider_health": scan.get("external_booking_provider_health") or {},
+            "business_type_validation": scan.get("business_type_validation") or {},
         }
 
 
@@ -306,61 +320,27 @@ class ReportGenerator:
     def _build_scoring_methodology_explanation(audit_data: Dict[str, Any]) -> Dict[str, str]:
         biz = str(audit_data.get("business_type", "general")).upper()
         return {
-            "core_philosophy": "Trilloka measures Revenue Readiness, not literal conversion percentage. A functioning site begins from an operating baseline and must earn higher scores through verified strengths while verified leaks subtract weighted points.",
-            "graded_continuum": "Every deduction is scaled by implementation severity, evidence confidence and business relevance. Unknown telemetry earns no strength and creates no penalty.",
-            "vertical_weighting": f"Conversion relevance is weighted for the {biz} model, with substitution credit when another strong conversion path already serves the customer.",
+            "core_philosophy": "Trilloka measures observable website Revenue Readiness, not literal conversion percentage, product-market fit, demand, sales-team performance or actual revenue. A functioning site begins from an operating baseline and must earn higher scores through verified strengths while verified leaks subtract weighted points.",
+            "graded_continuum": "Every deduction is scaled by implementation severity, evidence confidence and business relevance. Unknown telemetry earns no strength and creates no penalty. Score bands above ordinary-good territory are separately gated by verified conversion, trust, performance, measurement and evidence maturity.",
+            "vertical_weighting": f"Conversion relevance is weighted for the {biz} model, with subtype-aware journey selection and substitution credit when another strong conversion path already serves the customer.",
             "hygiene_gatekeeping": "Verified commercial blockers are prioritized ahead of ordinary SEO hygiene. Ecommerce checkout weights use Baymard only where the scanned evidence matches Baymard's checkout research; primary conversion paths, forms and B2B information needs are informed by Nielsen Norman Group research; measured performance and local/mobile-intent signals use Google/web.dev evidence where applicable. Survey percentages are never copied directly into site-specific score deductions, and unknown evidence is never failed.",
         }
 
     @staticmethod
     def _build_score_level_impact_explanation(score: float) -> Dict[str, str]:
-        if score >= 90:
-            return {
-                "level": "ARCHITECT / REFERENCE LEVEL (90–100)",
-                "impact_summary": "Reference-grade verified architecture. This band should be extraordinarily rare and does not mean 90–100% of visitors convert.",
-                "severity_behavior": "Requires exceptional evidence across performance, conversion, trust, measurement and technical execution with essentially no material verified leaks.",
-            }
-        if score >= 85:
-            return {
-                "level": "ELITE ARCHITECTURE (85–89)",
-                "impact_summary": "Elite verified architecture with unusually few observable structural or conversion weaknesses.",
-                "severity_behavior": "Advanced maturity points are earned only after strong fundamentals are already verified.",
-            }
-        if score >= 80:
-            return {
-                "level": "WORLD-CLASS COMMERCIAL ARCHITECTURE (80–84)",
-                "impact_summary": "An unusually mature commercial website. Ordinary professional sites should not casually reach this band.",
-                "severity_behavior": "The score requires advanced verified strengths beyond normal technical hygiene and a low burden of meaningful leaks.",
-            }
+        if score >= 77:
+            return {"level":"REFERENCE-LEVEL WEBSITE READINESS (77–78)","impact_summary":"Exceptionally mature observable website architecture. This does not mean the business has product-market fit, enough traffic or strong sales execution.","severity_behavior":"Requires reference-level evidence, strong conversion/trust/performance/measurement maturity and almost no verified penalty burden."}
         if score >= 75:
-            return {
-                "level": "EXCEPTIONAL (75–79)",
-                "impact_summary": "A very strong commercial website with comparatively low observable friction, while still leaving room for meaningful optimization.",
-                "severity_behavior": "Strong fundamentals have been earned and verified; remaining leaks continue to reduce the score.",
-            }
+            return {"level":"EXCEPTIONAL VERIFIED READINESS (75–76)","impact_summary":"The observable website journey is unusually mature and evidence-backed, while still saying nothing about market demand or sales-team execution.","severity_behavior":"This band is unavailable unless the exceptional maturity gate passes; ordinary checklist strengths cannot accumulate into it."}
+        if score >= 70:
+            return {"level":"STRONG VERIFIED COMMERCIAL MATURITY (70–74)","impact_summary":"Core website conversion, trust, performance, measurement and evidence maturity were verified strongly enough to enter the high-readiness band.","severity_behavior":"The score can reach this band only after the foundational maturity gate passes."}
         if score >= 65:
-            return {
-                "level": "GOOD — LEAKS REMAIN (65–74)",
-                "impact_summary": "A good functioning website with credible strengths, while meaningful revenue or conversion opportunities still remain.",
-                "severity_behavior": "This is the intended normal range for a professionally built site that is good but not unusually optimized.",
-            }
+            return {"level":"STRONG FUNDAMENTALS (65–69)","impact_summary":"The website has credible observable strengths, but one or more elite-maturity systems or evidence gates are not fully verified.","severity_behavior":"This is a deliberate ceiling for good sites that have not yet proven the full commercial maturity required for 70+."}
         if score >= 50:
-            return {
-                "level": "NEEDS REMEDIATION (50–64)",
-                "impact_summary": "The site functions, but verified weaknesses materially limit its commercial readiness.",
-                "severity_behavior": "Insufficient earned strengths and/or accumulated verified leaks are holding the score near the operating baseline.",
-            }
+            return {"level":"MATERIAL REMEDIATION OPPORTUNITY (50–64)","impact_summary":"The site functions, but verified weaknesses and/or missing earned maturity limit observable commercial readiness.","severity_behavior":"The result is driven by earned strengths and evidence-backed deductions, not by finding count alone."}
         if score >= 35:
-            return {
-                "level": "CRITICAL RISK (35–49)",
-                "impact_summary": "Multiple verified high-severity weaknesses create substantial architectural or conversion risk.",
-                "severity_behavior": "The critical rating is produced by the evidence-weighted scoring ledger, not by the raw number of findings.",
-            }
-        return {
-            "level": "SEVERE STRUCTURAL RISK (0–34)",
-            "impact_summary": "Severe verified structural, performance or conversion failures materially compromise the site's ability to capture demand.",
-            "severity_behavior": "This band requires significant evidence-backed deductions beyond the operating baseline.",
-        }
+            return {"level":"HIGH STRUCTURAL / CONVERSION RISK (35–49)","impact_summary":"Multiple verified weaknesses create substantial observable website risk.","severity_behavior":"The rating is produced by the evidence-weighted scoring ledger and commercial severity, not generic SEO volume."}
+        return {"level":"SEVERE STRUCTURAL / CONVERSION RISK (0–34)","impact_summary":"Severe verified structural, performance or conversion failures materially compromise the public customer journey.","severity_behavior":"This band requires significant evidence-backed deductions beyond the operating baseline."}
 
     def _build_3_angle_solutions(
         self,
@@ -369,7 +349,8 @@ class ReportGenerator:
         scan_data: Dict[str, Any],
         business_profile: Dict[str, Any],
     ) -> Dict[str, str]:
-        vertical = str(business_profile.get("inferred_subtype") or business_profile.get("vertical") or "general")
+        vertical = str(business_profile.get("vertical") or "general")
+        subtype = str(business_profile.get("inferred_subtype") or vertical)
         evidence = leak.get("evidence") or {}
         family = str(leak.get("family") or "")
         supporting = set(str(x) for x in (leak.get("supporting_rule_keys") or []) if x)
@@ -470,12 +451,32 @@ class ReportGenerator:
 
         if rule_key == "measurement_telemetry":
             return {
-                "technical": "Implement an appropriate analytics/tagging layer and verify that key conversion events fire once, with consent handling appropriate to the site's jurisdiction and stack.",
-                "cro_ux": "Define the few actions that represent real customer progress rather than tracking every click as a conversion.",
-                "systems": "Create a measurement map for primary CTA, form/booking/order starts and completed conversions, then review data quality after deployment.",
-                "why_recommend": "No GA4/GTM-style or Meta Pixel signal was detected in the rendered page source. This is a measurement blind spot, not proof that the site is losing a specific dollar amount.",
+                "technical": "If the business intends to measure website outcomes, implement or expose a suitable analytics layer and verify that key conversion events fire once, with consent handling appropriate to the jurisdiction and stack. Do not replace an existing valid first-party/server-side system merely to satisfy a vendor-specific check.",
+                "cro_ux": "Define the small number of actions that represent real customer progress rather than treating every click as a conversion.",
+                "systems": "Create a measurement map for the primary CTA, form/booking/order starts and completed conversions, then validate data quality after deployment.",
+                "why_recommend": "The scanner did not detect a common public measurement platform in the rendered/static evidence. It recognizes multiple major analytics systems, so this is a cautious public-evidence gap—not proof that no private or server-side measurement exists.",
                 "cadence_title": "Week 1",
-                "cadence_text": "Deploy the measurement layer, validate event integrity, then use observed conversion data to refine later revenue estimates.",
+                "cadence_text": "Verify whether measurement already exists first; if not, deploy the appropriate layer, validate event integrity, then use observed conversion data to refine later revenue estimates.",
+            }
+
+        if rule_key == "conversion_path_error":
+            signals = (leak.get("evidence") or {}).get("error_signals") or []
+            signal_keys = {str(item.get("key") or "") for item in signals if isinstance(item, dict)}
+            captcha_related = any(key.startswith("recaptcha_") for key in signal_keys)
+            external_booking = "external_booking_destination_error" in signal_keys
+            if captcha_related:
+                technical = "Repair the exposed CAPTCHA configuration on the affected conversion page: verify the reCAPTCHA site key/secret pairing, allowed production domains, key type/version and plugin/widget configuration. Re-test the public page after the fix without relying on an admin session."
+            elif external_booking:
+                technical = "Repair or replace the verified broken external booking destination. Confirm the public booking URL still belongs to the intended provider/account, resolves without a 404/5xx response, and that every Book/Reserve link points to the healthy destination. Do not create a test appointment simply to verify availability."
+            else:
+                technical = "Repair the specific public-facing form/booking/widget error captured in the attached evidence and verify the affected conversion page loads a usable customer action end-to-end without exposing an error state."
+            return {
+                "technical": technical,
+                "cro_ux": "Until the primary path is verified healthy, expose a clear fallback action such as tap-to-call, email or an alternate booking/contact route so interested visitors are not stranded by the broken path.",
+                "systems": "Add a lightweight recurring health check for primary contact/booking/checkout pages and alert on known error strings, 4xx/5xx responses or missing conversion widgets so failures are discovered before customers report them.",
+                "why_recommend": "Trilloka observed an explicit error state on a public customer conversion page. This is stronger evidence than a generic best-practice suggestion, and the scanner did not submit the form or mutate customer data.",
+                "cadence_title": "Immediate / Week 1",
+                "cadence_text": "Repair and verify the broken customer path first, keep a fallback contact route visible during the fix, then re-scan the same page before changing lower-priority CRO elements.",
             }
 
         if rule_key == "form_architecture":
@@ -523,6 +524,19 @@ class ReportGenerator:
 
     @staticmethod
     def _checkpoint_specific_solution(rule_key: str, leak: Dict[str, Any], vertical: str) -> Optional[Dict[str, str]]:
+        if rule_key == "privacy_terms_missing":
+            outer = leak.get("evidence") if isinstance(leak.get("evidence"), dict) else {}
+            detail = outer.get("evidence") if isinstance(outer.get("evidence"), dict) else {}
+            privacy_only = detail.get("requirement") == "privacy_only"
+            if privacy_only:
+                return {
+                    "technical": "Publish an accessible Privacy policy appropriate to the data actually collected by forms, tracking or the professional service, and link it consistently from the footer/form context.",
+                    "cro_ux": "Place the Privacy link where users provide information without cluttering the primary action. Terms are not being prescribed by this finding.",
+                    "systems": "Review the Privacy policy whenever forms, analytics, booking, health/professional data handling or third-party processors change.",
+                    "why_recommend": "This recommendation is limited to the policy requirement the scanner could justify from the verified data-collection/business context.",
+                    "cadence_title": "Weeks 1–2",
+                    "cadence_text": "Publish the applicable policy, verify the link on the live conversion path, then re-scan.",
+                }
         plans: Dict[str, tuple[str, str, str]] = {
             "primary_conversion_path": (
                 "Expose one clear primary conversion action that matches the business model and works on mobile before adding secondary CTAs.",
@@ -765,8 +779,8 @@ class ReportGenerator:
                 "Remove abandoned channels and keep profile branding/contact data consistent.",
             ),
             "privacy_terms_missing": (
-                "Publish accessible Privacy and Terms pages appropriate to the site's actual data collection/commerce behavior and link them consistently.",
-                "Expose policy links near forms/checkout/footer without overwhelming the primary action.",
+                "Publish the Privacy and Terms policies required by the verified transaction/account/checkout context and link them consistently.",
+                "Expose the applicable policy links near forms/checkout/footer without overwhelming the primary action.",
                 "Review policies when tracking, payment, data collection or service terms change.",
             ),
         }
@@ -795,6 +809,8 @@ class ReportGenerator:
             return {"primary": "Consultation / Contact", "secondary": "Call"}
         if vertical == "medspa":
             return {"primary": "Book / Consultation", "secondary": "Call"}
+        if vertical in {"healthcare_clinic", "dental_clinic"}:
+            return {"primary": "Book / Request Appointment / Contact", "secondary": "Call"}
         if vertical in {"local_service", "professional_service"}:
             return {"primary": "Get Quote / Contact / Book", "secondary": "Call / Chat"}
         return {"primary": "Primary Conversion", "secondary": "Contact / Secondary Action"}
@@ -896,6 +912,9 @@ class ReportGenerator:
         rating = html.escape(str(report.get("score_rating", "")))
         vault_id = html.escape(str(report.get("vault_id", "")))
         biz_type = html.escape(str(report.get("business_type", "GENERAL")))
+        business_profile = report.get("business_profile") or {}
+        mismatch_warning = bool(business_profile.get("type_mismatch_warning"))
+        mismatch_text = html.escape(str(business_profile.get("type_mismatch_message") or ""))
         revenue_exposure = html.escape(str(report.get("estimated_revenue_leak", "Not measured")))
         cms = html.escape(str(report.get("cms_platform") or "Not confidently identified"))
         ai_pct = report.get("ai_spectrum_pct")
@@ -904,6 +923,22 @@ class ReportGenerator:
         score_impact = report.get("score_level_impact") or {}
         summary = report.get("checkpoint_summary") or self._checkpoint_summary(report.get("full_50_checkpoint_basis") or [])
         coverage_note = html.escape(str(report.get("verification_coverage_note") or self._verification_coverage_note(summary)))
+        evidence_confidence = report.get("evidence_confidence") if isinstance(report.get("evidence_confidence"), dict) else {}
+        maturity_gate = report.get("maturity_gate") if isinstance(report.get("maturity_gate"), dict) else {}
+        score_scope = html.escape(str(report.get("score_scope") or "Observable website Revenue Readiness only; not product-market fit, demand, traffic quality, pricing, sales execution or actual revenue."))
+        evidence_level = html.escape(str(evidence_confidence.get("level") or "UNKNOWN"))
+        evidence_score = evidence_confidence.get("score")
+        evidence_score_text = "N/A" if evidence_score is None else f"{float(evidence_score):.1f}/100"
+        maturity_band = html.escape(str(maturity_gate.get("band") or "UNAVAILABLE").replace("_", " "))
+        maturity_cap = maturity_gate.get("score_cap")
+        maturity_cap_text = "N/A" if maturity_cap is None else f"{float(maturity_cap):.0f}"
+        failed_gate_names = [str(x).replace("_", " ") for x in (maturity_gate.get("failed_gate_names") or [])]
+        failed_gate_text = html.escape(", ".join(failed_gate_names[:6]) if failed_gate_names else "None at the active maturity tier")
+        rescan = report.get("rescan_comparison") if isinstance(report.get("rescan_comparison"), dict) else {}
+        confirmation = report.get("high_impact_confirmation") if isinstance(report.get("high_impact_confirmation"), dict) else {}
+        confirmation_results = confirmation.get("results") if isinstance(confirmation.get("results"), dict) else {}
+        confirmed_count = sum(1 for x in confirmation_results.values() if isinstance(x, dict) and str(x.get("status") or "").upper() == "CONFIRMED")
+        unresolved_count = sum(1 for x in confirmation_results.values() if isinstance(x, dict) and str(x.get("status") or "").upper() != "CONFIRMED")
 
         score_color = "#22C55E" if score >= 75 else "#D8B66A" if score >= 50 else "#EF4444"
         findings = report.get("top_10_financial_leaks") or report.get("top_6_financial_leaks") or []
@@ -918,6 +953,28 @@ class ReportGenerator:
             research = leak.get("research_basis") or {}
             research_source = html.escape(str(research.get("source") or "Trilloka verified evidence model"))
             research_class = html.escape(str(research.get("class") or "evidence-weighted diagnostic"))
+            receipt = leak.get("evidence_receipt") if isinstance(leak.get("evidence_receipt"), dict) else {}
+            receipt_confirmation = receipt.get("confirmation") if isinstance(receipt.get("confirmation"), dict) else {}
+            receipt_status = html.escape(str(receipt_confirmation.get("status") or "single-pass / below severe threshold"))
+            receipt_url = html.escape(str(receipt.get("url") or domain))
+            receipt_signal = html.escape(str(receipt.get("observed_signal") or "Evidence attached in telemetry ledger"))
+            receipt_method = html.escape(str(receipt.get("collection_method") or leak.get("source") or "public evidence inspection"))
+            receipt_time = html.escape(str(receipt.get("observed_at") or report.get("generated_at") or ""))
+            receipt_conf = html.escape(str(receipt.get("confidence") or leak.get("confidence") or "unknown"))
+            screenshot_html = ""
+            if receipt.get("screenshot_available") and receipt.get("screenshot_data_uri"):
+                screenshot_html = (
+                    '<div style="margin-top:10px;">'
+                    '<p style="font-family:Inter,sans-serif;font-size:10px;color:#6B7280;margin:0 0 5px 0;"><strong>Rendered evidence screenshot:</strong> SHA-256 ' + html.escape(str(receipt.get("screenshot_sha256") or "")) + '</p>'
+                    '<img src="' + html.escape(str(receipt.get("screenshot_data_uri") or ""), quote=True) + '" alt="Public page evidence" style="max-width:100%;border:1px solid #E5E7EB;border-radius:8px;">'
+                    '</div>'
+                )
+            receipt_html = (
+                '<div style="background:#F8FAFC;border:1px solid #DCE3EA;border-radius:8px;padding:12px;margin:10px 0 12px 0;">'
+                '<p style="font-family:Inter,sans-serif;font-size:10px;color:#5A7A9E;margin:0 0 5px 0;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Evidence Receipt</p>'
+                '<p style="font-family:Inter,sans-serif;font-size:11px;color:#374151;margin:0;line-height:1.55;"><strong>URL:</strong> ' + receipt_url + '<br><strong>Observed:</strong> ' + receipt_signal + '<br><strong>Method:</strong> ' + receipt_method + '<br><strong>Timestamp:</strong> ' + receipt_time + '<br><strong>Confidence:</strong> ' + receipt_conf + '<br><strong>Severe-finding confirmation:</strong> ' + receipt_status + '</p>'
+                + screenshot_html + '</div>'
+            )
             leaks_html += f"""
             <div style="margin-bottom:32px; border-left:4px solid #D8B66A; padding-left:16px;">
                 <h3 style="font-family:Georgia,serif; font-size:18px; color:#090B12; margin:0 0 6px 0; font-weight:700;">{idx}. {html.escape(str(leak.get('leak_name','')))}</h3>
@@ -925,6 +982,7 @@ class ReportGenerator:
                 <p style="font-family:Inter,sans-serif; font-size:10px; color:#6B7280; margin:0 0 6px 0; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">{html.escape(str(leak.get('finding_type','VERIFIED_LEAK')).replace('_',' '))}</p>
                 <p style="font-family:Inter,sans-serif; font-size:11px; color:#C85A5A; margin:0 0 6px 0; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">{html.escape(str(leak.get('severity_label','SEVERITY UNKNOWN')))} &nbsp;|&nbsp; Severity Scale: {factor_display} &nbsp;|&nbsp; Score Loss: -{float(leak.get('severity_score') or 0):.2f} pts</p>
                 <p style="font-family:Inter,sans-serif; font-size:10px; color:#6B7280; margin:0 0 12px 0;"><strong>Evidence basis:</strong> {research_source} — {research_class}. Research affects relative priority only after this site-specific condition is verified.</p>
+                {receipt_html}
                 <div style="background:#fdfdfd; border:1px solid #f0f0f0; border-radius:8px; padding:16px; margin-top:10px;">
                     <p style="font-family:Inter,sans-serif; font-size:12px; color:#111; font-weight:700; margin:0 0 10px 0; text-transform:uppercase; letter-spacing:0.5px;">The 3-Angle Remediation Plan:</p>
                     <p style="font-family:Inter,sans-serif; font-size:13px; color:#222; margin:0 0 8px 0; line-height:1.6;"><strong>Technical Angle:</strong> {html.escape(str(angles.get('technical','')))}</p>
@@ -963,19 +1021,63 @@ class ReportGenerator:
             </div>
             """
 
+        if rescan.get("has_previous_snapshot"):
+            delta = rescan.get("score_delta")
+            try:
+                delta_number = float(delta) if delta is not None else None
+            except Exception:
+                delta_number = None
+            delta_text = "N/A" if delta_number is None else (f"+{delta_number:.1f}" if delta_number > 0 else f"{delta_number:.1f}")
+            fixed = len(rescan.get("fixed_findings") or [])
+            new_count = len(rescan.get("new_findings") or [])
+            improved_cp = len(rescan.get("checkpoint_improvements") or [])
+            regressed_cp = len(rescan.get("checkpoint_regressions") or [])
+            methodology_changed = bool(rescan.get("methodology_changed"))
+            comparison_note = html.escape(str(rescan.get("comparison_basis") or ""))
+            rescan_html = (
+                '<div style="background:#ECFDF5;border:1px solid #A7F3D0;border-radius:12px;padding:18px;margin:20px 0;">'
+                '<h3 style="font-family:Georgia,serif;font-size:17px;color:#065F46;margin:0 0 8px 0;">Before / After Verification</h3>'
+                '<p style="font-family:Inter,sans-serif;font-size:13px;color:#065F46;margin:0;line-height:1.6;"><strong>Previous:</strong> ' + html.escape(str(rescan.get("score_before"))) + ' &nbsp;→&nbsp; <strong>Current:</strong> ' + html.escape(str(rescan.get("score_after"))) + ' &nbsp;(<strong>' + html.escape(delta_text) + '</strong>)<br><strong>Previously flagged findings no longer present:</strong> ' + str(fixed) + '<br><strong>Newly flagged findings:</strong> ' + str(new_count) + '<br><strong>Checkpoint improvements:</strong> ' + str(improved_cp) + ' &nbsp;|&nbsp; <strong>Regressions:</strong> ' + str(regressed_cp) + '</p>'
+                '<p style="font-family:Inter,sans-serif;font-size:10px;color:#047857;margin:8px 0 0 0;line-height:1.5;">' + comparison_note + '</p>'
+                '</div>'
+            )
+        else:
+            rescan_html = (
+                '<div style="background:#F8FAFC;border:1px solid #E5E7EB;border-radius:12px;padding:16px;margin:20px 0;">'
+                '<h3 style="font-family:Georgia,serif;font-size:16px;color:#111827;margin:0 0 6px 0;">Baseline Snapshot Created</h3>'
+                '<p style="font-family:Inter,sans-serif;font-size:11px;color:#4B5563;margin:0;line-height:1.5;">A future forced re-scan can compare this domain against the current evidence to show verified architectural changes.</p>'
+                '</div>'
+            )
+
+        confirmation_html = (
+            '<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:12px;padding:16px;margin:20px 0;">'
+            '<h3 style="font-family:Georgia,serif;font-size:16px;color:#1E3A8A;margin:0 0 6px 0;">High-Impact Confirmation Guardrail</h3>'
+            '<p style="font-family:Inter,sans-serif;font-size:11px;color:#1E40AF;margin:0;line-height:1.55;">Potential deductions at or above ' + html.escape(str(confirmation.get("threshold_points") or "3.5")) + ' points require a second passive check before they may remain in the final score. Confirmed: <strong>' + str(confirmed_count) + '</strong>. Disputed/unconfirmed and therefore unscored: <strong>' + str(unresolved_count) + '</strong>.</p>'
+            '</div>'
+        )
+
         return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
 <body style="margin:0; padding:0; background:#f5f5f5; font-family:Inter, -apple-system, sans-serif;">
 <div style="max-width:640px; margin:0 auto; background:#fff; padding:32px 28px;">
     <h1 style="font-family:Georgia, serif; font-size:28px; color:#090B12; margin:0 0 8px 0; line-height:1.2;">Trilloka Telemetry & Executive Audit</h1>
-    <p style="font-family:Inter,sans-serif; font-size:14px; color:#5A7A9E; margin:0 0 20px 0;"><strong>Report Vault ID:</strong> {vault_id}<br><strong>Target Domain:</strong> {domain}<br><strong>Business Model:</strong> {biz_type}<br><strong>CMS Detected:</strong> {cms}<br><strong>AI / Template Pattern Spectrum:</strong> {ai_display}</p>
+    <p style="font-family:Inter,sans-serif; font-size:14px; color:#5A7A9E; margin:0 0 20px 0;"><strong>Report Vault ID:</strong> {vault_id}<br><strong>Target Domain:</strong> {domain}<br><strong>Business Model:</strong> {biz_type}<br>{('<strong style="color:#D77C83;">Business Type Check:</strong> ' + mismatch_text + '<br>') if mismatch_warning else ''}<strong>CMS Detected:</strong> {cms}<br><strong>AI / Template Pattern Spectrum:</strong> {ai_display}</p>
 
     <div style="background:#121621; color:#F2F0E8; border-radius:12px; padding:24px; margin:20px 0; text-align:center;">
-        <p style="font-family:Inter,sans-serif; font-size:12px; color:#A9A7A0; text-transform:uppercase; letter-spacing:2px; margin:0 0 8px 0;">Overall Performance Score</p>
+        <p style="font-family:Inter,sans-serif; font-size:12px; color:#A9A7A0; text-transform:uppercase; letter-spacing:2px; margin:0 0 8px 0;">Revenue Readiness Index</p>
         <p style="font-family:Georgia,serif; font-size:48px; color:{score_color}; margin:0; line-height:1;">{score:.1f}</p>
         <p style="font-family:Inter,sans-serif; font-size:14px; color:#D8B66A; margin:8px 0 0 0; font-weight:600;">{rating}</p>
     </div>
+
+    <div style="background:#F8FAFC;border:1px solid #DCE3EA;border-radius:12px;padding:16px;margin:16px 0;">
+        <p style="font-family:Inter,sans-serif;font-size:11px;color:#5A7A9E;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px 0;font-weight:700;">Evidence & Score Scope</p>
+        <p style="font-family:Inter,sans-serif;font-size:12px;color:#374151;margin:0;line-height:1.6;"><strong>Evidence Confidence:</strong> {evidence_level} ({html.escape(evidence_score_text)})<br><strong>Maturity Band:</strong> {maturity_band}<br><strong>Current band cap:</strong> {html.escape(maturity_cap_text)} / 78<br><strong>Unmet gate(s) at next band:</strong> {failed_gate_text}</p>
+        <p style="font-family:Inter,sans-serif;font-size:10px;color:#6B7280;margin:8px 0 0 0;line-height:1.5;"><strong>Scope:</strong> {score_scope}</p>
+    </div>
+
+    {rescan_html}
+    {confirmation_html}
 
     <div style="background:rgba(200,90,90,0.08); border:1px solid rgba(200,90,90,0.25); border-radius:12px; padding:20px; margin:16px 0; text-align:center;">
         <p style="font-family:Inter,sans-serif; font-size:11px; color:#C85A5A; text-transform:uppercase; letter-spacing:1.5px; margin:0 0 6px 0; font-weight:700;">REVENUE EXPOSURE</p>
@@ -1011,10 +1113,96 @@ class ReportGenerator:
 
     <div style="text-align:center; margin:28px 0 20px 0;"><a href="#" style="font-family:Inter,sans-serif; font-size:13px; color:#2563EB; text-decoration:none; font-weight:600;">Access Complete Raw Vault Telemetry Entry</a></div>
 
-    <div style="border-top:1px solid #e0e0e0; margin-top:24px; padding-top:20px;"><p style="font-family:Inter,sans-serif; font-size:11px; color:#555555; line-height:1.6; margin:0;"><strong>DISCLAIMER & TERMS OF SALE:</strong> This diagnostic report reflects evidence available to the scanner at the recorded time. Unknown or inaccessible telemetry is not treated as a failure. Revenue exposure labels are model-based unless the business supplied validated traffic, conversion and transaction-value inputs. Results and performance improvements depend on correct implementation and later platform changes.</p></div>
+    <div style="border-top:1px solid #e0e0e0; margin-top:24px; padding-top:20px;"><p style="font-family:Inter,sans-serif; font-size:11px; color:#555555; line-height:1.6; margin:0;"><strong>DISCLAIMER & TERMS OF SALE:</strong> This diagnostic report reflects evidence available to the scanner at the recorded time. Unknown or inaccessible telemetry is not treated as a failure. Revenue exposure labels are model-based unless the business supplied validated traffic, conversion and transaction-value inputs. Maturity-band caps do not represent measured lost revenue. The Revenue Readiness Index evaluates observable website architecture only; product-market fit, demand, traffic quality, pricing, sales follow-up and offline operations are outside its scope. Results and performance improvements depend on correct implementation and later platform changes.</p></div>
 </div>
 </body>
 </html>"""
+
+    def build_vault_rescan_comparison(self, target_domain: str, current_audit: Dict[str, Any]) -> Dict[str, Any]:
+        """Compare a fresh audit with the newest prior Vault snapshot for the same public domain.
+
+        This is a fallback when the protected scan cache has no previous result. Durability depends on
+        VAULT_DIR using persistent storage; if no prior snapshot exists, the caller keeps baseline mode.
+        """
+        try:
+            if not os.path.isdir(self.vault_dir):
+                return {"status": "NO_VAULT_BASELINE", "has_previous_snapshot": False}
+            sanitized = (target_domain or "unknown").replace("https://", "").replace("http://", "").replace("/", "_")
+            candidates = []
+            for name in os.listdir(self.vault_dir):
+                if not name.startswith(sanitized + "_") or not name.endswith(".json"):
+                    continue
+                path = os.path.join(self.vault_dir, name)
+                try:
+                    candidates.append((os.path.getmtime(path), path))
+                except OSError:
+                    continue
+            for _, path in sorted(candidates, reverse=True):
+                try:
+                    with open(path, "r", encoding="utf-8") as handle:
+                        entry = json.load(handle)
+                    previous = entry.get("admin_report") if isinstance(entry, dict) else {}
+                    if not isinstance(previous, dict) or not previous:
+                        continue
+                    previous_score = previous.get("overall_health_score")
+                    current_score = current_audit.get("overall_score")
+                    if current_score is None:
+                        current_score = current_audit.get("overall_health_score")
+                    prev_ledger = [x for x in (previous.get("scoring_ledger") or []) if isinstance(x, dict)]
+                    curr_ledger = [x for x in (current_audit.get("scoring_ledger") or []) if isinstance(x, dict)]
+                    if prev_ledger:
+                        prev_rules = {str(x.get("rule_key") or "") for x in prev_ledger if x.get("rule_key")}
+                    else:
+                        prev_rules = {str(x.get("rule_key") or "") for x in (previous.get("top_10_financial_leaks") or []) if isinstance(x, dict) and x.get("rule_key")}
+                    if curr_ledger:
+                        curr_rules = {str(x.get("rule_key") or "") for x in curr_ledger if x.get("rule_key")}
+                    else:
+                        packages = current_audit.get("tiered_remediation_packages") or {}
+                        curr_rules = {str(x.get("rule_key") or "") for x in (packages.get("tier_10_arch10") or []) if isinstance(x, dict) and x.get("rule_key")}
+                    prev_cp = {int(x.get("id")): str(x.get("status")) for x in (previous.get("full_50_checkpoint_basis") or []) if isinstance(x, dict) and x.get("id") is not None}
+                    curr_cp = {int(x.get("id")): str(x.get("status")) for x in (current_audit.get("full_50_checkpoint_basis") or []) if isinstance(x, dict) and x.get("id") is not None}
+                    improvements=[]; regressions=[]
+                    for cp_id,before in prev_cp.items():
+                        after=curr_cp.get(cp_id)
+                        if before=="FAIL" and after=="PASS": improvements.append({"checkpoint_id":cp_id,"before":before,"after":after})
+                        elif before=="PASS" and after=="FAIL": regressions.append({"checkpoint_id":cp_id,"before":before,"after":after})
+                    delta=None
+                    try:
+                        if previous_score is not None and current_score is not None:
+                            delta=round(float(current_score)-float(previous_score),1)
+                    except Exception:
+                        pass
+                    previous_engine = previous.get("scanner_engine_version")
+                    current_engine = current_audit.get("scanner_engine_version")
+                    methodology_changed = bool(previous_engine and current_engine and previous_engine != current_engine)
+                    return {
+                        "status":"COMPARISON_AVAILABLE",
+                        "has_previous_snapshot":True,
+                        "source":"vault_archive",
+                        "previous_vault_id":previous.get("vault_id"),
+                        "score_before":previous_score,
+                        "score_after":current_score,
+                        "score_delta":delta,
+                        "fixed_findings":sorted(prev_rules-curr_rules),
+                        "new_findings":sorted(curr_rules-prev_rules),
+                        "persistent_findings":sorted(prev_rules&curr_rules),
+                        "checkpoint_improvements":improvements,
+                        "checkpoint_regressions":regressions,
+                        "previous_engine_version": previous_engine,
+                        "current_engine_version": current_engine,
+                        "methodology_changed": methodology_changed,
+                        "comparison_confidence": "directional_only" if methodology_changed else "same_engine_comparison",
+                        "comparison_basis": (
+                            "The scanner version changed between Vault snapshots, so score/finding deltas may reflect methodology as well as website changes."
+                            if methodology_changed
+                            else "Previous Vault snapshot vs fresh scan using the same engine generation; architecture/evidence delta only, not measured revenue delta."
+                        ),
+                    }
+                except Exception:
+                    continue
+        except Exception as exc:
+            return {"status": "VAULT_COMPARISON_UNAVAILABLE", "has_previous_snapshot": False, "error": str(exc)[:180]}
+        return {"status": "NO_VAULT_BASELINE", "has_previous_snapshot": False}
 
     def archive_to_vault(self, target_domain: str, admin_report: Dict[str, Any], raw_scan_data: Dict[str, Any]) -> str:
         os.makedirs(self.vault_dir, exist_ok=True)
@@ -1031,6 +1219,9 @@ class ReportGenerator:
             "overlap_adjustments": (admin_report or {}).get("overlap_adjustments", []),
             "score_formula": (admin_report or {}).get("score_formula", {}),
             "checkpoint_basis": (admin_report or {}).get("full_50_checkpoint_basis", []),
+            "evidence_receipts": (admin_report or {}).get("evidence_receipts", []),
+            "high_impact_confirmation": (admin_report or {}).get("high_impact_confirmation", {}),
+            "rescan_comparison": (admin_report or {}).get("rescan_comparison", {}),
         }
         with open(filename, "w", encoding="utf-8") as handle:
             json.dump(vault_entry, handle, indent=2, ensure_ascii=False, default=str)

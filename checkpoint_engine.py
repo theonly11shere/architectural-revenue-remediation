@@ -74,6 +74,7 @@ CHECKPOINT_RULE_META: Dict[int, Dict[str, Any]] = {
     46: {"rule_key": "content_hub_missing", "family": "content_depth", "weight": 1.1, "severity": 0.30},
     47: {"rule_key": "social_links_missing", "family": "trust_identity", "weight": 0.8, "severity": 0.25},
     48: {"rule_key": "privacy_terms_missing", "family": "trust_policy", "weight": 1.8, "severity": 0.50},
+    50: {"rule_key": "conversion_path_error", "family": "conversion_execution", "weight": 3.5, "severity": 0.90},
 }
 
 # Dedicated scorer rules that already represent these checkpoint failures.
@@ -85,13 +86,14 @@ DEDICATED_CHECKPOINT_RULES = {
     6: "measurement_telemetry",
     7: "primary_conversion_path",
     18: "diluted_h1",
+    25: "core_web_vitals",
     28: "core_web_vitals",
     29: "core_web_vitals",
     30: "core_web_vitals",
     34: "missing_alt_images",
-    40: "ai_template_similarity",
     41: "ai_template_similarity",
     43: "form_architecture",
+    50: "conversion_path_error",
 }
 
 
@@ -130,12 +132,37 @@ def _unknown_reason(cp_id: int, scan: Dict[str, Any]) -> Dict[str, str]:
 
 
 def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] | None = None) -> List[Dict[str, Any]]:
+    """Build 50 evidence checkpoints with strict business/context applicability.
+
+    V6.8 proof/authenticity rules:
+    - A high-impact FAIL that was selected for second-pass confirmation becomes UNKNOWN if the recheck is disputed or inconclusive.
+    - Subtypes refine applicability but never replace their canonical parent business type.
+
+    V6.7 authenticity rules:
+    - The canonical vertical controls baseline applicability. A narrow inferred subtype may add
+      requirements (for example healthcare credentials) but never replaces the parent vertical.
+    - Optional enhancements become NOT_APPLICABLE when absent instead of fake failures.
+    - Exact SEO character counts are treated as broad heuristics, not universal laws.
+    - Privacy/Terms requirements adapt to actual data/commerce context.
+    - End-to-end form delivery is never claimed as PASS without a safe submission; visible public
+      error states can still be verified as FAIL passively.
+    """
     scan = scan_data if isinstance(scan_data, dict) else {}
     audit = audit_data if isinstance(audit_data, dict) else {}
     profile_raw = audit.get("business_profile") or scan.get("business_profile") or {}
     profile = profile_raw if isinstance(profile_raw, dict) else {}
-    vertical = str(profile.get("vertical") or audit.get("business_type") or "general").lower()
-    applicability_vertical = str(profile.get("inferred_subtype") or vertical).lower()
+
+    supported = {
+        "general", "restaurant", "local_service", "professional_service", "medspa", "legal",
+        "ecommerce", "saas", "agency", "b2b", "creator",
+    }
+    vertical_raw = str(profile.get("vertical") or audit.get("business_type") or "general").lower()
+    vertical = vertical_raw if vertical_raw in supported else "general"
+    subtype = str(profile.get("inferred_subtype") or vertical).lower()
+    healthcare_subtypes = {"healthcare_clinic", "dental_clinic"}
+    regulated_professional_subtypes = {"healthcare_clinic", "dental_clinic"}
+    credential_relevant_professional_subtypes = {"accounting_finance", "architecture_engineering"}
+    is_healthcare = subtype in healthcare_subtypes
 
     quality_raw = scan.get("scan_quality")
     quality = quality_raw if isinstance(quality_raw, dict) else {}
@@ -156,7 +183,17 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
     def add(cp_id: int, name: str, status: str, category: str, evidence: Any = None, reason: str = "") -> None:
         meta = CHECKPOINT_RULE_META.get(cp_id, {})
         dedicated = DEDICATED_CHECKPOINT_RULES.get(cp_id)
+        rule_key = dedicated or meta.get("rule_key") or f"checkpoint_{cp_id:02d}"
+        confirmation_root = scan.get("high_impact_confirmation") if isinstance(scan.get("high_impact_confirmation"), dict) else {}
+        confirmation_results = confirmation_root.get("results") if isinstance(confirmation_root.get("results"), dict) else {}
+        confirmation_record = confirmation_results.get(rule_key) if isinstance(confirmation_results.get(rule_key), dict) else {}
+        if status == FAIL and confirmation_record and str(confirmation_record.get("status") or "").upper() != "CONFIRMED":
+            status = UNKNOWN
+            confirmation_note = "This first-pass failure was selected for high-impact confirmation but did not survive the second passive check, so it is UNKNOWN and unscored."
+            reason = (reason + " " + confirmation_note).strip()
         unknown_meta = _unknown_reason(cp_id, scan) if status == UNKNOWN else {"code": "", "customer_note": ""}
+        if status == UNKNOWN and confirmation_record:
+            unknown_meta = {"code": "HIGH_IMPACT_CONFIRMATION_UNRESOLVED", "customer_note": reason or "Second-pass confirmation did not support a confident failure; no deduction is applied."}
         checkpoints.append(
             {
                 "id": cp_id,
@@ -165,13 +202,16 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
                 "category": category,
                 "evidence": evidence,
                 "reason": reason,
-                "rule_key": dedicated or meta.get("rule_key") or f"checkpoint_{cp_id:02d}",
+                "business_type": vertical,
+                "business_subtype": subtype,
+                "rule_key": rule_key,
                 "family": meta.get("family") or dedicated or f"checkpoint_{cp_id:02d}",
                 "report_weight": _safe_float(meta.get("weight")) or 0.0,
                 "severity_factor": _safe_float(meta.get("severity")) or 0.0,
                 "dedicated_rule": bool(dedicated),
                 "unknown_reason_code": unknown_meta["code"],
                 "customer_note": reason or unknown_meta["customer_note"],
+                "confirmation": confirmation_record,
             }
         )
 
@@ -180,32 +220,99 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
             return UNKNOWN
         return PASS if bool(value) else FAIL
 
+    def optional_presence(value: Any, verified: bool, note: str) -> tuple[str, str]:
+        if verified and value is True:
+            return PASS, note
+        return NA, note
+
+    final_url = str(scan.get("final_url") or scan.get("url") or "").lower()
+    product_context = bool(
+        scan.get("add_to_cart_visible")
+        or scan.get("checkout_context_detected")
+        or any(token in final_url for token in ("/product/", "/products/", "/item/", "/p/"))
+    )
+    places_local = bool(scan.get("places_found"))
+
+    call_relevant = vertical in {"restaurant", "local_service", "professional_service", "medspa", "legal"}
+    sticky_relevant = call_relevant or (vertical == "ecommerce" and product_context)
+    location_relevant = bool(
+        vertical in {"restaurant", "local_service", "medspa", "legal"}
+        or is_healthcare
+        or (vertical == "professional_service" and places_local)
+    )
+    credential_required = bool(vertical in {"legal", "medspa"} or subtype in regulated_professional_subtypes)
+    credential_relevant = bool(credential_required or subtype in credential_relevant_professional_subtypes)
+    review_required = bool(vertical in {"restaurant", "local_service", "medspa", "ecommerce"} or is_healthcare)
+    team_required = vertical in {"local_service", "professional_service", "medspa", "legal", "saas", "agency", "b2b", "creator"}
+    broad_proof_required = vertical != "general"
+
     # Trust & Conversion 1-15
     add(1, "SSL Certificate Active", bool_status(scan.get("has_ssl"), bool(scan.get("is_reachable"))), "trust_conversion", scan.get("final_url"))
     add(2, "HTTPS Redirect Enforced", bool_status(scan.get("https_redirect_enforced")), "trust_conversion", scan.get("redirect_chain"))
-    add(3, "Mobile Click-to-Call Present", bool_status(scan.get("click_to_call_present"), scan.get("click_to_call_status") == "verified"), "trust_conversion")
-    add(4, "Mobile Sticky CTA Visible", bool_status(scan.get("mobile_sticky_cta_present"), scan.get("mobile_cta_status") == "verified"), "trust_conversion", scan.get("mobile_cta_types"))
+
+    if call_relevant:
+        add(3, "Mobile Click-to-Call Present", bool_status(scan.get("click_to_call_present"), scan.get("click_to_call_status") == "verified"), "trust_conversion", reason="Required only for business models where calling is a normal primary/supporting conversion path.")
+    else:
+        status, note = optional_presence(scan.get("click_to_call_present"), scan.get("click_to_call_status") == "verified", "Calling is optional for this business model; absence is not scored as a failure.")
+        add(3, "Mobile Click-to-Call Present", status, "trust_conversion", reason=note)
+
+    if sticky_relevant:
+        add(4, "Persistent Mobile Primary Action", bool_status(scan.get("mobile_sticky_cta_present"), scan.get("mobile_cta_status") == "verified"), "trust_conversion", scan.get("mobile_cta_types"), "A persistent action is scored only where mobile direct-action continuity is commercially central; ecommerce requires product/checkout context.")
+    else:
+        status, note = optional_presence(scan.get("mobile_sticky_cta_present"), scan.get("mobile_cta_status") == "verified", "A sticky CTA is an optional enhancement for this business/context and is not required for readiness.")
+        add(4, "Persistent Mobile Primary Action", status, "trust_conversion", scan.get("mobile_cta_types"), note)
+
     add(5, "Form Action / SPA Structure Valid", NA if scan.get("forms_present") is False else bool_status(scan.get("form_action_valid"), forms_verified), "trust_conversion")
-    measurement_present = bool(scan.get("has_ga4") or scan.get("has_meta_pixel") or scan.get("has_qualitative_analytics"))
-    add(6, "Analytics / Measurement Layer Present", bool_status(measurement_present, tracking_verified), "trust_conversion")
+
+    measurement_present = scan.get("measurement_layer_present")
+    if measurement_present is None:
+        measurement_present = bool(
+            scan.get("has_ga4") or scan.get("has_meta_pixel") or scan.get("has_qualitative_analytics")
+            or scan.get("has_other_measurement")
+        )
+    add(6, "Analytics / Measurement Layer Present", bool_status(measurement_present, tracking_verified), "trust_conversion", scan.get("measurement_platforms"))
+
     add(7, "Primary Mobile Conversion Action Visible", bool_status(scan.get("mobile_primary_cta_present"), scan.get("mobile_cta_status") == "verified"), "trust_conversion", scan.get("mobile_cta_types"))
-    add(8, "Phone Number Visible", bool_status(scan.get("phone_number_visible"), scan.get("phone_visibility_status") == "verified"), "trust_conversion", scan.get("detected_phone_numbers"))
-    location_relevant = applicability_vertical not in {"ecommerce", "saas", "agency", "b2b", "creator"}
-    add(9, "Address / Location Signal Visible", NA if not location_relevant else bool_status(scan.get("address_location_visible"), content_verified), "trust_conversion")
-    credential_relevant = applicability_vertical in {"legal", "medspa", "local_service", "professional_service", "ecommerce", "agency", "b2b"}
-    add(10, "Trust Badges / Credential Signals Present", NA if not credential_relevant else bool_status(scan.get("trust_badges_present"), content_verified), "trust_conversion")
-    add(11, "Testimonials / Reviews Visible", bool_status(scan.get("reviews_visible"), content_verified), "trust_conversion")
 
-    # Applicability is business-context aware. The scanner still inspects every signal, but
-    # optional/irrelevant features do not become fake conversion failures.
-    guarantee_relevant = applicability_vertical in {"ecommerce", "medspa", "local_service"}
-    add(12, "Guarantee / Refund Policy Clear", bool_status(scan.get("guarantee_refund_present"), content_verified) if guarantee_relevant else NA, "trust_conversion")
-    add(13, "Team / About Page Linked", bool_status(scan.get("about_team_linked"), content_verified), "trust_conversion")
-    add(14, "Social Proof Signals Active", bool_status(scan.get("social_proof_present"), content_verified), "trust_conversion")
+    if call_relevant:
+        add(8, "Phone Number Visible", bool_status(scan.get("phone_number_visible"), scan.get("phone_visibility_status") == "verified"), "trust_conversion", scan.get("detected_phone_numbers"), "Phone visibility is required only where calling is a normal customer path.")
+    else:
+        status, note = optional_presence(scan.get("phone_number_visible"), scan.get("phone_visibility_status") == "verified", "Phone contact is optional for this business model; absence is not scored.")
+        add(8, "Phone Number Visible", status, "trust_conversion", scan.get("detected_phone_numbers"), note)
+
+    add(9, "Address / Location Signal Visible", NA if not location_relevant else bool_status(scan.get("address_location_visible"), content_verified), "trust_conversion", reason="Location is required only for location-dependent businesses, healthcare clinics, or verified local professional services.")
+
+    credential_value = bool(scan.get("credential_signals_present") or scan.get("trust_badges_present"))
+    if credential_required:
+        add(10, "Professional / Regulatory Credential Signals", bool_status(credential_value, content_verified), "trust_conversion", scan.get("credential_signal_types"), "Credentials are required only for regulated/high-trust contexts such as legal, medspa, healthcare and dental clinics.")
+    elif credential_relevant:
+        status, note = optional_presence(credential_value, content_verified, "Professional credentials are commercially relevant for this subtype, but absence is not automatically failed because licensing/registration requirements vary by service and jurisdiction.")
+        add(10, "Professional / Regulatory Credential Signals", status, "trust_conversion", scan.get("credential_signal_types"), note)
+    else:
+        status, note = optional_presence(credential_value, content_verified, "Formal credentials are not universally required for this business type; real credentials count positively when present.")
+        add(10, "Professional / Regulatory Credential Signals", status, "trust_conversion", scan.get("credential_signal_types"), note)
+
+    if review_required:
+        add(11, "Testimonials / Reviews Visible", bool_status(scan.get("reviews_visible"), content_verified), "trust_conversion", reason="Review/testimonial proof is scored where consumer/local trust is a normal decision input.")
+    else:
+        status, note = optional_presence(scan.get("reviews_visible"), content_verified, "Reviews are not the required proof format for this business type; case studies, credentials or other proof can satisfy trust instead.")
+        add(11, "Testimonials / Reviews Visible", status, "trust_conversion", reason=note)
+
+    if vertical == "ecommerce":
+        refund_value = bool(scan.get("return_policy_linked") or scan.get("guarantee_refund_present"))
+        add(12, "Return / Refund Policy Discoverable", bool_status(refund_value, content_verified), "trust_conversion", {"return_policy_linked": scan.get("return_policy_linked"), "guarantee_signal": scan.get("guarantee_refund_present")}, "Refund/return reassurance is a commerce requirement; it is not imposed on clinics or ordinary service businesses.")
+    else:
+        add(12, "Return / Refund Policy Discoverable", NA, "trust_conversion", reason="Not a universal requirement for this business model.")
+
+    add(13, "Team / About Identity Path Linked", bool_status(scan.get("about_team_linked"), content_verified) if team_required else (PASS if scan.get("about_team_linked") is True and content_verified else NA), "trust_conversion", reason="Identity/team transparency is scored for service, professional and relationship-led business models; optional elsewhere.")
+
+    proof_value = bool(scan.get("social_proof_present") or scan.get("reviews_visible") or scan.get("credential_signals_present") or scan.get("case_studies_portfolio_present"))
+    add(14, "Relevant Social / Customer Proof Active", bool_status(proof_value, content_verified) if broad_proof_required else (PASS if proof_value and content_verified else NA), "trust_conversion", reason="Proof can be reviews, credentials, case studies or other verifiable customer/business evidence; the required format varies by business type.")
+
     instant_channel_present = bool(scan.get("live_chat_present") or scan.get("whatsapp_present"))
-    add(15, "Live Chat / WhatsApp Query Channel", PASS if instant_channel_present and document_verified else NA, "trust_conversion", reason="Optional conversion enhancement; absence alone is not a leak")
+    add(15, "Live Chat / WhatsApp Query Channel", PASS if instant_channel_present and document_verified else NA, "trust_conversion", reason="Optional conversion enhancement; absence alone is not a leak.")
 
-    # SEO & Technical 16-35
+    # SEO & Technical 16-35. These are broad technical/search fundamentals; scoring weights remain modest.
     meta = str(scan.get("meta_description") or "")
     title = str(scan.get("title") or "")
     h1_status = str(scan.get("h1_status") or "unknown").lower()
@@ -214,17 +321,17 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
     perf = _safe_float(scan.get("performance_score"))
     seo = _safe_float(scan.get("google_seo_score"))
     add(16, "Meta Description Present", bool_status(bool(meta), metadata_verified), "seo_technical")
-    add(17, "Meta Description Length Optimal (120-158 chars)", UNKNOWN if not metadata_verified or not meta else (PASS if 120 <= len(meta) <= 158 else FAIL), "seo_technical", len(meta) if meta else None)
-    add(18, "Single H1 Tag Per Page", UNKNOWN if h1_status == "unknown" else (PASS if h1_status == "present" and len(h1_tags) == 1 else FAIL), "seo_technical", h1_tags)
+    add(17, "Meta Description Length Reasonable (70-180 chars)", UNKNOWN if not metadata_verified or not meta else (PASS if 70 <= len(meta) <= 180 else FAIL), "seo_technical", len(meta) if meta else None, "Broad heuristic range only; search engines may rewrite snippets and no exact character count guarantees performance.")
+    add(18, "Clear Primary H1 Hierarchy", UNKNOWN if h1_status == "unknown" else (PASS if h1_status == "present" and len(h1_tags) == 1 else FAIL), "seo_technical", h1_tags)
     h1_rel = str(scan.get("h1_relevance_status") or UNKNOWN).upper()
     add(19, "H1 Supports Primary Topic", h1_rel if h1_rel in {PASS, FAIL, UNKNOWN} else UNKNOWN, "seo_technical")
-    add(20, "Title Tag Optimal Length (50-60 chars)", UNKNOWN if not metadata_verified or not title else (PASS if 50 <= len(title) <= 60 else FAIL), "seo_technical", len(title) if title else None)
+    add(20, "Title Tag Length Reasonable (20-65 chars)", UNKNOWN if not metadata_verified or not title else (PASS if 20 <= len(title) <= 65 else FAIL), "seo_technical", len(title) if title else None, "Broad readability/search heuristic; not a universal ranking cutoff.")
     add(21, "Schema.org Structured Data", bool_status(scan.get("schema_present"), technical_verified), "seo_technical", scan.get("schema_types"))
     add(22, "Canonical URL Set", bool_status(scan.get("canonical_present"), technical_verified), "seo_technical")
     add(23, "XML Sitemap Present", bool_status(scan.get("sitemap_present")), "seo_technical", scan.get("sitemap_status_code"))
     add(24, "Robots.txt Valid", bool_status(scan.get("robots_valid")), "seo_technical", scan.get("robots_status_code"))
     add(25, "Google PageSpeed Performance > 60", UNKNOWN if not psi_available or perf is None else (PASS if perf >= 60 else FAIL), "seo_technical", perf)
-    add(26, "Google PageSpeed Performance > 90", UNKNOWN if not psi_available or perf is None else (PASS if perf >= 90 else FAIL), "seo_technical", perf)
+    add(26, "Google PageSpeed Performance > 90", UNKNOWN if not psi_available or perf is None else (PASS if perf >= 90 else FAIL), "seo_technical", perf, "90+ is an elite optimization target; failure here is deduplicated behind more serious performance evidence.")
     add(27, "Google SEO Score > 80", UNKNOWN if not psi_available or seo is None else (PASS if seo >= 80 else FAIL), "seo_technical", seo)
 
     lcp = _safe_float(scan.get("crux_lcp_ms") if scan.get("crux_available") else scan.get("psi_lcp_ms"))
@@ -251,39 +358,80 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
     lazy_status = str(scan.get("lazy_loading_status") or UNKNOWN).upper()
     add(35, "Lazy Loading on Relevant Images", lazy_status if lazy_status in {PASS, FAIL, UNKNOWN, NA} else UNKNOWN, "seo_technical", scan.get("lazy_image_count"))
 
-    # Content & E-E-A-T 36-50
-    add(36, "Original Photography (Not Stock)", scan.get("custom_photography_status") if scan.get("custom_photography_status") in {PASS, FAIL, UNKNOWN, NA} else UNKNOWN, "content_eeat", reason="Scanner records same-origin imagery as a signal but does not claim provenance without proof")
-    editorial_relevant = bool(scan.get("blog_present")) or applicability_vertical in {"legal", "medspa", "professional_service", "saas", "agency", "b2b", "creator"}
-    add(37, "Author Bylines Present", NA if not editorial_relevant else bool_status(scan.get("author_bylines_present"), content_verified), "content_eeat")
-    add(38, "Publication Dates Visible", NA if not editorial_relevant else bool_status(scan.get("publication_dates_visible"), content_verified), "content_eeat")
+    # Content / trust-support 36-50. Optional content formats are never forced onto every business model.
+    add(36, "Original Photography (Not Stock)", scan.get("custom_photography_status") if scan.get("custom_photography_status") in {PASS, FAIL, UNKNOWN, NA} else UNKNOWN, "content_eeat", reason="Scanner records same-origin imagery as a signal but does not claim provenance without proof.")
+
+    if scan.get("author_bylines_present") is True and content_verified:
+        add(37, "Author Attribution on Editorial Content", PASS, "content_eeat")
+    else:
+        add(37, "Author Attribution on Editorial Content", NA, "content_eeat", reason="No article-level editorial page was safely verified in this bounded scan; absence is not treated as a site-wide failure.")
+
+    if scan.get("publication_dates_visible") is True and content_verified:
+        add(38, "Publication / Updated Dates on Editorial Content", PASS, "content_eeat")
+    else:
+        add(38, "Publication / Updated Dates on Editorial Content", NA, "content_eeat", reason="No article-level editorial page was safely verified in this bounded scan; absence is not treated as a site-wide failure.")
+
     word_count = _safe_int(scan.get("visible_word_count"), 0) or 0
-    word_relevant = applicability_vertical in {"legal", "medspa", "professional_service", "local_service", "saas", "ecommerce", "agency", "b2b", "creator"}
-    add(39, "Visible Content Length > 300 Words", NA if not word_relevant else (UNKNOWN if not document_verified else (PASS if word_count > 300 else FAIL)), "content_eeat", word_count)
+    content_depth_relevant = vertical in {"legal", "medspa", "professional_service", "local_service", "saas", "agency", "b2b"}
+    fail_below = 90 if vertical in {"saas", "agency", "b2b"} else 110
+    pass_at = 150 if vertical in {"saas", "agency", "b2b"} else 180
+    if not content_depth_relevant:
+        content_depth_status = NA
+    elif not document_verified:
+        content_depth_status = UNKNOWN
+    elif word_count < fail_below:
+        content_depth_status = FAIL
+    elif word_count >= pass_at:
+        content_depth_status = PASS
+    else:
+        content_depth_status = UNKNOWN
+    add(39, "Primary Page Not Extremely Thin", content_depth_status, "content_eeat", {"visible_word_count": word_count, "fail_below": fail_below, "pass_at_or_above": pass_at}, "Conservative Trilloka heuristic: only extremely thin primary-page content is failed; intermediate lengths remain unscored rather than padded to a word-count target.")
+
     ai_pct = _safe_float(scan.get("ai_spectrum_pct"))
-    add(40, "AI / Template Pattern Index < 30", UNKNOWN if not ai_available or ai_pct is None else (PASS if ai_pct < 30 else FAIL), "content_eeat", ai_pct)
-    add(41, "AI / Template Pattern Index < 60", UNKNOWN if not ai_available or ai_pct is None else (PASS if ai_pct < 60 else FAIL), "content_eeat", ai_pct)
+    add(40, "AI / Template Pattern Index Measured", PASS if ai_available else UNKNOWN, "content_eeat", ai_pct, "Measurement availability only; this checkpoint does not claim AI authorship and does not fail based on a low/high value.")
+    add(41, "AI / Template Pattern Index Below High-Risk Threshold (<60)", UNKNOWN if not ai_available or ai_pct is None else (PASS if ai_pct < 60 else FAIL), "content_eeat", ai_pct)
     ai_flags = scan.get("ai_flags") if isinstance(scan.get("ai_flags"), dict) else {}
     generic = ai_flags.get("generic_headline")
     add(42, "No Generic Template Headlines", UNKNOWN if generic is None or not document_verified else (PASS if not bool(generic) else FAIL), "content_eeat")
     unlinked = _safe_int(ai_flags.get("unlinked_forms"))
     add(43, "No Structurally Unlinked Forms", NA if scan.get("forms_present") is False else (UNKNOWN if unlinked is None else (PASS if unlinked == 0 else FAIL)), "content_eeat", unlinked)
-    faq_relevant = applicability_vertical in {"legal", "medspa", "professional_service", "local_service", "saas", "ecommerce", "agency", "b2b"}
-    add(44, "FAQ Section Present", NA if not faq_relevant else bool_status(scan.get("faq_present"), content_verified), "content_eeat")
-    portfolio_relevant = applicability_vertical in {"local_service", "professional_service", "legal", "medspa", "saas", "agency", "b2b", "creator"}
-    add(45, "Case Studies / Portfolio Linked", NA if not portfolio_relevant else bool_status(scan.get("case_studies_portfolio_present"), content_verified), "content_eeat")
-    blog_relevant = applicability_vertical in {"legal", "medspa", "professional_service", "local_service", "saas", "agency", "b2b", "creator"}
-    add(46, "Blog / Content Hub Active", NA if not blog_relevant else bool_status(scan.get("blog_present"), content_verified), "content_eeat")
+
+    if scan.get("faq_present") is True and content_verified:
+        add(44, "FAQ / Objection-Handling Support", PASS, "content_eeat")
+    else:
+        add(44, "FAQ / Objection-Handling Support", NA, "content_eeat", reason="FAQ format is optional; absence is not scored unless future evidence shows a business-specific objection gap.")
+
+    proof_of_work_relevant = vertical in {"saas", "agency", "b2b"}
+    proof_of_work = bool(scan.get("case_studies_portfolio_present") or scan.get("reviews_visible") or scan.get("social_proof_present"))
+    add(45, "Customer / Proof-of-Work Evidence", bool_status(proof_of_work, content_verified) if proof_of_work_relevant else NA, "content_eeat", {"case_studies": scan.get("case_studies_portfolio_present"), "social_proof": scan.get("social_proof_present")}, "Case-study/customer proof is required only for SaaS, agencies and B2B; regulated clinics/legal are not forced to publish case studies.")
+
+    if scan.get("blog_present") is True and content_verified:
+        add(46, "Blog / Content Hub Available", PASS, "content_eeat")
+    else:
+        add(46, "Blog / Content Hub Available", NA, "content_eeat", reason="A content hub is optional and is not treated as a conversion failure merely because the business does not publish one.")
+
     social_present = bool(scan.get("social_links_present"))
-    add(47, "Social Media Links Active", PASS if social_present and content_verified else NA, "content_eeat", reason="Optional identity/discovery channel; absence alone is not a conversion failure")
-    policy_relevant = bool(scan.get("forms_present") or scan.get("has_ga4") or scan.get("has_meta_pixel") or scan.get("retargeting_pixel_installed")) or applicability_vertical in {"ecommerce", "saas", "legal", "medspa", "professional_service", "agency", "b2b", "creator"}
-    add(48, "Privacy Policy & Terms Linked", bool_status(scan.get("privacy_terms_linked"), content_verified) if policy_relevant else NA, "content_eeat")
+    add(47, "Social Media Links Active", PASS if social_present and content_verified else NA, "content_eeat", reason="Optional identity/discovery channel; absence alone is not a conversion failure.")
+
+    tracking_or_data = bool(
+        scan.get("forms_present") or measurement_present or scan.get("has_meta_pixel")
+        or scan.get("retargeting_pixel_installed") or scan.get("has_ga4")
+    )
+    privacy_required = bool(tracking_or_data or vertical in {"ecommerce", "saas", "legal", "medspa"} or is_healthcare)
+    terms_required = bool(vertical in {"ecommerce", "saas"} or scan.get("checkout_context_detected"))
+    if not privacy_required:
+        add(48, "Required Privacy / Terms Policy Links", NA, "content_eeat", reason="No verified data/commerce context made a policy link mandatory for scoring in this public scan.")
+    elif terms_required:
+        policy_ok = bool(scan.get("privacy_policy_linked") and scan.get("terms_linked"))
+        add(48, "Privacy & Terms Policies Linked", bool_status(policy_ok, content_verified), "content_eeat", {"requirement": "privacy_and_terms", "privacy_policy_linked": scan.get("privacy_policy_linked"), "terms_linked": scan.get("terms_linked")}, "Both policies are expected for transaction/account-style business models or verified checkout context.")
+    else:
+        policy_ok = bool(scan.get("privacy_policy_linked"))
+        add(48, "Privacy Policy Linked for Data Collection", bool_status(policy_ok, content_verified), "content_eeat", {"requirement": "privacy_only", "privacy_policy_linked": scan.get("privacy_policy_linked"), "terms_linked": scan.get("terms_linked")}, "A Privacy policy is required where forms/tracking or sensitive professional/healthcare context exists; Terms are not forced when they are not commercially applicable.")
+
     cookie = scan.get("cookie_banner_present")
     tracking_or_cookie_context = bool(
-        scan.get("has_ga4")
-        or scan.get("has_meta_pixel")
-        or scan.get("has_qualitative_analytics")
-        or scan.get("retargeting_pixel_installed")
-        or scan.get("consent_required") is True
+        measurement_present or scan.get("has_meta_pixel") or scan.get("has_qualitative_analytics")
+        or scan.get("retargeting_pixel_installed") or scan.get("consent_required") is True
     )
     if cookie is True:
         cookie_status = PASS
@@ -296,18 +444,25 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
         cookie_reason = "Tracking/cookie context exists, but jurisdiction and consent requirements cannot be determined from the public page alone; no deduction is applied."
     add(49, "Cookie Consent / Preference Interface", cookie_status, "content_eeat", scan.get("cookie_banner_present"), cookie_reason)
 
-    form_status = str(scan.get("form_functional_status") or UNKNOWN).upper()
-    add(
-        50,
-        "Contact Form Delivery / Completion Verified",
-        NA if scan.get("forms_present") is False else (form_status if form_status in {PASS, FAIL, UNKNOWN} else UNKNOWN),
-        "content_eeat",
-        scan.get("form_payload_fired"),
-        "No destructive customer-facing submission is performed; the form is not destructively tested. Structural validity is scored separately in checkpoint 5; delivery remains UNKNOWN unless safely verified.",
-    )
+    conversion_errors = list(scan.get("conversion_error_signals") or []) if isinstance(scan.get("conversion_error_signals"), list) else []
+    if conversion_errors:
+        completion_status = FAIL
+        completion_reason = "A customer-visible error state was passively observed on a conversion page. No form was submitted and no customer data was mutated."
+    elif scan.get("forms_present") or (_safe_int(scan.get("journey_pages_verified"), 0) or 0) > 0:
+        completion_status = UNKNOWN
+        completion_reason = "No customer-visible error was observed, but end-to-end delivery/completion is not claimed because the scanner does not submit live customer forms or orders."
+    else:
+        completion_status = NA
+        completion_reason = "No form/booking conversion path was verified in the bounded public evidence sample."
+    add(50, "Customer Conversion Path Completion / Error State", completion_status, "content_eeat", {
+        "error_signals": conversion_errors[:6],
+        "form_payload_fired": scan.get("form_payload_fired"),
+        "browser_journey_url": scan.get("browser_journey_url"),
+        "browser_journey_rendered": scan.get("browser_journey_rendered"),
+        "external_booking_provider_health": scan.get("external_booking_provider_health") or {},
+    }, completion_reason)
 
     return checkpoints
-
 
 def checkpoint_summary(checkpoints: List[Dict[str, Any]]) -> Dict[str, Any]:
     counts = {PASS: 0, FAIL: 0, UNKNOWN: 0, NA: 0}

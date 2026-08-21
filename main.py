@@ -303,7 +303,7 @@ def handle_trilloka_guardrail(target_domain: str) -> Optional[Dict[str, Any]]:
 def health_check() -> Dict[str, Any]:
     return {
         "status": "online",
-        "system": "Trilloka Architect Engine v6.5",
+        "system": "Trilloka Architect Engine v6.8",
         "google_api_configured": bool(os.environ.get("PAGESPEED_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
         "places_api_configured": bool(os.environ.get("GOOGLE_PLACES_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("PAGESPEED_API_KEY")),
         "report_engine": REPORT_ENGINE_AVAILABLE,
@@ -367,10 +367,11 @@ def _admin_console_html() -> str:
 
   <div class="card">
     <h2>Owner Internal Scanner</h2>
-    <p class="muted">Authenticated owner scans bypass the public free-scan quota. Public visitors remain limited by the normal access rules.</p>
+    <p class="muted">Authenticated owner scans bypass the public free-scan quota and run fresh proof-backed analysis, including severe-finding confirmation and before/after comparison when a prior domain snapshot exists.</p>
     <div class="grid">
       <input id="ownerScanDomain" placeholder="example.com" autocomplete="off">
       <select id="ownerScanType">
+        <option value="auto" selected>Auto-detect business type</option>
         <option value="general">General / Other Business</option>
         <option value="local_service">Local Services &amp; Trades</option>
         <option value="professional_service">Professional Services</option>
@@ -785,6 +786,10 @@ def _base_success_payload(
         "status": "complete",
         "target_domain": requested_domain,
         "overall_score": overall_score,
+        "score_rating": audit_results.get("score_rating", ""),
+        "score_scope": audit_results.get("score_scope", ""),
+        "evidence_confidence": audit_results.get("evidence_confidence", {}),
+        "maturity_gate": audit_results.get("maturity_gate", {}),
         "surface_metrics": audit_results.get("surface_metrics", {}),
         "competitor_benchmark": audit_results.get("competitor_benchmark", {}),
         "key_friction_insight": audit_results.get("key_friction_insight", {}),
@@ -806,7 +811,102 @@ def _base_success_payload(
         "verification_coverage_note": (admin_master_report or {}).get("verification_coverage_note", ""),
         # Kept in protected server cache. Free responses strip this; paid responses expose all 50.
         "full_50_checkpoint_basis": audit_results.get("full_50_checkpoint_basis", []),
-        "scanner_engine_version": scan_data.get("scanner_engine_version", "v6"),
+        "scanner_engine_version": scan_data.get("scanner_engine_version", "v6.9"),
+        "evidence_receipts": audit_results.get("evidence_receipts", []),
+        "high_impact_confirmation": audit_results.get("high_impact_confirmation", {}),
+        "unconfirmed_high_impact_observations": audit_results.get("unconfirmed_high_impact_observations", []),
+        "rescan_comparison": audit_results.get("rescan_comparison", {}),
+    }
+
+
+def _build_rescan_comparison(
+    previous_payload: Optional[Dict[str, Any]],
+    current_audit: Dict[str, Any],
+    current_scan: Dict[str, Any],
+) -> Dict[str, Any]:
+    previous = previous_payload if isinstance(previous_payload, dict) else {}
+    current = current_audit if isinstance(current_audit, dict) else {}
+    current_score = current.get("overall_score")
+    if current_score is None:
+        current_score = current.get("overall_health_score")
+    if not previous:
+        return {
+            "status": "BASELINE_CREATED",
+            "has_previous_snapshot": False,
+            "score_before": None,
+            "score_after": current_score,
+            "score_delta": None,
+            "fixed_findings": [],
+            "new_findings": [],
+            "persistent_findings": [],
+            "checkpoint_improvements": [],
+            "checkpoint_regressions": [],
+            "current_engine_version": current_scan.get("scanner_engine_version"),
+            "note": "This scan establishes the baseline. A later forced re-scan can show verified architectural changes against this public-domain snapshot.",
+        }
+
+    previous_score = previous.get("overall_score")
+    previous_findings = [x for x in (previous.get("top_10_financial_leaks") or []) if isinstance(x, dict)]
+    current_packages = current.get("tiered_remediation_packages") or {}
+    current_findings = [x for x in (current_packages.get("tier_10_arch10") or []) if isinstance(x, dict)]
+    previous_ledger = [x for x in (previous.get("scoring_ledger") or []) if isinstance(x, dict)]
+    current_ledger = [x for x in (current.get("scoring_ledger") or []) if isinstance(x, dict)]
+    prev_source = previous_ledger or previous_findings
+    curr_source = current_ledger or current_findings
+    prev_rules = {str(x.get("rule_key") or "") for x in prev_source if x.get("rule_key")}
+    curr_rules = {str(x.get("rule_key") or "") for x in curr_source if x.get("rule_key")}
+
+    prev_cp = {
+        int(x.get("id")): str(x.get("status"))
+        for x in (previous.get("full_50_checkpoint_basis") or [])
+        if isinstance(x, dict) and x.get("id") is not None
+    }
+    curr_cp = {
+        int(x.get("id")): str(x.get("status"))
+        for x in (current.get("full_50_checkpoint_basis") or [])
+        if isinstance(x, dict) and x.get("id") is not None
+    }
+    improvements = []
+    regressions = []
+    for cp_id, before in prev_cp.items():
+        after = curr_cp.get(cp_id)
+        if after is None or after == before:
+            continue
+        if before == "FAIL" and after == "PASS":
+            improvements.append({"checkpoint_id": cp_id, "before": before, "after": after})
+        elif before == "PASS" and after == "FAIL":
+            regressions.append({"checkpoint_id": cp_id, "before": before, "after": after})
+
+    delta = None
+    try:
+        if previous_score is not None and current_score is not None:
+            delta = round(float(current_score) - float(previous_score), 1)
+    except Exception:
+        delta = None
+
+    previous_engine = previous.get("scanner_engine_version")
+    current_engine = current_scan.get("scanner_engine_version")
+    methodology_changed = bool(previous_engine and current_engine and previous_engine != current_engine)
+    return {
+        "status": "COMPARISON_AVAILABLE",
+        "has_previous_snapshot": True,
+        "score_before": previous_score,
+        "score_after": current_score,
+        "score_delta": delta,
+        "fixed_findings": sorted(prev_rules - curr_rules),
+        "new_findings": sorted(curr_rules - prev_rules),
+        "persistent_findings": sorted(prev_rules & curr_rules),
+        "checkpoint_improvements": improvements,
+        "checkpoint_regressions": regressions,
+        "previous_engine_version": previous_engine,
+        "current_engine_version": current_engine,
+        "methodology_changed": methodology_changed,
+        "comparison_confidence": "directional_only" if methodology_changed else "same_engine_comparison",
+        "comparison_basis": (
+            "The scanner version changed between snapshots, so score/finding deltas may reflect both methodology and website changes; use this comparison directionally until a same-engine baseline exists."
+            if methodology_changed
+            else "Previous protected domain snapshot vs fresh scan using the same engine generation; the delta shows observed public architecture/evidence changed, not that revenue changed by the same amount."
+        ),
     }
 
 
@@ -877,6 +977,9 @@ def _apply_report_access(base_payload: Dict[str, Any], ticket: AccessTicket) -> 
     result.pop("scoring_ledger", None)
     result.pop("overlap_adjustments", None)
     result.pop("score_formula", None)
+    result.pop("evidence_receipts", None)
+    result.pop("high_impact_confirmation", None)
+    result.pop("unconfirmed_high_impact_observations", None)
     result["report_access"] = {
         "plan_id": "free_preview",
         "plan_name": "Free Preview",
@@ -960,6 +1063,14 @@ async def _run_audit_impl(
     domain_key = access_manager.normalize_domain(payload.domain)
     if not domain_key:
         raise HTTPException(status_code=400, detail="A valid target domain is required")
+
+    previous_snapshot: Optional[Dict[str, Any]] = None
+    try:
+        previous_cached = access_manager.cache_get(domain_key, 365 * 24 * 60 * 60)
+        if previous_cached:
+            previous_snapshot = copy.deepcopy(previous_cached[0])
+    except Exception as exc:
+        print(f"[Rescan] Previous snapshot lookup skipped — {exc}")
 
     device_id, device_created = access_manager.ensure_device_id(http_request.cookies.get("trilloka_scan_device"))
     if device_created:
@@ -1049,11 +1160,64 @@ async def _run_audit_impl(
             )
 
         try:
+            # Pass 1 identifies candidates. It is not the final commercial score when a finding can
+            # create a large deduction; V6.8 requires those candidates to survive a second passive check.
+            preliminary_audit = scorer.audit_and_score(
+                scan_data=scan_data,
+                business_type=payload.business_type,
+                competitor_data_present=payload.competitor_has_feature,
+            )
+            try:
+                threshold = float(os.environ.get("TRILLOKA_CONFIRMATION_THRESHOLD_POINTS", "3.5"))
+            except Exception:
+                threshold = 3.5
+            if hasattr(scanner, "confirm_high_impact_findings"):
+                try:
+                    confirmation = await scanner.confirm_high_impact_findings(
+                        scan_data, preliminary_audit, payload.business_type, threshold
+                    )
+                except Exception as confirm_exc:
+                    print(f"[Confirmation] High-impact confirmation failed closed — {confirm_exc}")
+                    confirmation = {
+                        "completed": True,
+                        "threshold_points": threshold,
+                        "candidate_count": None,
+                        "results": {},
+                        "error": str(confirm_exc),
+                        "policy": "Confirmation phase failed; severe first-pass candidates are unscored rather than treated as verified failures.",
+                    }
+                scan_data["high_impact_confirmation"] = confirmation
+            else:
+                scan_data["high_impact_confirmation"] = {
+                    "completed": True,
+                    "threshold_points": threshold,
+                    "candidate_count": None,
+                    "results": {},
+                    "policy": "Confirmation method unavailable; severe first-pass candidates are unscored.",
+                }
+
+            # Pass 2 is the authoritative score. The scorer now removes any severe candidate that
+            # was disputed or could not be confirmed.
             audit_results = scorer.audit_and_score(
                 scan_data=scan_data,
                 business_type=payload.business_type,
                 competitor_data_present=payload.competitor_has_feature,
             )
+            rescan_comparison = _build_rescan_comparison(
+                previous_snapshot, audit_results, scan_data
+            )
+            if (
+                not rescan_comparison.get("has_previous_snapshot")
+                and REPORT_ENGINE_AVAILABLE and reporter is not None
+                and hasattr(reporter, "build_vault_rescan_comparison")
+            ):
+                try:
+                    vault_comparison = reporter.build_vault_rescan_comparison(payload.domain, audit_results)
+                    if isinstance(vault_comparison, dict) and vault_comparison.get("has_previous_snapshot"):
+                        rescan_comparison = vault_comparison
+                except Exception as compare_exc:
+                    print(f"[Rescan] Vault comparison skipped — {compare_exc}")
+            audit_results["rescan_comparison"] = rescan_comparison
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except Exception as exc:
