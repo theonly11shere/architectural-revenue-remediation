@@ -1,8 +1,8 @@
-"""Trilloka V6.8 remediation catalog.
+"""Trilloka V7 remediation catalog.
 
-The report engine can apply more business-specific wording, while this module provides
-safe integration-level fallbacks keyed to the scorer's descriptive rule keys.
-Recommendations are verification-first and avoid claiming a specific revenue lift.
+The report engine adapts wording to the inferred customer journey and context tags. This module
+provides safe integration-level fallbacks keyed to descriptive rule keys. Recommendations are
+verification-first, preserve evidence receipts, and never claim a guaranteed revenue lift.
 """
 
 from typing import Dict, Any
@@ -52,7 +52,7 @@ SOLUTIONS_MATRIX = {
     "CONV-01": {
         "issue": "Primary Conversion Path Gap",
         "angles": {
-            "developer_fix": "Expose a technically usable primary action appropriate to the business model—book, buy, order, request a quote, start a trial, subscribe or contact—and verify the destination resolves.",
+            "developer_fix": "Expose a technically usable primary action appropriate to the verified customer journey—book, buy, order, request a quote, request a demo, subscribe or contact—and verify the destination resolves.",
             "cro_copy_angle": "Make the highest-intent action visually and verbally clear while keeping secondary actions subordinate.",
             "infrastructure_angle": "Track starts and completed outcomes for the primary path separately so later changes can be evaluated with real behavior data.",
         },
@@ -84,7 +84,7 @@ SOLUTIONS_MATRIX = {
     "CONV-05": {
         "issue": "Mobile Click-to-Call Gap",
         "angles": {
-            "developer_fix": "Where calling is relevant to the business model, make the verified public phone number a valid tel: action with a comfortably tappable mobile target.",
+            "developer_fix": "Where calling is relevant to the inferred customer journey and local context, make the verified public phone number a valid tel: action with a comfortably tappable mobile target.",
             "cro_copy_angle": "Use calling as the primary or secondary action only where customer intent supports it; do not displace a stronger booking/order/quote path.",
             "infrastructure_angle": "Track call-click events separately from completed leads or bookings if attribution is useful to the business.",
         },
@@ -93,7 +93,7 @@ SOLUTIONS_MATRIX = {
         "issue": "Persistent Mobile Action Gap",
         "angles": {
             "developer_fix": "Where persistence is business-appropriate, implement a fixed/sticky primary action with safe-area spacing and no overlap with consent/chat controls.",
-            "cro_copy_angle": "Keep one dominant persistent action aligned to the business's real customer journey rather than stacking competing buttons.",
+            "cro_copy_angle": "Keep one dominant persistent action aligned to the site's real customer journey rather than stacking competing buttons.",
             "infrastructure_angle": "Track sticky-action impressions/clicks separately and remove it if behavior data shows no useful progression benefit.",
         },
     },
@@ -116,7 +116,7 @@ SOLUTIONS_MATRIX = {
     "TRUST-02": {
         "issue": "Relevant Proof Gap",
         "angles": {
-            "developer_fix": "Expose an appropriate proof path for the business model—reviews, testimonials, credentials, customer evidence or case studies—using verifiable source material.",
+            "developer_fix": "Expose an appropriate proof path for the journey/context—reviews, testimonials, credentials, customer evidence or case studies—using verifiable source material.",
             "cro_copy_angle": "Place proof close to high-consideration decisions and make it specific enough to reduce uncertainty.",
             "infrastructure_angle": "Create a process for collecting, permissioning, updating and retiring proof so it remains genuine and current.",
         },

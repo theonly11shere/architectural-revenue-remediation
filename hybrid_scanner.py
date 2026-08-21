@@ -1,38 +1,25 @@
 """Trilloka production scanning engine.
 
-Single source of truth for HTTP, Google telemetry, mobile DOM evidence,
-business classification and confidence-aware scanner facts.
+V7.0 Journey + Context architecture:
+- Infers the observable customer journey instead of expanding an industry/subtype taxonomy.
+- Adds independent context tags for regulated/high-trust, local, commerce, sensitive-data,
+  enterprise/considered-purchase and hospitality/event requirements.
+- Keeps universal low-weight foundation evidence separate from adaptive revenue architecture.
+- Browser-renders one priority journey page in addition to the homepage and keeps the bounded
+  same-origin evidence pass.
+- Uses strict Google Place target identity and relevance-gated local competitor benchmarking.
+- Preserves evidence receipts, safe external-provider checks, rescan comparison hooks and
+  proof-backed severe-finding confirmation with CONFIRMED/CORROBORATED/unscored states.
 
-V6.9 final calibration + subtype-aware journey hardening:
-- Uses inferred business subtype to refine which customer-journey page receives the extra Chromium render.
-- Preserves parent business-type logic while adding subtype-specific conversion/proof destinations.
-
-V6.8 proof-backed real-world hardening:
-- Browser-renders one priority journey page in addition to the homepage.
-- Captures proof receipts and optional screenshot evidence for public conversion failures.
-- Checks allow-listed external booking providers passively without booking or submitting data.
-- Adds severe-finding two-pass confirmation hooks and richer business subtypes.
-- Preserves V6.7 business-applicability and false-positive guardrails.
-
-V6.7 authenticity + business-applicability hardening:
-- Adds bounded same-origin multi-page conversion-path inspection.
-- Detects explicit public-facing CAPTCHA/booking/form error states without submitting forms.
-- Expands professional credential recognition across supported business types.
-- Adds healthcare/professional-service subtype signals and business-type mismatch warnings.
-- Makes public error detection visible-text-first to reduce source-code false positives.
-- Expands common analytics/measurement platform recognition.
-- Adds passive dead conversion-destination HTTP checks and more diverse journey-page sampling.
-
-V4 evidence consensus hardening:
-- Positive evidence from any reliable source cannot be erased by a weaker negative pass.
-- Negative visible-content claims require a complete rendered DOM when static HTML alone is inconclusive.
-- Mobile/desktop browser retries are merged by evidence consensus, not last-writer wins.
-- Ambiguous HTTP->HTTPS checks remain UNKNOWN instead of becoming false failures.
+Evidence guardrails:
+- Positive evidence from a reliable source cannot be erased by a weaker negative pass.
+- Customer-visible conversion errors are visible-text-first; dormant source strings do not count.
+- Unknown telemetry remains UNKNOWN and causes no score deduction.
+- Forms, bookings, purchases and customer data are never submitted or mutated.
 
 Backward compatibility:
-- Keeps legacy keys used by the existing scorer/frontend.
-- Adds evidence/status fields; it does not remove public fields.
-- Unknown telemetry is represented explicitly and is never converted into a failure.
+- Keeps legacy request/response keys used by the existing gateway/frontend.
+- Legacy business-type values are weak journey hints only and cannot override stronger evidence.
 """
 
 from __future__ import annotations
@@ -52,6 +39,13 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import requests
 from playwright.async_api import async_playwright
+
+from architecture_model import (
+    JOURNEY_PAGE_TERMS, JOURNEY_PAGE_GUESSES,
+    competitor_search_text as architecture_competitor_search_text,
+    expected_actions as architecture_expected_actions,
+    infer_architecture_profile, context_has,
+)
 
 
 PHONE_RE = re.compile(r"(?<!\d)(?:\+?1[\s.\-]?)?(?:\(?\d{3}\)?[\s.\-]?)\d{3}[\s.\-]?\d{4}(?!\d)")
@@ -92,84 +86,9 @@ CONVERSION_ERROR_PATTERNS = (
     ("broken_form_shortcode", r"\[(?:contact-form-7|gravityform|wpforms|formidable|ninja_form)[^\]]*\]", "A raw form shortcode is visible instead of the intended customer form."),
 )
 
-# Page intent differs by business model. Scores select a bounded set of same-origin pages;
-# they do not change Revenue Readiness by themselves.
-BUSINESS_JOURNEY_TERMS = {
-    "restaurant": ("order", "menu", "reservation", "reserve", "booking", "book", "contact", "location", "catering"),
-    "local_service": ("quote", "estimate", "contact", "book", "booking", "service", "services", "financing", "reviews"),
-    "professional_service": ("contact", "consultation", "book", "booking", "appointment", "services", "team", "about", "testimonials", "patient", "referral"),
-    "medspa": ("book", "booking", "appointment", "consultation", "treatments", "services", "team", "about", "financing", "reviews"),
-    "legal": ("consultation", "contact", "book", "lawyers", "team", "practice", "services", "about", "testimonials"),
-    "ecommerce": ("product", "products", "shop", "cart", "checkout", "shipping", "delivery", "returns", "refund", "contact"),
-    "saas": ("pricing", "plans", "demo", "trial", "signup", "sign-up", "contact", "security", "customers", "case-studies"),
-    "agency": ("contact", "quote", "demo", "book", "services", "portfolio", "work", "case-studies", "clients"),
-    "b2b": ("quote", "demo", "contact", "pricing", "solutions", "services", "case-studies", "customers", "industries"),
-    "creator": ("subscribe", "join", "membership", "contact", "newsletter", "courses", "community", "about"),
-    "general": ("contact", "book", "booking", "quote", "pricing", "services", "about", "team", "reviews"),
-}
-
+# Shared role terms used by bounded journey sampling. Journey-specific priorities live in architecture_model.py.
 POLICY_TERMS = ("privacy", "terms", "legal", "policy")
 PROOF_TERMS = ("about", "team", "staff", "reviews", "testimonials", "case-studies", "case_studies", "portfolio", "credentials")
-
-# Subtype terms refine page priority without replacing the canonical parent business model.
-# These only choose which public same-origin pages deserve closer inspection; they do not
-# award or deduct Revenue Readiness points by themselves.
-SUBTYPE_JOURNEY_TERMS = {
-    "healthcare_clinic": ("appointment", "book", "patient", "referral", "team", "physiotherapy", "rehabilitation", "contact"),
-    "dental_clinic": ("appointment", "book", "new-patient", "patient", "services", "team", "contact", "financing"),
-    "accounting_finance": ("consultation", "contact", "services", "tax", "accounting", "team", "resources"),
-    "architecture_engineering": ("contact", "projects", "portfolio", "services", "team", "credentials"),
-    "consulting_advisory": ("consultation", "contact", "services", "case-studies", "team", "insights"),
-    "cleaning_service": ("quote", "estimate", "book", "services", "reviews", "contact"),
-    "moving_service": ("quote", "estimate", "book", "services", "reviews", "contact"),
-    "construction_renovation": ("quote", "consultation", "projects", "portfolio", "reviews", "contact"),
-    "home_trades": ("service", "book", "quote", "estimate", "financing", "reviews", "contact"),
-    "injectables_aesthetics": ("book", "consultation", "injectables", "treatments", "team", "financing", "reviews"),
-    "laser_skin_clinic": ("book", "consultation", "laser", "treatments", "team", "financing", "reviews"),
-    "immigration_law": ("consultation", "contact", "immigration", "lawyers", "team", "resources"),
-    "family_law": ("consultation", "contact", "family-law", "lawyers", "team", "resources"),
-    "business_law": ("consultation", "contact", "business-law", "lawyers", "team", "services"),
-    "subscription_commerce": ("subscribe", "subscription", "products", "shipping", "returns", "contact"),
-    "retail_ecommerce": ("products", "shop", "cart", "checkout", "shipping", "returns"),
-    "self_serve_saas": ("pricing", "trial", "signup", "security", "customers", "contact"),
-    "enterprise_saas": ("demo", "contact-sales", "security", "customers", "case-studies", "pricing"),
-    "marketing_creative_agency": ("contact", "quote", "work", "portfolio", "case-studies", "clients"),
-    "manufacturing_distribution": ("quote", "products", "industries", "certifications", "contact", "case-studies"),
-    "b2b_services": ("quote", "demo", "solutions", "case-studies", "customers", "contact"),
-    "membership_course": ("join", "membership", "courses", "community", "subscribe", "about"),
-    "media_newsletter": ("subscribe", "newsletter", "podcast", "about", "contact"),
-    "quick_service_ordering": ("order", "menu", "pickup", "delivery", "location", "contact"),
-    "reservation_restaurant": ("reservation", "reserve", "menu", "location", "contact"),
-}
-
-SUBTYPE_JOURNEY_GUESSES = {
-    "healthcare_clinic": ["/book/", "/appointments/", "/patient-info/", "/our-team/", "/contact/"],
-    "dental_clinic": ["/book/", "/appointments/", "/new-patients/", "/services/", "/our-team/"],
-    "accounting_finance": ["/contact/", "/consultation/", "/services/", "/our-team/", "/resources/"],
-    "architecture_engineering": ["/contact/", "/projects/", "/portfolio/", "/services/", "/team/"],
-    "consulting_advisory": ["/contact/", "/consultation/", "/services/", "/case-studies/", "/team/"],
-    "cleaning_service": ["/request-a-quote/", "/book/", "/services/", "/reviews/", "/contact/"],
-    "moving_service": ["/request-a-quote/", "/estimate/", "/services/", "/reviews/", "/contact/"],
-    "construction_renovation": ["/contact/", "/consultation/", "/projects/", "/portfolio/", "/reviews/"],
-    "home_trades": ["/book/", "/request-service/", "/request-a-quote/", "/financing/", "/reviews/"],
-    "injectables_aesthetics": ["/book/", "/consultation/", "/treatments/", "/team/", "/reviews/"],
-    "laser_skin_clinic": ["/book/", "/consultation/", "/treatments/", "/team/", "/reviews/"],
-    "immigration_law": ["/consultation/", "/contact/", "/immigration/", "/lawyers/", "/resources/"],
-    "family_law": ["/consultation/", "/contact/", "/family-law/", "/lawyers/", "/resources/"],
-    "business_law": ["/consultation/", "/contact/", "/business-law/", "/lawyers/", "/services/"],
-    "subscription_commerce": ["/products/", "/subscriptions/", "/shipping/", "/returns/", "/contact/"],
-    "retail_ecommerce": ["/shop/", "/products/", "/cart/", "/checkout/", "/returns/"],
-    "self_serve_saas": ["/pricing/", "/signup/", "/trial/", "/security/", "/customers/"],
-    "enterprise_saas": ["/demo/", "/contact-sales/", "/security/", "/case-studies/", "/customers/"],
-    "marketing_creative_agency": ["/contact/", "/work/", "/portfolio/", "/case-studies/", "/clients/"],
-    "manufacturing_distribution": ["/request-a-quote/", "/products/", "/industries/", "/certifications/", "/contact/"],
-    "b2b_services": ["/request-a-quote/", "/demo/", "/solutions/", "/case-studies/", "/contact/"],
-    "membership_course": ["/join/", "/membership/", "/courses/", "/community/", "/about/"],
-    "media_newsletter": ["/subscribe/", "/newsletter/", "/podcast/", "/about/", "/contact/"],
-    "quick_service_ordering": ["/order-online/", "/menu/", "/locations/", "/delivery/", "/contact/"],
-    "reservation_restaurant": ["/reservations/", "/menu/", "/location/", "/contact/"],
-}
-
 
 # External booking/scheduling providers are allow-listed to avoid turning the scanner into
 # an arbitrary external URL fetcher. Health checks are passive GETs only; no booking is made.
@@ -189,57 +108,6 @@ BOOKING_PROVIDER_HOSTS = {
     "SimplePractice": ("simplepractice.com",),
     "Zocdoc": ("zocdoc.com",),
     "Booksy": ("booksy.com",),
-}
-
-# Subtypes refine reasoning while retaining their canonical parent business type.
-BUSINESS_SUBTYPE_TERMS = {
-    "professional_service": (
-        ("dental_clinic", ("dentist", "dental clinic", "dental care", "orthodont", "dental implant")),
-        ("healthcare_clinic", ("physiotherapy", "physiotherapist", "physical therapy", "rehabilitation", "chiropractic", "registered massage therapist", "occupational therapy", "speech therapy", "psychologist", "counselling", "counseling")),
-        ("accounting_finance", ("chartered professional accountant", "cpa", "accounting", "bookkeeping", "tax services", "financial advisory")),
-        ("architecture_engineering", ("architecture firm", "architect", "engineering firm", "professional engineer", "p.eng", "aibc")),
-        ("consulting_advisory", ("consulting", "consultant", "advisory", "strategy consulting", "management consulting")),
-    ),
-    "local_service": (
-        ("cleaning_service", ("cleaning service", "house cleaning", "office cleaning", "janitorial")),
-        ("moving_service", ("moving company", "movers", "moving service", "relocation")),
-        ("construction_renovation", ("renovation", "remodeling", "remodelling", "custom home", "general contractor", "construction")),
-        ("home_trades", ("plumbing", "plumber", "electrician", "hvac", "roofing", "landscaping", "repair service")),
-    ),
-    "medspa": (
-        ("injectables_aesthetics", ("botox", "filler", "injectable", "neuromodulator")),
-        ("laser_skin_clinic", ("laser treatment", "laser hair", "skin treatment", "skin rejuvenation")),
-    ),
-    "legal": (
-        ("immigration_law", ("immigration law", "immigration lawyer", "work permit", "permanent residence")),
-        ("family_law", ("family law", "divorce", "custody", "separation agreement")),
-        ("business_law", ("corporate law", "business law", "commercial law", "corporate lawyer")),
-        ("law_firm", ("law firm", "lawyer", "barrister", "solicitor")),
-    ),
-    "ecommerce": (
-        ("subscription_commerce", ("subscription", "subscribe and save", "recurring delivery")),
-        ("retail_ecommerce", ("add to cart", "checkout", "shop now", "product")),
-    ),
-    "saas": (
-        ("self_serve_saas", ("start free trial", "free trial", "sign up", "signup", "pricing plans")),
-        ("enterprise_saas", ("book demo", "request demo", "contact sales", "enterprise")),
-    ),
-    "agency": (
-        ("marketing_creative_agency", ("marketing agency", "creative agency", "branding agency", "design agency", "advertising agency")),
-    ),
-    "b2b": (
-        ("manufacturing_distribution", ("manufacturer", "manufacturing", "distributor", "wholesale", "industrial")),
-        ("b2b_services", ("b2b", "business clients", "enterprise solutions", "request a quote")),
-    ),
-    "creator": (
-        ("membership_course", ("membership", "course", "community", "cohort")),
-        ("media_newsletter", ("newsletter", "podcast", "youtube", "subscribe")),
-    ),
-    "restaurant": (
-        ("quick_service_ordering", ("order online", "pickup", "delivery")),
-        ("reservation_restaurant", ("reservation", "reserve a table", "book a table")),
-        ("restaurant", ("restaurant", "cafe", "café")),
-    ),
 }
 
 
@@ -377,7 +245,7 @@ class _StaticHTMLProbe(HTMLParser):
 
 
 class HybridScanner:
-    ENGINE_VERSION = "v6.9.1"
+    ENGINE_VERSION = "v7.0"
     """Three-phase scanner with evidence confidence and business context."""
 
     def __init__(self, google_api_key: Optional[str] = None):
@@ -467,11 +335,9 @@ class HybridScanner:
             urllib.parse.urlparse(combined.get("final_url") or url).scheme == "https"
         )
 
-        # First-pass classification helps choose the most commercially relevant internal pages.
-        initial_business_profile = self._classify_business(combined)
-        requested_competitor_type = self._normalize_competitor_business_type(
-            business_type, initial_business_profile.get("vertical")
-        )
+        # First-pass journey/context inference chooses the most commercially relevant internal pages.
+        # Legacy business_type values are weak hints only; strong page/action evidence wins.
+        initial_architecture_profile = infer_architecture_profile(combined, business_type)
 
         # Bounded multi-page journey inspection. This is passive: GET requests only, same origin,
         # no form submissions, no cart mutation, no login and no customer data entry.
@@ -483,8 +349,8 @@ class HybridScanner:
             self._scan_priority_journey_pages,
             resolved_url,
             candidate_links,
-            requested_competitor_type,
-            str(initial_business_profile.get("inferred_subtype") or ""),
+            str(initial_architecture_profile.get("journey_model") or "general"),
+            list(initial_architecture_profile.get("context_tags") or []),
         )
         self._merge_journey_evidence(combined, journey_meta)
 
@@ -514,25 +380,22 @@ class HybridScanner:
             combined["conversion_error_signals"] = existing + list(provider_health.get("error_signals") or [])
             combined["conversion_path_error_detected"] = True
 
-        # Reclassify after the small journey sample because Team/Services/Booking pages can expose
-        # more reliable vertical evidence than a generic homepage.
-        business_profile = self._classify_business(combined)
-        combined["business_profile"] = business_profile
-        combined["h1_relevance_status"] = self._assess_h1_relevance(combined, business_profile)
-        combined["business_type_validation"] = self._business_type_validation(
-            business_type, business_profile
-        )
+        # Re-infer after the bounded journey sample because booking/quote/checkout/proof pages can
+        # expose a clearer revenue path than a generic homepage.
+        architecture_profile = infer_architecture_profile(combined, business_type)
+        combined["architecture_profile"] = architecture_profile
+        # Legacy alias retained for current report/frontend integrations.
+        combined["business_profile"] = architecture_profile
+        combined["h1_relevance_status"] = self._assess_h1_relevance(combined, architecture_profile)
+        combined["business_type_validation"] = self._business_type_validation(business_type, architecture_profile)
 
         # Local competitor benchmarking is contextual evidence only. It does not directly change
-        # Revenue Readiness. When a target Place location is available, compare the site with
-        # nearby businesses of the same Google primary type (or the selected/inferred vertical).
-        requested_competitor_type = self._normalize_competitor_business_type(
-            business_type, business_profile.get("vertical")
-        )
+        # Revenue Readiness. Target identity must be independently credible and competitors must
+        # share the same customer-journey architecture before entering the combined benchmark.
         competitor_benchmark = await asyncio.to_thread(
             self._fetch_local_competitors,
             places_meta,
-            requested_competitor_type,
+            architecture_profile,
             combined,
         )
         combined["competitor_benchmark"] = competitor_benchmark
@@ -879,21 +742,9 @@ class HybridScanner:
         stem = host.split(".")[0] if host else str(target_domain or "")
         return re.sub(r"[-_]+", " ", stem).strip()[:100]
 
-    @staticmethod
-    def _normalize_competitor_business_type(requested: str, inferred: Any) -> str:
-        known = {
-            "general", "restaurant", "local_service", "professional_service", "medspa",
-            "legal", "ecommerce", "saas", "agency", "b2b", "creator",
-        }
-        value = str(requested or "").strip().lower()
-        if value in known and value != "general":
-            return value
-        inferred_value = str(inferred or "general").strip().lower()
-        return inferred_value if inferred_value in known else "general"
-
     def _fetch_google_places(self, target_domain: str, business_name: str = "") -> Dict[str, Any]:
         if not self.places_api_key:
-            return {"places_found": False, "places_confidence": "unknown", "places_reason": "Google API key unavailable"}
+            return {"places_found": False, "places_confidence": "unknown", "places_reason": "Google API key unavailable", "benchmark_identity_verified": False}
 
         query = str(business_name or "").strip() or self._host_from_url(target_domain) or str(target_domain or "")
         endpoint = "https://places.googleapis.com/v1/places:searchText"
@@ -906,56 +757,67 @@ class HybridScanner:
             ),
         }
         target_host = self._host_from_url(target_domain)
+        domain_stem = re.sub(r"[^a-z0-9]+", " ", (target_host.split(".")[0] if target_host else "").lower()).strip()
+
+        def tokens(value: str) -> set[str]:
+            stop = {"the", "and", "for", "inc", "ltd", "llc", "corp", "company", "co", "group"}
+            return {x for x in re.findall(r"[a-z0-9]+", str(value or "").lower()) if len(x) >= 3 and x not in stop}
+
+        q_tokens = tokens(query)
+        stem_tokens = tokens(domain_stem)
         try:
-            response = self.session.post(
-                endpoint,
-                json={"textQuery": query, "pageSize": 5},
-                headers=headers,
-                timeout=(4, 12),
-            )
+            response = self.session.post(endpoint, json={"textQuery": query, "pageSize": 5}, headers=headers, timeout=(4, 12))
             if response.status_code != 200:
-                return {
-                    "places_found": False,
-                    "places_confidence": "unknown",
-                    "places_reason": f"Places HTTP {response.status_code}",
-                }
+                return {"places_found": False, "places_confidence": "unknown", "places_reason": f"Places HTTP {response.status_code}", "benchmark_identity_verified": False}
             places = response.json().get("places") or []
             if not places:
-                return {"places_found": False, "places_confidence": "unknown", "places_reason": "No matching place"}
+                return {"places_found": False, "places_confidence": "unknown", "places_reason": "No matching place", "benchmark_identity_verified": False}
 
-            def candidate_score(place: Dict[str, Any]) -> float:
+            def candidate_components(place: Dict[str, Any]) -> Tuple[float, bool, float, float, str]:
                 website_host = self._host_from_url(place.get("websiteUri") or "")
-                display = str((place.get("displayName") or {}).get("text") or "").lower()
-                q = query.lower()
-                score = 0.0
-                if target_host and website_host and (website_host == target_host or website_host.endswith("." + target_host) or target_host.endswith("." + website_host)):
-                    score += 10.0
-                q_tokens = {x for x in re.findall(r"[a-z0-9]+", q) if len(x) >= 3}
-                d_tokens = set(re.findall(r"[a-z0-9]+", display))
-                if q_tokens:
-                    score += 3.0 * (len(q_tokens & d_tokens) / max(1, len(q_tokens)))
-                score += min(1.0, (self._to_float(place.get("userRatingCount")) or 0.0) / 500.0)
-                return score
+                display = str((place.get("displayName") or {}).get("text") or "")
+                d_tokens = tokens(display)
+                domain_match = bool(target_host and website_host and (website_host == target_host or website_host.endswith("." + target_host) or target_host.endswith("." + website_host)))
+                q_similarity = len(q_tokens & d_tokens) / max(1, len(q_tokens | d_tokens)) if q_tokens and d_tokens else 0.0
+                stem_similarity = len(stem_tokens & d_tokens) / max(1, len(stem_tokens)) if stem_tokens else 0.0
+                score = (100.0 if domain_match else 0.0) + q_similarity * 30.0 + stem_similarity * 20.0
+                score += min(2.0, (self._to_float(place.get("userRatingCount")) or 0.0) / 500.0)
+                return score, domain_match, q_similarity, stem_similarity, website_host
 
-            place = max(places, key=candidate_score)
-            best_score = candidate_score(place)
-            website_host = self._host_from_url(place.get("websiteUri") or "")
-            domain_match = bool(target_host and website_host and (website_host == target_host or website_host.endswith("." + target_host) or target_host.endswith("." + website_host)))
-            confidence = "high" if domain_match else ("medium" if best_score >= 1.5 else "low")
+            place = max(places, key=lambda x: candidate_components(x)[0])
+            best_score, domain_match, q_similarity, stem_similarity, website_host = candidate_components(place)
+            # Strongest proof is the site's own domain. If Google has no website, a very strong name
+            # match may still be used. A conflicting Google website domain is never silently accepted.
+            no_conflicting_site = not website_host
+            benchmark_identity_verified = bool(domain_match or (no_conflicting_site and q_similarity >= 0.72 and stem_similarity >= 0.50))
+            if domain_match:
+                confidence = "high"
+                basis = "website_domain"
+            elif benchmark_identity_verified:
+                confidence = "medium"
+                basis = "strong_name_no_conflicting_domain"
+            elif q_similarity >= 0.45:
+                confidence = "low"
+                basis = "name_only_unverified"
+            else:
+                confidence = "low"
+                basis = "weak_name_match"
             location = place.get("location") or {}
             return {
                 "places_found": True,
                 "places_confidence": confidence,
-                "place_match_basis": "website_domain" if domain_match else "name_ranked_search",
+                "place_match_basis": basis,
+                "place_identity_score": round(best_score, 1),
+                "place_name_similarity": round(q_similarity, 3),
+                "place_domain_stem_similarity": round(stem_similarity, 3),
+                "benchmark_identity_verified": benchmark_identity_verified,
+                "benchmark_identity_reason": "Verified target identity" if benchmark_identity_verified else "Google Place target identity could not be tied confidently to the scanned domain; local commercial benchmark will be withheld.",
                 "place_id": place.get("id"),
                 "place_display_name": (place.get("displayName") or {}).get("text", ""),
                 "google_rating": self._to_float(place.get("rating")),
                 "google_review_count": self._to_int(place.get("userRatingCount"), 0),
                 "place_formatted_address": place.get("formattedAddress") or "",
-                "place_location": {
-                    "latitude": self._to_float(location.get("latitude")),
-                    "longitude": self._to_float(location.get("longitude")),
-                },
+                "place_location": {"latitude": self._to_float(location.get("latitude")), "longitude": self._to_float(location.get("longitude"))},
                 "place_primary_type": place.get("primaryType") or "",
                 "place_types": list(place.get("types") or []),
                 "place_website_uri": place.get("websiteUri") or "",
@@ -963,92 +825,73 @@ class HybridScanner:
             }
         except Exception as exc:
             print(f"[Hybrid Scanner] Places API error: {exc}")
-            return {"places_found": False, "places_confidence": "unknown", "places_reason": str(exc)}
+            return {"places_found": False, "places_confidence": "unknown", "places_reason": str(exc), "benchmark_identity_verified": False}
 
     @staticmethod
-    def _competitor_search_text(business_type: str) -> str:
-        return {
-            "restaurant": "restaurant",
-            "local_service": "local service business",
-            "professional_service": "professional services",
-            "medspa": "medical spa",
-            "legal": "law firm",
-            "ecommerce": "retail store",
-            "saas": "software company",
-            "agency": "marketing agency",
-            "b2b": "business services",
-            "creator": "media company",
-        }.get(str(business_type or "general"), "business")
+    def _competitor_search_text(journey_model: str) -> str:
+        return architecture_competitor_search_text(journey_model)
 
     @staticmethod
-    def _expected_competitor_actions(business_type: str) -> set:
-        mapping = {
-            "restaurant": {"order", "reserve", "book", "call", "directions"},
-            "local_service": {"quote", "call", "book", "contact"},
-            "professional_service": {"quote", "call", "book", "contact"},
-            "medspa": {"book", "call", "contact"},
-            "legal": {"call", "book", "contact"},
-            "ecommerce": {"add_to_cart", "buy", "order"},
-            "saas": {"trial", "demo", "contact"},
-            "agency": {"quote", "demo", "book", "contact"},
-            "b2b": {"quote", "demo", "book", "call", "contact"},
-            "creator": {"subscribe", "contact"},
-        }
-        return mapping.get(str(business_type or "general"), {"buy", "order", "reserve", "book", "call", "quote", "trial", "demo", "subscribe", "contact"})
+    def _expected_competitor_actions(journey_model: str) -> set:
+        return architecture_expected_actions(journey_model)
 
-    def _competitor_commercial_score(self, signals: Dict[str, Any], business_type: str) -> Optional[float]:
+    def _competitor_commercial_score(self, signals: Dict[str, Any], journey_model: str, context_tags: Optional[List[str]] = None) -> Optional[float]:
         if not isinstance(signals, dict) or not (signals.get("static_html_verified") or signals.get("browser_loaded")):
             return None
+        model = str(journey_model or "general")
+        tags = {str(x) for x in (context_tags or []) if x}
         actions = set(str(x) for x in (signals.get("mobile_cta_types") or []) if x)
-        expected = self._expected_competitor_actions(business_type)
+        expected = self._expected_competitor_actions(model)
         score = 0.0
         if actions & expected:
-            score += 35.0
+            score += 36.0
         elif actions:
-            score += 18.0
+            score += 16.0
 
-        lead_business = business_type not in {"ecommerce", "restaurant"}
-        if lead_business and signals.get("forms_present"):
+        if model in {"lead_quote", "appointment_consultation", "reservation_event", "demo_sales"} and signals.get("forms_present"):
             score += 10.0
-        elif not lead_business and signals.get("forms_present"):
+        elif model in {"direct_purchase", "membership_subscription"} and signals.get("forms_present"):
             score += 4.0
 
-        if business_type in {"restaurant", "local_service", "professional_service", "medspa", "legal", "agency", "b2b"} and signals.get("click_to_call_present"):
+        if model in {"lead_quote", "appointment_consultation", "reservation_event"} and signals.get("click_to_call_present"):
             score += 8.0
-        if business_type in {"saas", "agency", "b2b", "professional_service", "legal"} and signals.get("pricing_linked"):
-            score += 10.0
+        if model == "demo_sales" and signals.get("pricing_linked"):
+            score += 9.0
         if signals.get("reviews_visible") or signals.get("social_proof_present"):
             score += 14.0
-        if signals.get("privacy_terms_linked") or (signals.get("privacy_policy_linked") and signals.get("terms_linked")):
-            score += 8.0
-        if business_type == "ecommerce" and (signals.get("shipping_info_linked") or signals.get("return_policy_linked")):
-            score += 8.0
-        if signals.get("mobile_viewport_configured"):
+        if signals.get("privacy_policy_linked") or signals.get("terms_linked"):
+            score += 5.0
+        if model == "direct_purchase" and (signals.get("shipping_info_linked") or signals.get("return_policy_linked")):
+            score += 10.0
+        if "regulated_high_trust" in tags and signals.get("credential_signals_present"):
             score += 7.0
+        if "enterprise_considered_purchase" in tags and signals.get("case_studies_portfolio_present"):
+            score += 7.0
+        if signals.get("mobile_viewport_configured"):
+            score += 6.0
         if signals.get("schema_present"):
-            score += 4.0
-        if signals.get("faq_present") or signals.get("case_studies_portfolio_present") or signals.get("about_team_linked"):
-            score += 4.0
+            score += 3.0
         return round(min(100.0, score), 1)
 
-    def _probe_competitor_website(self, website_uri: str, business_type: str) -> Dict[str, Any]:
+    def _probe_competitor_website(self, website_uri: str, target_profile: Dict[str, Any]) -> Dict[str, Any]:
         url = str(website_uri or "").strip()
         if not url:
             return {"website_probed": False, "commercial_score": None, "probe_reason": "No website URL"}
         try:
             response = requests.get(
-                self._normalize_url(url),
-                timeout=(3, 7),
-                allow_redirects=True,
-                headers={"User-Agent": "TrillokaBot/2.0 Local Benchmark Probe"},
+                self._normalize_url(url), timeout=(3, 7), allow_redirects=True,
+                headers={"User-Agent": "TrillokaBot/3.0 Local Benchmark Probe"},
             )
             if not (200 <= response.status_code < 400):
                 return {"website_probed": False, "commercial_score": None, "probe_reason": f"HTTP {response.status_code}"}
             html_text = (response.text or "")[:750_000]
             signals = self._extract_static_html_evidence(html_text, response.url, verified=True)
+            profile = infer_architecture_profile(signals, "auto")
+            commercial = self._competitor_commercial_score(signals, str(profile.get("journey_model") or "general"), list(profile.get("context_tags") or []))
             return {
                 "website_probed": bool(signals.get("static_html_verified")),
-                "commercial_score": self._competitor_commercial_score(signals, business_type),
+                "commercial_score": commercial,
+                "architecture_profile": profile,
                 "commercial_features": {
                     "actions": list(signals.get("mobile_cta_types") or []),
                     "forms": bool(signals.get("forms_present")),
@@ -1076,20 +919,90 @@ class HybridScanner:
         total_weight = sum(weight for _, weight in components)
         return round(sum(value * weight for value, weight in components) / total_weight, 1)
 
-    def _fetch_local_competitors(self, target_place: Dict[str, Any], business_type: str, target_scan: Dict[str, Any]) -> Dict[str, Any]:
+    @staticmethod
+    def _competitor_relevance_score(target_profile: Dict[str, Any], target_place: Dict[str, Any], competitor: Dict[str, Any]) -> Tuple[float, bool, str]:
+        comp_profile = competitor.get("architecture_profile") if isinstance(competitor.get("architecture_profile"), dict) else {}
+        target_model = str((target_profile or {}).get("journey_model") or "general")
+        comp_model = str((comp_profile or {}).get("journey_model") or "general")
+        if target_model == "general" or bool((target_profile or {}).get("provisional")):
+            return 0.0, False, "Target journey model is provisional"
+        if comp_model != target_model or bool((comp_profile or {}).get("provisional")):
+            return 0.0, False, "Customer journey model is not sufficiently comparable"
+
+        score = 45.0  # same commercial journey is mandatory and carries the largest share.
+        target_primary = str((target_place or {}).get("place_primary_type") or "")
+        comp_primary = str(competitor.get("primary_type") or "")
+        if target_primary and comp_primary and target_primary == comp_primary:
+            score += 25.0
+        target_types = {str(x) for x in ((target_place or {}).get("place_types") or []) if x}
+        comp_types = {str(x) for x in (competitor.get("place_types") or []) if x}
+        shared_types = target_types & comp_types
+        type_compatible = bool((target_primary and comp_primary and target_primary == comp_primary) or shared_types)
+        if shared_types:
+            score += 10.0
+
+        # Journey equality alone is too broad (for example a heliport and a private cruise can both
+        # expose a booking action). Require either Google-type compatibility or meaningful overlap in
+        # non-generic journey evidence before a business can enter the commercial benchmark.
+        generic_signal_tokens = {"action", "hero", "meta", "contact", "book", "booking", "reserve", "reservation", "customer", "journey", "verified", "path"}
+        def signal_tokens(profile: Dict[str, Any]) -> set[str]:
+            raw = profile.get("journey_signals") or profile.get("signals") or []
+            tokens: set[str] = set()
+            for item in raw:
+                for token in re.findall(r"[a-z0-9]+", str(item or "").lower()):
+                    if len(token) >= 4 and token not in generic_signal_tokens:
+                        tokens.add(token)
+            return tokens
+        target_signal_tokens = signal_tokens(target_profile or {})
+        comp_signal_tokens = signal_tokens(comp_profile or {})
+        offering_overlap = target_signal_tokens & comp_signal_tokens
+        if len(offering_overlap) >= 2:
+            score += 10.0
+        elif len(offering_overlap) == 1:
+            score += 4.0
+
+        target_tags = {str(x) for x in ((target_profile or {}).get("context_tags") or []) if x}
+        comp_tags = {str(x) for x in ((comp_profile or {}).get("context_tags") or []) if x}
+        meaningful_tags = target_tags & comp_tags & {"regulated_high_trust", "local_location_dependent", "commerce_payment", "enterprise_considered_purchase", "hospitality_event"}
+        score += min(15.0, 5.0 * len(meaningful_tags))
+
+        expected = architecture_expected_actions(target_model)
+        actions = {str(x) for x in (((competitor.get("commercial_features") or {}).get("actions") or [])) if x}
+        if expected & actions:
+            score += 10.0
+        score = min(100.0, score)
+        offering_compatible = bool(type_compatible or len(offering_overlap) >= 2)
+        eligible = bool(score >= 65.0 and offering_compatible)
+        if eligible:
+            reason = "Comparable journey/context with offering/type support"
+        elif not offering_compatible:
+            reason = "Same broad journey, but offering/type evidence is not sufficiently comparable"
+        else:
+            reason = "Relevance below benchmark threshold"
+        return round(score, 1), eligible, reason
+
+    def _fetch_local_competitors(self, target_place: Dict[str, Any], architecture_profile: Dict[str, Any], target_scan: Dict[str, Any]) -> Dict[str, Any]:
+        journey_model = str((architecture_profile or {}).get("journey_model") or "general")
+        context_tags = list((architecture_profile or {}).get("context_tags") or [])
         base = {
             "available": False,
             "status": "unavailable",
-            "business_type": business_type,
+            "business_type": journey_model,  # legacy key
+            "journey_model": journey_model,
             "sample_count": 0,
-            "benchmark_basis": "GOOGLE_PLACES_LOCATION_TYPE_PLUS_PUBLIC_HOMEPAGE_STRUCTURE",
+            "benchmark_basis": "VERIFIED_TARGET_IDENTITY_PLUS_JOURNEY_CONTEXT_PLUS_PUBLIC_HOMEPAGE_STRUCTURE",
             "source_label": "Google Places + public website structure",
             "does_not_directly_change_readiness_score": True,
+            "target_identity_verified": bool((target_place or {}).get("benchmark_identity_verified")),
         }
         if not self.places_api_key:
             return {**base, "reason": "Google API key unavailable"}
         if not (target_place or {}).get("places_found"):
-            return {**base, "reason": "Target business could not be confidently located in Google Places"}
+            return {**base, "reason": "Target business could not be located in Google Places"}
+        if not (target_place or {}).get("benchmark_identity_verified"):
+            return {**base, "reason": str((target_place or {}).get("benchmark_identity_reason") or "Target Place identity was not confidently tied to the scanned domain")}
+        if bool((architecture_profile or {}).get("provisional")):
+            return {**base, "reason": "Journey model is provisional; competitor benchmark withheld until the customer journey is resolved"}
 
         location = (target_place or {}).get("place_location") or {}
         lat = self._to_float(location.get("latitude"))
@@ -1130,7 +1043,7 @@ class HybridScanner:
             try:
                 text_endpoint = "https://places.googleapis.com/v1/places:searchText"
                 text_body = {
-                    "textQuery": self._competitor_search_text(business_type),
+                    "textQuery": self._competitor_search_text(journey_model),
                     "pageSize": max_results,
                     "locationBias": {"circle": {"center": {"latitude": lat, "longitude": lng}, "radius": radius}},
                 }
@@ -1159,21 +1072,21 @@ class HybridScanner:
                 "website": website,
                 "address": str(place.get("formattedAddress") or ""),
                 "primary_type": str(place.get("primaryType") or ""),
+                "place_types": list(place.get("types") or []),
                 "website_probed": False,
                 "commercial_score": None,
+                "benchmark_eligible": False,
             })
             if len(competitors) >= max_results - 1:
                 break
 
         if not competitors:
-            return {**base, "reason": "No comparable nearby businesses remained after excluding the target", "radius_meters": int(radius)}
+            return {**base, "reason": "No nearby businesses remained after excluding the target", "radius_meters": int(radius)}
 
-        # Probe only a bounded number of public homepages, concurrently, to avoid turning the main
-        # scan into multiple full Playwright/PageSpeed scans.
         probe_indices = [i for i, comp in enumerate(competitors) if comp.get("website")][:5]
         if probe_indices:
             with ThreadPoolExecutor(max_workers=min(4, len(probe_indices))) as pool:
-                futures = {pool.submit(self._probe_competitor_website, competitors[i]["website"], business_type): i for i in probe_indices}
+                futures = {pool.submit(self._probe_competitor_website, competitors[i]["website"], architecture_profile): i for i in probe_indices}
                 for future in as_completed(futures):
                     i = futures[future]
                     try:
@@ -1181,51 +1094,52 @@ class HybridScanner:
                     except Exception as exc:
                         competitors[i]["probe_reason"] = str(exc)
 
-        target_commercial = self._competitor_commercial_score(target_scan, business_type)
-        all_reviews = [self._to_int(target_place.get("google_review_count"), 0) or 0] + [int(c.get("review_count") or 0) for c in competitors]
-        max_reviews = max(1, max(all_reviews))
+        target_commercial = self._competitor_commercial_score(target_scan, journey_model, context_tags)
+
+        # First decide commercial comparability. Reputation context may include a wider nearby set,
+        # but the combined Local Benchmark must use one consistent peer set for *every* component.
+        reputation_reviews = [self._to_int(target_place.get("google_review_count"), 0) or 0] + [int(c.get("review_count") or 0) for c in competitors]
+        reputation_max_reviews = max(1, max(reputation_reviews))
+        for comp in competitors:
+            comp["presence_index"] = self._local_index(comp.get("rating"), comp.get("review_count"), None, reputation_max_reviews)
+            relevance, eligible, reason = self._competitor_relevance_score(architecture_profile, target_place, comp)
+            comp["benchmark_relevance_score"] = relevance
+            comp["benchmark_eligible"] = bool(eligible and comp.get("website_probed") and comp.get("commercial_score") is not None)
+            comp["benchmark_exclusion_reason"] = "" if comp["benchmark_eligible"] else (reason if comp.get("website_probed") else str(comp.get("probe_reason") or "Website not successfully probed"))
+            comp["local_index"] = None
+
+        scored = [c for c in competitors if c.get("benchmark_eligible")]
+        comparable_reviews = [self._to_int(target_place.get("google_review_count"), 0) or 0] + [int(c.get("review_count") or 0) for c in scored]
+        benchmark_max_reviews = max(1, max(comparable_reviews))
         target_index = self._local_index(
             self._to_float(target_place.get("google_rating")),
             self._to_int(target_place.get("google_review_count"), 0),
             target_commercial,
-            max_reviews,
+            benchmark_max_reviews,
         )
-        # Keep reputation-only evidence separate from the combined commercial benchmark.
-        # A competitor with an HTTP-blocked/unprobed website must not be compared with the target
-        # using a differently re-normalized formula. Combined local_index is therefore calculated
-        # only when the competitor homepage was actually probed and produced a commercial score.
-        for comp in competitors:
-            comp["presence_index"] = self._local_index(comp.get("rating"), comp.get("review_count"), None, max_reviews)
-            if comp.get("website_probed") and comp.get("commercial_score") is not None:
-                comp["local_index"] = self._local_index(
-                    comp.get("rating"), comp.get("review_count"), comp.get("commercial_score"), max_reviews
-                )
-            else:
-                comp["local_index"] = None
+        for comp in scored:
+            comp["local_index"] = self._local_index(comp.get("rating"), comp.get("review_count"), comp.get("commercial_score"), benchmark_max_reviews)
 
-        scored = [
-            c for c in competitors
-            if c.get("website_probed") and c.get("commercial_score") is not None and c.get("local_index") is not None
-        ]
-        ratings = [float(c["rating"]) for c in competitors if c.get("rating") is not None]
-        reviews = [int(c.get("review_count") or 0) for c in competitors]
+        scored = [c for c in scored if c.get("local_index") is not None]
+        ratings = [float(c["rating"]) for c in scored if c.get("rating") is not None]
+        reviews = [int(c.get("review_count") or 0) for c in scored]
         commercial = [float(c["commercial_score"]) for c in scored if c.get("commercial_score") is not None]
+        reputation_ratings = [float(c["rating"]) for c in competitors if c.get("rating") is not None]
+        reputation_review_counts = [int(c.get("review_count") or 0) for c in competitors]
         website_url_count = sum(bool(c.get("website")) for c in competitors)
         website_probe_success_count = sum(bool(c.get("website_probed")) for c in competitors)
         avg_index = round(sum(float(c["local_index"]) for c in scored) / len(scored), 1) if scored else None
         top = max(scored, key=lambda c: float(c["local_index"])) if scored else None
         top_index = self._to_float((top or {}).get("local_index"))
         available = bool(target_index is not None and avg_index is not None and len(scored) >= 3)
-        address = str(target_place.get("place_formatted_address") or "")
-
         result = {
             **base,
             "available": available,
             "status": "measured" if available else "partial",
-            "reason": "" if available else "Fewer than 3 comparable businesses had enough public evidence for a stable benchmark",
+            "reason": "" if available else "Fewer than 3 journey/context-relevant competitors had enough public website evidence for a stable benchmark",
             "radius_meters": int(radius),
             "target_place_name": target_place.get("place_display_name") or "",
-            "target_address": address,
+            "target_address": str(target_place.get("place_formatted_address") or ""),
             "target_google_rating": self._to_float(target_place.get("google_rating")),
             "target_google_review_count": self._to_int(target_place.get("google_review_count"), 0),
             "target_commercial_score": target_commercial,
@@ -1246,15 +1160,17 @@ class HybridScanner:
             "local_top_rating": max(ratings) if ratings else None,
             "local_avg_review_count": round(sum(reviews) / len(reviews)) if reviews else None,
             "local_top_review_count": max(reviews) if reviews else None,
+            "reputation_context_sample_count": len(competitors),
+            "reputation_context_avg_rating": round(sum(reputation_ratings) / len(reputation_ratings), 2) if reputation_ratings else None,
+            "reputation_context_avg_review_count": round(sum(reputation_review_counts) / len(reputation_review_counts)) if reputation_review_counts else None,
             "local_avg_commercial_score": round(sum(commercial) / len(commercial), 1) if commercial else None,
             "local_top_commercial_score": max(commercial) if commercial else None,
             "local_leader_name": (top or {}).get("name") or "",
             "competitors": competitors,
             "method_note": (
-                "Nearby businesses are discovered from the target Google Place location and primary type (with a business-type text fallback). "
-                "The combined Local Benchmark Index uses only competitors whose public website was successfully probed, so every combined index uses the same commercial + rating + review components. "
-                "Businesses whose websites block the probe remain visible as reputation context but are excluded from the combined local average/leader calculation. "
-                "It is contextual benchmark evidence and does not directly change Revenue Readiness."
+                "The target Google Place must be tied confidently to the scanned domain before benchmarking. Nearby candidates are then filtered by the same inferred customer-journey model plus context/action relevance. "
+                "Only competitors with a successfully probed public website and relevance score >=65 enter the combined Local Benchmark Index. Rating, review-count and commercial averages shown as local benchmark values all use that same eligible peer set. Blocked or mismatched businesses remain broader reputation context only. "
+                "The benchmark is contextual and does not directly change Revenue Readiness."
             ),
         }
         return result
@@ -1618,16 +1534,22 @@ class HybridScanner:
             return "policy"
         return "support"
 
-    def _select_priority_journey_urls(self, base_url: str, candidates: List[str], business_type: str, limit: int, business_subtype: str = "") -> List[str]:
+    def _select_priority_journey_urls(self, base_url: str, candidates: List[str], journey_model: str, limit: int, context_tags: Optional[List[str]] = None) -> List[str]:
         parsed = urllib.parse.urlparse(base_url)
         origin = f"{parsed.scheme}://{parsed.netloc}"
-        vertical = str(business_type or "general")
-        subtype = str(business_subtype or vertical)
-        parent_terms = BUSINESS_JOURNEY_TERMS.get(vertical, BUSINESS_JOURNEY_TERMS["general"])
-        subtype_terms = SUBTYPE_JOURNEY_TERMS.get(subtype, ())
-        # Subtype terms are evaluated first so a healthcare booking/patient path can outrank a
-        # generic professional-services page without losing the parent model's broader coverage.
-        terms = tuple(subtype_terms) + tuple(parent_terms)
+        model = str(journey_model or "general")
+        terms = list(JOURNEY_PAGE_TERMS.get(model, JOURNEY_PAGE_TERMS["general"]))
+        tags = {str(x) for x in (context_tags or []) if x}
+        if "regulated_high_trust" in tags:
+            terms = ["credentials", "team", "privacy"] + terms
+        if "hospitality_event" in tags:
+            terms = ["events", "charter", "cruise", "reservation", "venue", "wedding"] + terms
+        if "commerce_payment" in tags:
+            terms = ["checkout", "cart", "shipping", "returns"] + terms
+        if "enterprise_considered_purchase" in tags:
+            terms = ["case-studies", "projects", "customers", "pricing", "solutions"] + terms
+        terms = list(dict.fromkeys(terms))
+
         scored: List[Tuple[float, str]] = []
         seen = set()
         for url in candidates or []:
@@ -1638,14 +1560,14 @@ class HybridScanner:
             score = 0.0
             for idx, term in enumerate(terms):
                 if term in low:
-                    score += max(2.0, 12.0 - idx * 0.6)
+                    score += max(2.0, 12.0 - idx * 0.45)
             if any(term in low for term in POLICY_TERMS):
-                score += 5.5
+                score += 4.0
             if any(term in low for term in PROOF_TERMS):
-                score += 4.5
+                score += 4.0
             role = self._journey_role(url)
             if role in {"contact_or_lead", "booking", "commerce_conversion", "evaluation"}:
-                score += 7.0
+                score += 7.5
             elif role == "proof":
                 score += 3.0
             elif role == "policy":
@@ -1653,35 +1575,17 @@ class HybridScanner:
             if score > 0:
                 scored.append((score, url))
 
-        # Conservative common-path guesses help on sparse/JS navigation. Only same-origin GETs are used.
-        guessed = {
-            "restaurant": ["/contact/", "/menu/", "/reservations/", "/order-online/"],
-            "local_service": ["/contact/", "/request-a-quote/", "/services/", "/about/"],
-            "professional_service": ["/contact/", "/book/", "/services/", "/about-us/", "/our-team/"],
-            "medspa": ["/contact/", "/book/", "/treatments/", "/about/", "/team/"],
-            "legal": ["/contact/", "/consultation/", "/lawyers/", "/about/"],
-            "ecommerce": ["/contact/", "/shop/", "/cart/", "/shipping/", "/returns/"],
-            "saas": ["/pricing/", "/demo/", "/contact/", "/security/"],
-            "agency": ["/contact/", "/services/", "/work/", "/case-studies/"],
-            "b2b": ["/contact/", "/request-a-quote/", "/solutions/", "/case-studies/"],
-            "creator": ["/subscribe/", "/membership/", "/contact/", "/about/"],
-            "general": ["/contact/", "/services/", "/about/"],
-        }.get(vertical, ["/contact/", "/services/", "/about/"])
-        subtype_guessed = SUBTYPE_JOURNEY_GUESSES.get(subtype, [])
-        guessed = list(dict.fromkeys(list(subtype_guessed) + list(guessed)))
+        guessed = list(JOURNEY_PAGE_GUESSES.get(model, JOURNEY_PAGE_GUESSES["general"]))
         existing = {url for _, url in scored}
         for idx, path in enumerate(guessed):
             guessed_url = urllib.parse.urljoin(origin + "/", path.lstrip("/"))
             if guessed_url not in existing and guessed_url.rstrip("/") != base_url.rstrip("/"):
-                scored.append((3.0 - idx * 0.15, guessed_url))
+                scored.append((3.4 - idx * 0.18, guessed_url))
                 existing.add(guessed_url)
 
         ranked = sorted(scored, key=lambda item: (-item[0], len(item[1]), item[1]))
         ordered = [url for _, url in ranked]
-
-        # Diversity matters more than scanning five near-identical pages. Prefer one direct conversion
-        # destination, then proof, then policy when those roles actually exist, and fill remaining slots
-        # by score. This improves trust/policy evidence without sacrificing the main customer journey.
+        # Preserve breadth: one conversion/evaluation path, one proof path, one policy path, then fill by relevance.
         selected: List[str] = []
         role_groups = (
             {"contact_or_lead", "booking", "commerce_conversion", "evaluation"},
@@ -1699,10 +1603,10 @@ class HybridScanner:
                 selected.append(url)
         return selected
 
-    def _scan_priority_journey_pages(self, base_url: str, candidates: List[str], business_type: str, business_subtype: str = "") -> Dict[str, Any]:
+    def _scan_priority_journey_pages(self, base_url: str, candidates: List[str], journey_model: str, context_tags: Optional[List[str]] = None) -> Dict[str, Any]:
         raw_limit = self._to_int(os.environ.get("TRILLOKA_JOURNEY_MAX_PAGES"), 5) or 5
         limit = max(2, min(6, raw_limit))
-        urls = self._select_priority_journey_urls(base_url, candidates, business_type, limit, business_subtype)
+        urls = self._select_priority_journey_urls(base_url, candidates, journey_model, limit, context_tags)
         pages: List[Dict[str, Any]] = []
         errors: List[Dict[str, Any]] = []
         credential_types: List[str] = []
@@ -1741,7 +1645,6 @@ class HybridScanner:
                             "severity": 0.90,
                         })
                     continue
-                # Never carry giant page bodies into memory/evidence.
                 html_text = (response.text or "")[:750_000]
                 evidence = self._extract_static_html_evidence(html_text, response.url, verified=True)
                 page_errors = list(evidence.get("conversion_error_signals") or [])
@@ -1790,6 +1693,8 @@ class HybridScanner:
                 pages.append({"url": url, "status_code": None, "role": self._journey_role(url), "verified": False, "error": str(exc)[:220]})
 
         verified_count = sum(1 for page in pages if page.get("verified"))
+        # The extra Chromium page is the highest-ranked verified conversion/evaluation page.
+        browser_candidate = next((page.get("url") for page in pages if page.get("verified") and page.get("role") in {"contact_or_lead", "booking", "commerce_conversion", "evaluation"}), None)
         return {
             "journey_evidence_status": "verified" if verified_count else "unavailable",
             "journey_pages_scanned": pages,
@@ -1799,7 +1704,7 @@ class HybridScanner:
             "conversion_path_error_detected": bool(errors),
             "credential_signal_types": sorted(set(credential_types)),
             "booking_provider_links": self._dedupe_booking_provider_links(booking_provider_links),
-            "browser_journey_candidate_url": next((page.get("url") for page in pages if page.get("role") in {"contact_or_lead", "booking", "commerce_conversion", "evaluation"}), None),
+            "browser_journey_candidate_url": browser_candidate,
             "journey_text_sample": "\n".join(text_samples)[:18000],
             **aggregate,
         }
@@ -2010,31 +1915,24 @@ class HybridScanner:
 
     @staticmethod
     def _infer_business_subtype(vertical: str, text: str) -> str:
-        low = str(text or "").lower()
-        for subtype, terms in BUSINESS_SUBTYPE_TERMS.get(str(vertical or "general"), ()):
-            if any(term in low for term in terms):
-                return subtype
-        return str(vertical or "general")
+        # Deprecated compatibility shim. V7 no longer expands industry subtypes.
+        return ""
 
     @staticmethod
-    def _primary_conversion_gap_present(data: Dict[str, Any], biz_type: str) -> Optional[bool]:
+    def _primary_conversion_gap_present(data: Dict[str, Any], journey_model: str) -> Optional[bool]:
         if str(data.get("mobile_cta_status") or "unknown").lower() != "verified":
             return None
+        model = str(journey_model or "general")
         cta_types = set(str(x) for x in (data.get("mobile_cta_types") or []) if x)
         form_usable = bool(data.get("forms_present") and data.get("form_action_valid") is not False)
         call = bool(data.get("click_to_call_present"))
-        if biz_type == "restaurant":
-            return not bool({"order", "reserve", "book", "call", "directions"} & cta_types or call)
-        if biz_type == "ecommerce":
-            return not bool(data.get("add_to_cart_visible") or {"add_to_cart", "buy", "order"} & cta_types)
-        if biz_type == "saas":
-            return not bool({"trial", "demo", "contact"} & cta_types or form_usable)
-        if biz_type in {"legal", "medspa", "local_service", "professional_service", "agency"}:
-            return not bool(form_usable or call or {"quote", "book", "contact", "call", "demo"} & cta_types)
-        if biz_type == "b2b":
-            return not bool(form_usable or {"quote", "demo", "contact", "book", "call"} & cta_types)
-        if biz_type == "creator":
-            return not bool({"subscribe", "contact"} & cta_types or form_usable)
+        expected = architecture_expected_actions(model)
+        if model == "direct_purchase":
+            return not bool(data.get("add_to_cart_visible") or {"add_to_cart", "buy", "order", "checkout"} & cta_types)
+        if model in {"lead_quote", "appointment_consultation", "reservation_event", "demo_sales"}:
+            return not bool(form_usable or call or (expected & cta_types))
+        if model == "membership_subscription":
+            return not bool((expected & cta_types) or form_usable)
         return not bool(data.get("mobile_primary_cta_present") or form_usable or call)
 
     async def confirm_high_impact_findings(
@@ -2071,7 +1969,8 @@ class HybridScanner:
                 "completed_at": self._utc_now(),
             }
 
-        canonical_type = str((audit_results or {}).get("business_type") or business_type or "general")
+        profile_for_confirmation = (audit_results or {}).get("architecture_profile") or (audit_results or {}).get("business_profile") or scan_data.get("architecture_profile") or scan_data.get("business_profile") or {}
+        canonical_type = str((profile_for_confirmation or {}).get("journey_model") or (audit_results or {}).get("business_type") or "general")
         base_url = str(scan_data.get("final_url") or scan_data.get("url") or scan_data.get("domain") or "")
         results: Dict[str, Any] = {}
 
@@ -2160,7 +2059,8 @@ class HybridScanner:
                 if 200 <= int(r.status_code) < 400:
                     second_static_combined = self._extract_static_html_evidence((r.text or "")[:750000], r.url, verified=True)
                     links = self._union_strings(scan_data.get("internal_links"), [str(x.get("url")) for x in scan_data.get("journey_pages_scanned", []) if isinstance(x, dict) and x.get("url")])
-                    j2 = await asyncio.to_thread(self._scan_priority_journey_pages, r.url, links, canonical_type)
+                    context_tags = list((profile_for_confirmation or {}).get("context_tags") or [])
+                    j2 = await asyncio.to_thread(self._scan_priority_journey_pages, r.url, links, canonical_type, context_tags)
                     self._merge_journey_evidence(second_static_combined, j2)
             except Exception as exc:
                 second_static_combined = {"confirmation_error": str(exc)[:220]}
@@ -2168,6 +2068,7 @@ class HybridScanner:
         for leak in candidates:
             rule = str(leak.get("rule_key") or "")
             confirmed: Optional[bool] = None
+            status_override = ""
             method = ""
             observed: Dict[str, Any] = {}
             if rule == "unsecured_ssl" and isinstance(second_http, dict):
@@ -2202,12 +2103,20 @@ class HybridScanner:
                     # Preferred confirmation is a fresh rendered reproduction. If a dynamic widget is
                     # intermittent, a fresh static-visible reproduction can corroborate the first rendered
                     # observation. This prevents one clean race-condition render from erasing a real error.
+                    initial_signals = [x for x in (((error_candidate.get("evidence") or {}).get("error_signals") or [])) if isinstance(x, dict)]
+                    initial_urls = {str(x.get("url") or "") for x in initial_signals if x.get("url")}
                     if second_error_probe.get("browser_loaded") and rendered_match:
                         confirmed = True
                         method = "second rendered customer-journey pass"
                     elif first_rendered_match and static_match:
                         confirmed = True
                         method = "first rendered observation + fresh static-visible corroboration"
+                    elif static_match and len(initial_urls) >= 2:
+                        # Exact customer-visible error repeated across multiple first-pass pages and a fresh
+                        # visible-text collection is meaningful corroboration even when JS timing prevents a
+                        # second Chromium reproduction. It is scored conservatively, not as fully confirmed.
+                        status_override = "CORROBORATED"
+                        method = "multi-page visible-text evidence + fresh static-visible corroboration"
                     elif second_error_probe.get("browser_loaded") and not rendered_match and not static_match:
                         confirmed = False
                         method = "second rendered + fresh static corroboration pass"
@@ -2273,7 +2182,7 @@ class HybridScanner:
                     "checkout_form_field_count": second_static_combined.get("checkout_form_field_count"),
                 }
 
-            status = "CONFIRMED" if confirmed is True else "DISPUTED" if confirmed is False else "UNCONFIRMED"
+            status = status_override or ("CONFIRMED" if confirmed is True else "DISPUTED" if confirmed is False else "UNCONFIRMED")
             results[rule] = {
                 "status": status,
                 "candidate_pre_dedupe_points": self._to_float(leak.get("pre_dedupe_penalty")) or self._to_float(leak.get("final_score_loss")) or 0.0,
@@ -2288,26 +2197,31 @@ class HybridScanner:
             "candidate_count": len(candidates),
             "results": results,
             "completed_at": self._utc_now(),
-            "policy": "High-impact candidates at or above the threshold require a second passive confirmation before the final score may deduct them.",
+            "policy": "High-impact candidates at or above the threshold require independent passive confirmation or corroboration before the final score may deduct them; corroborated-only findings are reduced-confidence.",
         }
 
     @staticmethod
     def _business_type_validation(requested: str, automatic: Dict[str, Any]) -> Dict[str, Any]:
         raw = str(requested or "auto").strip().lower().replace("-", "_").replace(" ", "_")
-        aliases = {"professional_services": "professional_service", "home_service": "local_service", "aesthetics": "medspa", "law": "legal", "software": "saas"}
-        requested_norm = aliases.get(raw, raw)
-        auto_vertical = str((automatic or {}).get("vertical") or "general")
         confidence = HybridScanner._to_float((automatic or {}).get("confidence")) or 0.0
-        explicit = requested_norm not in {"", "auto", "unknown", "none"}
-        mismatch = bool(explicit and requested_norm != auto_vertical and confidence >= 0.72)
+        journey = str((automatic or {}).get("journey_model") or "general")
+        provisional = bool((automatic or {}).get("provisional"))
+        direct_models = {
+            "lead_quote", "appointment_consultation", "reservation_event", "direct_purchase",
+            "demo_sales", "membership_subscription", "general",
+        }
+        direct_hint = raw if raw in direct_models else ""
+        legacy_hint = raw if raw not in direct_models and raw not in {"", "auto", "unknown", "none"} else ""
+        mismatch = bool(direct_hint and direct_hint != "general" and journey != direct_hint and confidence >= 0.75)
         return {
-            "requested": requested_norm if explicit else "auto",
-            "automatic": auto_vertical,
+            "requested_journey_hint": direct_hint or "auto",
+            "requested_legacy_hint": legacy_hint or "auto",
+            "automatic_journey_model": journey,
             "automatic_confidence": round(confidence, 2),
+            "provisional": provisional,
             "mismatch_warning": mismatch,
             "message": (
-                f"Selected business type '{requested_norm}' differs from high-confidence site evidence suggesting '{auto_vertical}'. Review the selection before using the score commercially."
-                if mismatch else "Business-type selection is consistent with available evidence or automatic confidence is not high enough to challenge it."
+                "V7 scores the observable customer journey plus context tags. A direct journey selection can resolve close ambiguity, but unsupported selections remain provisional; legacy industry values are weak compatibility hints only."
             ),
         }
 
@@ -3768,182 +3682,37 @@ class HybridScanner:
             return "Modern JavaScript Stack", "low"
         return "Not confidently identified", "low"
 
-    def _classify_business(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        text = " ".join(
-            [
-                str(data.get("title") or ""),
-                str(data.get("meta_description") or ""),
-                " ".join(data.get("h1_tags") or []),
-                str(data.get("page_text") or "")[:20000],
-                str(data.get("journey_text_sample") or "")[:18000],
-                " ".join(data.get("schema_types") or []),
-                " ".join(data.get("mobile_cta_types") or []),
-            ]
-        ).lower()
-
-        rules: Dict[str, Tuple[str, ...]] = {
-            "restaurant": (
-                "restaurant", "cafe", "café", "menu", "order online", "pickup", "delivery",
-                "reservation", "cuisine", "dine", "breakfast", "lunch", "dinner", "food",
-            ),
-            "legal": ("law firm", "lawyer", "attorney", "legal services", "practice area", "litigation"),
-            "medspa": ("med spa", "medspa", "aesthetic", "injectable", "botox", "filler", "laser treatment"),
-            "ecommerce": ("add to cart", "checkout", "shop now", "product", "shipping", "shopify", "shopping cart"),
-            "saas": ("saas", "software", "platform", "start free trial", "free trial", "book demo", "api"),
-            "agency": (
-                "marketing agency", "design agency", "creative agency", "advertising agency",
-                "branding agency", "web agency", "digital agency", "media agency",
-            ),
-            "b2b": (
-                "b2b", "business-to-business", "enterprise solutions", "wholesale", "manufacturer",
-                "industrial", "distributor", "procurement", "business clients", "request a quote",
-            ),
-            "creator": (
-                "content creator", "creator", "newsletter", "podcast", "youtube", "substack",
-                "patreon", "membership", "subscribe",
-            ),
-            "local_service": (
-                "service area", "free estimate", "get a quote", "plumbing", "electrician", "cleaning service",
-                "roofing", "moving", "movers", "contractor", "general contractor", "landscaping", "hvac", "repair service",
-                "renovation", "remodeling", "remodelling", "custom home", "house cleaning", "office cleaning", "janitorial",
-            ),
-            "professional_service": (
-                "consulting", "consultant", "accounting", "bookkeeping",
-                "architecture firm", "engineering firm", "professional services",
-                "physiotherapy", "physiotherapist", "physical therapy", "rehabilitation",
-                "chiropractic", "chiropractor", "massage therapy", "podiatry",
-                "dentist", "dental clinic", "psychologist", "counselling", "counseling",
-                "occupational therapy", "speech therapy", "registered massage therapist",
-            ),
-        }
-
-        score_map: Dict[str, int] = {name: 0 for name in rules}
-        signal_map: Dict[str, List[str]] = {name: [] for name in rules}
-        for vertical, phrases in rules.items():
-            for phrase in phrases:
-                if phrase in text:
-                    score_map[vertical] += 1
-                    signal_map[vertical].append(phrase)
-
-        # Strong healthcare language should not be mistaken for aesthetics/medspa merely because
-        # both businesses use appointments and treatment language.
-        healthcare_terms = (
-            "physiotherapy", "physiotherapist", "physical therapy", "rehabilitation",
-            "chiropractic", "chiropractor", "registered massage therapist", "podiatry",
-            "dental clinic", "dentist", "occupational therapy", "speech therapy",
-        )
-        healthcare_hits = [term for term in healthcare_terms if term in text]
-        if healthcare_hits:
-            score_map["professional_service"] += min(8, 2 + len(healthcare_hits) * 2)
-            signal_map["professional_service"].extend(healthcare_hits[:4])
-
-        local_service_terms = (
-            "general contractor", "custom home", "renovation", "remodeling", "remodelling",
-            "plumbing", "electrician", "hvac", "roofing", "moving company", "movers",
-            "cleaning service", "house cleaning", "office cleaning", "janitorial", "landscaping",
-        )
-        local_hits = [term for term in local_service_terms if term in text]
-        if local_hits:
-            score_map["local_service"] += min(7, 1 + len(local_hits) * 2)
-            signal_map["local_service"].extend(local_hits[:4])
-
-        # Strong structured/action evidence gets extra weight.
-        schema_text = " ".join(data.get("schema_types") or []).lower()
-        if "restaurant" in schema_text:
-            score_map["restaurant"] += 4
-            signal_map["restaurant"].append("schema:Restaurant")
-        if any(t in (data.get("mobile_cta_types") or []) for t in ("add_to_cart", "buy")):
-            score_map["ecommerce"] += 3
-            signal_map["ecommerce"].append("commerce CTA")
-        if data.get("order_online_present"):
-            score_map["restaurant"] += 2
-            signal_map["restaurant"].append("order action")
-        cta_types = set(data.get("mobile_cta_types") or [])
-        if "subscribe" in cta_types:
-            score_map["creator"] += 3
-            signal_map["creator"].append("subscribe action")
-        if "demo" in cta_types and score_map.get("saas", 0) > 0:
-            score_map["saas"] += 2
-            signal_map["saas"].append("demo action")
-        if "quote" in cta_types and score_map.get("b2b", 0) > 0:
-            score_map["b2b"] += 2
-            signal_map["b2b"].append("quote action")
-
-        best_vertical = max(score_map, key=score_map.get) if score_map else "general"
-        best_score = score_map.get(best_vertical, 0)
-        if best_score < 2:
-            best_vertical = "general"
-            confidence = 0.4
-            signals: List[str] = []
-        else:
-            confidence = min(0.96, 0.48 + best_score * 0.07)
-            signals = signal_map.get(best_vertical, [])[:8]
-
-        primary, secondary = self._conversion_model(best_vertical, cta_types)
-        inferred_subtype = self._infer_business_subtype(best_vertical, text)
-        # Strong healthcare terms override broader professional-service subtype labels.
-        if best_vertical == "professional_service" and healthcare_hits and inferred_subtype not in {"dental_clinic"}:
-            inferred_subtype = "healthcare_clinic"
-        return {
-            "vertical": best_vertical,
-            "inferred_subtype": inferred_subtype,
-            "confidence": round(confidence, 2),
-            "primary_conversion": primary,
-            "secondary_conversions": secondary,
-            "signals": signals,
-        }
+    def _classify_business(self, data: Dict[str, Any], requested_hint: str = "auto") -> Dict[str, Any]:
+        """Backward-compatible wrapper around the journey + context architecture model."""
+        return infer_architecture_profile(data, requested_hint)
 
     @staticmethod
     def _conversion_model(vertical: str, cta_types: set[str]) -> Tuple[str, List[str]]:
-        if vertical == "restaurant":
-            if "order" in cta_types:
-                return "order_online", ["reservation", "directions", "call", "view_menu"]
-            if "reserve" in cta_types or "book" in cta_types:
-                return "reservation", ["order_online", "directions", "call", "view_menu"]
-            return "visit_or_order", ["call", "view_menu", "directions"]
-        if vertical == "legal":
-            return "consultation", ["call", "contact_form"]
-        if vertical == "medspa":
-            return "booking", ["consultation", "call"]
-        if vertical == "ecommerce":
-            return "add_to_cart_checkout", ["product_question", "chat"]
-        if vertical == "saas":
-            return "signup_trial_demo", ["contact", "chat"]
-        if vertical == "agency":
-            return "qualified_lead", ["contact_form", "demo", "call"]
-        if vertical == "b2b":
-            return "qualified_lead_or_quote", ["demo", "contact_form", "call"]
-        if vertical == "creator":
-            return "subscribe_or_join", ["contact", "follow", "membership"]
-        if vertical == "local_service":
-            return "quote_or_call", ["contact_form", "booking"]
-        if vertical == "professional_service":
-            return "consultation_or_lead", ["contact_form", "call"]
-        return "primary_site_action", ["contact"]
+        # Legacy helper retained for import/runtime compatibility. New scoring uses architecture_profile.
+        profile = infer_architecture_profile({"mobile_cta_types": list(cta_types or [])}, vertical)
+        return str(profile.get("primary_conversion") or "primary_site_action"), list(profile.get("secondary_conversions") or ["contact"])
 
     @staticmethod
     def _assess_h1_relevance(data: Dict[str, Any], profile: Dict[str, Any]) -> str:
+        """Conservative topic-alignment check independent of industry taxonomy.
+
+        The H1 only receives PASS when it shares meaningful terms with the title/meta or with the
+        inferred journey signals. Lack of overlap stays UNKNOWN rather than becoming a penalty.
+        """
         if data.get("h1_status") != "present":
             return "UNKNOWN"
-        h1 = " ".join(data.get("h1_tags") or []).lower()
-        if not h1.strip() or (HybridScanner._to_float(profile.get("confidence")) or 0.0) < 0.55:
+        h1 = " ".join(data.get("h1_tags") or []).lower().strip()
+        if not h1 or (HybridScanner._to_float(profile.get("confidence")) or 0.0) < 0.60:
             return "UNKNOWN"
-        vertical = profile.get("vertical")
-        keywords = {
-            "restaurant": ("restaurant", "cafe", "café", "cuisine", "food", "dining", "kitchen"),
-            "legal": ("law", "legal", "lawyer", "attorney", "litigation"),
-            "medspa": ("medspa", "med spa", "aesthetic", "treatment", "skin", "laser"),
-            "ecommerce": ("shop", "store", "product", "collection"),
-            "saas": ("software", "platform", "automation", "api"),
-            "agency": ("agency", "marketing", "design", "branding", "advertising", "creative"),
-            "b2b": ("enterprise", "business", "industrial", "wholesale", "manufacturer", "distribution", "solutions"),
-            "creator": ("creator", "newsletter", "podcast", "membership", "subscribe", "content"),
-            "local_service": ("service", "repair", "cleaning", "contractor", "plumbing", "moving"),
-            "professional_service": ("consulting", "services", "architecture", "engineering", "accounting", "physiotherapy", "physiotherapist", "dental", "dentist", "rehabilitation"),
-        }.get(vertical, ())
-        if any(keyword in h1 for keyword in keywords):
+        supporting = " ".join([
+            str(data.get("title") or ""), str(data.get("meta_description") or ""),
+            " ".join(str(x) for x in (profile.get("journey_signals") or []) if x),
+        ]).lower()
+        stop = {"the","and","for","with","your","our","from","that","this","you","are","to","of","in","a","an","on","at","by","is"}
+        h1_tokens = {x for x in re.findall(r"[a-z0-9]+", h1) if len(x) >= 4 and x not in stop}
+        support_tokens = {x for x in re.findall(r"[a-z0-9]+", supporting) if len(x) >= 4 and x not in stop}
+        if h1_tokens and len(h1_tokens & support_tokens) >= 1:
             return "PASS"
-        # Lack of a simple keyword overlap is not enough evidence to call it wrong.
         return "UNKNOWN"
 
     def _build_scan_quality(self, data: Dict[str, Any]) -> Dict[str, Any]:

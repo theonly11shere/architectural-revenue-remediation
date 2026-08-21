@@ -1,6 +1,7 @@
 """Trilloka report/vault engine.
 
-V6.9: exposes score scope, Evidence Confidence and maturity-band eligibility so a high
+V7.0: reports a universal Common Foundation layer plus adaptive Journey + Context architecture.
+It exposes score scope, Evidence Confidence and maturity-band eligibility so a high
 Revenue Readiness number cannot be mistaken for product-market fit, sales performance or revenue.
 
 Keeps the existing report presentation and sales architecture while replacing
@@ -20,6 +21,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from checkpoint_engine import PASS, FAIL, UNKNOWN, NA, build_50_checkpoints, checkpoint_summary
+from architecture_model import JOURNEY_LABELS, CONTEXT_LABELS
 
 
 class ReportGenerator:
@@ -32,7 +34,7 @@ class ReportGenerator:
     def generate_admin_master_report(self, audit_data: Dict[str, Any], scan_data: Dict[str, Any]) -> Dict[str, Any]:
         audit = audit_data or {}
         scan = scan_data or {}
-        business_profile = audit.get("business_profile") or scan.get("business_profile") or {"vertical": audit.get("business_type", "general")}
+        business_profile = audit.get("architecture_profile") or audit.get("business_profile") or scan.get("architecture_profile") or scan.get("business_profile") or {"journey_model": audit.get("business_type", "general")}
 
         checkpoints = audit.get("full_50_checkpoint_basis") or build_50_checkpoints(scan, audit)
         summary = audit.get("checkpoint_summary") or checkpoint_summary(checkpoints)
@@ -77,8 +79,14 @@ class ReportGenerator:
             "report_type": "ADMIN_LEAD_ALERT",
             "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "target_domain": audit.get("target_domain", scan.get("domain", "Unknown")),
-            "business_type": str(audit.get("business_type", business_profile.get("vertical", "general"))).upper(),
+            "business_type": str(audit.get("business_type", business_profile.get("journey_model", "general"))).upper(),
             "business_profile": business_profile,
+            "architecture_profile": business_profile,
+            "journey_model": str(business_profile.get("journey_model") or audit.get("business_type") or "general"),
+            "journey_label": str(business_profile.get("journey_label") or JOURNEY_LABELS.get(str(business_profile.get("journey_model") or "general"), "General / Unresolved Journey")),
+            "context_tags": list(business_profile.get("context_tags") or []),
+            "context_labels": list(business_profile.get("context_labels") or []),
+            "analysis_layers": audit.get("analysis_layers") or {},
             "overall_health_score": overall,
             "score_rating": audit.get("score_rating", ""),
             "score_scope": audit.get("score_scope", ""),
@@ -89,7 +97,7 @@ class ReportGenerator:
             "revenue_exposure": audit.get("revenue_leak") or {},
             "scoring_methodology": self._build_scoring_methodology_explanation(audit),
             "score_level_impact": (
-                self._build_score_level_impact_explanation(float(overall))
+                self._build_score_level_impact_explanation(float(overall), audit)
                 if overall is not None
                 else {
                     "level": "SCORE UNAVAILABLE",
@@ -318,28 +326,37 @@ class ReportGenerator:
 
     @staticmethod
     def _build_scoring_methodology_explanation(audit_data: Dict[str, Any]) -> Dict[str, str]:
-        biz = str(audit_data.get("business_type", "general")).upper()
+        profile = audit_data.get("architecture_profile") or audit_data.get("business_profile") or {}
+        journey = str(profile.get("journey_label") or profile.get("journey_model") or audit_data.get("business_type") or "General")
+        contexts = ", ".join(str(x) for x in (profile.get("context_labels") or [])) or "No special context tags verified"
         return {
             "core_philosophy": "Trilloka measures observable website Revenue Readiness, not literal conversion percentage, product-market fit, demand, sales-team performance or actual revenue. A functioning site begins from an operating baseline and must earn higher scores through verified strengths while verified leaks subtract weighted points.",
-            "graded_continuum": "Every deduction is scaled by implementation severity, evidence confidence and business relevance. Unknown telemetry earns no strength and creates no penalty. Score bands above ordinary-good territory are separately gated by verified conversion, trust, performance, measurement and evidence maturity.",
-            "vertical_weighting": f"Conversion relevance is weighted for the {biz} model, with subtype-aware journey selection and substitution credit when another strong conversion path already serves the customer.",
-            "hygiene_gatekeeping": "Verified commercial blockers are prioritized ahead of ordinary SEO hygiene. Ecommerce checkout weights use Baymard only where the scanned evidence matches Baymard's checkout research; primary conversion paths, forms and B2B information needs are informed by Nielsen Norman Group research; measured performance and local/mobile-intent signals use Google/web.dev evidence where applicable. Survey percentages are never copied directly into site-specific score deductions, and unknown evidence is never failed.",
+            "graded_continuum": "Every deduction is scaled by implementation severity, evidence confidence and journey/context relevance. Unknown telemetry earns no strength and creates no penalty. Severe deductions require independent confirmation or corroboration.",
+            "architecture_model": f"Primary customer journey: {journey}. Context tags: {contexts}. Legacy industry selections are only weak hints; the score is driven by observed customer actions and context evidence.",
+            "two_layer_model": "Common Foundation checks cover universal HTTPS, SEO/search structure, performance, mobile and accessibility basics at deliberately low Revenue Readiness weight. Adaptive Architecture checks carry more weight and change applicability based on the observed customer journey and context tags.",
+            "hygiene_gatekeeping": "Verified customer-path blockers are prioritized ahead of ordinary SEO hygiene. Ecommerce checkout weights use Baymard only when purchase-context evidence exists; primary journeys/forms use usability research; measured performance uses Google/web.dev evidence. Research percentages are never copied directly into site-specific deductions.",
         }
 
     @staticmethod
-    def _build_score_level_impact_explanation(score: float) -> Dict[str, str]:
+    def _build_score_level_impact_explanation(score: float, audit_data: Dict[str, Any] | None = None) -> Dict[str, str]:
+        audit = audit_data or {}
+        rating = str(audit.get("score_rating") or "")
+        evidence = audit.get("evidence_confidence") if isinstance(audit.get("evidence_confidence"), dict) else {}
+        penalty = float((audit.get("score_formula") or {}).get("total_final_penalty") or audit.get("total_severity_index") or 0.0)
+        if "EVIDENCE GAPS" in rating or "PROVISIONAL" in rating:
+            return {"level": rating or "MODERATE READINESS — MATERIAL EVIDENCE GAPS", "impact_summary":"The public scan did not verify enough of the adaptive architecture to describe the site as heavily broken. Missing evidence is shown separately from confirmed failures.", "severity_behavior":f"Verified penalty burden is {penalty:.2f} points; unknown evidence is neutral and does not become a hidden deduction."}
         if score >= 77:
-            return {"level":"REFERENCE-LEVEL WEBSITE READINESS (77–78)","impact_summary":"Exceptionally mature observable website architecture. This does not mean the business has product-market fit, enough traffic or strong sales execution.","severity_behavior":"Requires reference-level evidence, strong conversion/trust/performance/measurement maturity and almost no verified penalty burden."}
+            return {"level":"REFERENCE-LEVEL WEBSITE READINESS (77–78)","impact_summary":"Exceptionally mature observable website architecture. This does not mean the business has product-market fit, enough traffic or strong sales execution.","severity_behavior":"Requires reference-level evidence, strong customer-journey/trust/performance/measurement maturity and almost no verified penalty burden."}
         if score >= 75:
             return {"level":"EXCEPTIONAL VERIFIED READINESS (75–76)","impact_summary":"The observable website journey is unusually mature and evidence-backed, while still saying nothing about market demand or sales-team execution.","severity_behavior":"This band is unavailable unless the exceptional maturity gate passes; ordinary checklist strengths cannot accumulate into it."}
         if score >= 70:
-            return {"level":"STRONG VERIFIED COMMERCIAL MATURITY (70–74)","impact_summary":"Core website conversion, trust, performance, measurement and evidence maturity were verified strongly enough to enter the high-readiness band.","severity_behavior":"The score can reach this band only after the foundational maturity gate passes."}
+            return {"level":"STRONG VERIFIED COMMERCIAL MATURITY (70–74)","impact_summary":"Core customer-journey, trust, performance, measurement and evidence maturity were verified strongly enough to enter the high-readiness band.","severity_behavior":"The score can reach this band only after the foundational maturity gate passes."}
         if score >= 65:
-            return {"level":"STRONG FUNDAMENTALS (65–69)","impact_summary":"The website has credible observable strengths, but one or more elite-maturity systems or evidence gates are not fully verified.","severity_behavior":"This is a deliberate ceiling for good sites that have not yet proven the full commercial maturity required for 70+."}
+            return {"level":"STRONG FUNDAMENTALS (65–69)","impact_summary":"The website has credible observable strengths, but one or more maturity systems or evidence gates are not fully verified.","severity_behavior":"This is a deliberate ceiling for good sites that have not proven the full architecture required for 70+."}
         if score >= 50:
-            return {"level":"MATERIAL REMEDIATION OPPORTUNITY (50–64)","impact_summary":"The site functions, but verified weaknesses and/or missing earned maturity limit observable commercial readiness.","severity_behavior":"The result is driven by earned strengths and evidence-backed deductions, not by finding count alone."}
+            return {"level":"MATERIAL REMEDIATION OPPORTUNITY (50–64)","impact_summary":"Verified architectural weaknesses materially limit observable customer-journey readiness.","severity_behavior":f"The result reflects a verified penalty burden of {penalty:.2f} points plus earned-strength limits; missing evidence is not counted as failure."}
         if score >= 35:
-            return {"level":"HIGH STRUCTURAL / CONVERSION RISK (35–49)","impact_summary":"Multiple verified weaknesses create substantial observable website risk.","severity_behavior":"The rating is produced by the evidence-weighted scoring ledger and commercial severity, not generic SEO volume."}
+            return {"level":"HIGH STRUCTURAL / CONVERSION RISK (35–49)","impact_summary":"Multiple verified weaknesses create substantial observable website risk.","severity_behavior":"The rating is produced by the evidence-weighted scoring ledger and architecture severity, not generic SEO volume."}
         return {"level":"SEVERE STRUCTURAL / CONVERSION RISK (0–34)","impact_summary":"Severe verified structural, performance or conversion failures materially compromise the public customer journey.","severity_behavior":"This band requires significant evidence-backed deductions beyond the operating baseline."}
 
     def _build_3_angle_solutions(
@@ -349,8 +366,8 @@ class ReportGenerator:
         scan_data: Dict[str, Any],
         business_profile: Dict[str, Any],
     ) -> Dict[str, str]:
-        vertical = str(business_profile.get("vertical") or "general")
-        subtype = str(business_profile.get("inferred_subtype") or vertical)
+        vertical = str(business_profile.get("journey_model") or business_profile.get("vertical") or "general")
+        context_tags = {str(x) for x in (business_profile.get("context_tags") or []) if x}
         evidence = leak.get("evidence") or {}
         family = str(leak.get("family") or "")
         supporting = set(str(x) for x in (leak.get("supporting_rule_keys") or []) if x)
@@ -395,29 +412,20 @@ class ReportGenerator:
                 "technical": f"Consolidate the verified mobile direct-action gaps into one clean action system: keep {labels['primary']} prominent, make any supported call/contact action directly tappable, and add persistence only where it improves the primary journey without covering content or consent controls.",
                 "cro_ux": f"Prioritize {labels['primary']} and treat {labels['secondary']} as supporting paths. Avoid stacking multiple competing buttons simply to satisfy individual checks.",
                 "systems": "Track the primary action, sticky-action engagement and secondary direct-contact actions as separate events so the business can measure which path actually creates progression.",
-                "why_recommend": "Multiple related mobile-action signals were detected, but V6 consolidates them into one commercial finding so the same underlying friction is not reported or scored as several separate leaks.",
+                "why_recommend": "Multiple related mobile-action signals were detected, but Trilloka consolidates them into one commercial finding so the same underlying friction is not reported or scored as several separate leaks.",
                 "cadence_title": "Weeks 1–2",
                 "cadence_text": "Fix the primary mobile action architecture once, verify it after scrolling and on common viewport sizes, then compare action engagement before adding further controls.",
             }
 
         if rule_key == "click_to_call":
-            if vertical == "restaurant":
+            if "local_location_dependent" in context_tags and vertical in {"lead_quote", "appointment_consultation", "reservation_event"}:
                 return {
-                    "technical": "Keep the displayed restaurant phone number and wrap it in a valid tel: link on mobile. Use generous mobile touch sizing; 48×48 CSS px is a Trilloka usability target, not a claimed WCAG minimum.",
-                    "cro_ux": "Keep Order Now / View Menu as the primary restaurant action when appropriate and add Tap to Call as a secondary high-intent action rather than replacing ordering.",
-                    "systems": "Track order clicks and call clicks as separate conversion events so the restaurant can see which path customers actually use.",
-                    "why_recommend": "Calling is useful for restaurant intent, but the scanner credits stronger existing order/reservation paths instead of treating the missing tel: link as a total conversion failure.",
+                    "technical": "Wrap verified phone numbers in tel: links and ensure the mobile target is comfortably tappable. A 48×48 CSS px target may be used as Trilloka's usability recommendation, not as a claimed universal standard.",
+                    "cro_ux": "Place calling near the highest-intent quote, appointment or reservation path without obscuring the primary form/booking action.",
+                    "systems": "Track call-click and completed customer-journey events separately so the business can measure whether calling actually contributes to progression.",
+                    "why_recommend": "The observed journey is local/direct-contact dependent, so a verified missing tap action matters more here than it would in a direct-purchase or subscription journey.",
                     "cadence_title": "Week 1",
-                    "cadence_text": "Add touch-enabled calling, preserve the stronger ordering path, then verify both events are measurable.",
-                }
-            if vertical in {"legal", "medspa", "local_service", "professional_service"}:
-                return {
-                    "technical": "Wrap verified phone numbers in tel: links and ensure the mobile target is comfortably tappable. A 48×48 CSS px target may be used as Trilloka's usability recommendation.",
-                    "cro_ux": "Place the call action near the highest-intent service/consultation path without obscuring the primary form or booking action.",
-                    "systems": "Track call-click and completed-lead events. Use a call-tracking system only if the business actually needs source attribution and the tracking setup preserves number consistency.",
-                    "why_recommend": "For this business model, direct calling can be a high-value conversion path, so a verified missing tap action deserves more weight than it would for ecommerce or SaaS.",
-                    "cadence_title": "Week 1",
-                    "cadence_text": "Enable the direct mobile call action, verify routing, then measure call engagement before changing the surrounding funnel.",
+                    "cadence_text": "Enable the direct mobile call path, verify routing, then measure it without displacing the stronger primary action.",
                 }
             return {
                 "technical": "If calling is a supported conversion path, expose the verified phone number through a tel: link and use a comfortably sized mobile touch target.",
@@ -432,7 +440,7 @@ class ReportGenerator:
             labels = self._vertical_cta_labels(vertical)
             return {
                 "technical": f"Create a genuinely visible fixed/sticky mobile action for the primary journey ({labels['primary']}) with safe-area spacing and no overlap with consent/chat controls.",
-                "cro_ux": f"Keep the persistent action aligned to the business model: prioritize {labels['primary']} and use {labels['secondary']} only as supporting actions.",
+                "cro_ux": f"Keep the persistent action aligned to the observed customer journey: prioritize {labels['primary']} and use {labels['secondary']} only as supporting actions.",
                 "systems": "Track sticky-action impressions and clicks separately from non-sticky CTA clicks so lift can be measured instead of assumed.",
                 "why_recommend": "The scanner verified the difference between a normal CTA and a persistent mobile CTA and overlap-adjusts this finding against related direct-action failures.",
                 "cadence_title": "Weeks 1–2",
@@ -539,7 +547,7 @@ class ReportGenerator:
                 }
         plans: Dict[str, tuple[str, str, str]] = {
             "primary_conversion_path": (
-                "Expose one clear primary conversion action that matches the business model and works on mobile before adding secondary CTAs.",
+                "Expose one clear primary conversion action that matches the customer journey/context and works on mobile before adding secondary CTAs.",
                 "Make the main next step unmistakable: purchase, book, request a quote, start a trial, or contact — whichever represents real customer progress.",
                 "Track the primary action separately from secondary navigation so completion and drop-off can be measured.",
             ),
@@ -554,7 +562,7 @@ class ReportGenerator:
                 "Regression-test pricing, shipping and tax calculations across common regions and cart states.",
             ),
             "guest_checkout_barrier": (
-                "Provide a guest checkout path when the business model permits it and offer account creation after purchase rather than making registration a prerequisite.",
+                "Provide a guest checkout path when the customer journey/context permits it and offer account creation after purchase rather than making registration a prerequisite.",
                 "Keep sign-in useful for returning customers without blocking first-time buyers who want to complete the order quickly.",
                 "Track guest vs. account checkout completion and post-purchase account creation separately.",
             ),
@@ -769,7 +777,7 @@ class ReportGenerator:
                 "Create a process for collecting outcomes and approvals from future clients/projects.",
             ),
             "content_hub_missing": (
-                "Create a focused expertise/resource hub only if the business model benefits from ongoing informational demand.",
+                "Create a focused expertise/resource hub only if the customer journey/context benefits from ongoing informational demand.",
                 "Organize content around customer questions and buying stages rather than generic posting cadence.",
                 "Track assisted conversions/search demand so the content program is accountable.",
             ),
@@ -799,37 +807,31 @@ class ReportGenerator:
 
     @staticmethod
     def _vertical_cta_labels(vertical: str) -> Dict[str, str]:
-        if vertical == "restaurant":
-            return {"primary": "Order Now / Reserve", "secondary": "View Menu / Directions / Call"}
-        if vertical == "ecommerce":
-            return {"primary": "Add to Cart / Checkout", "secondary": "Product Question / Chat"}
-        if vertical == "saas":
-            return {"primary": "Start Trial / Book Demo / Sign Up", "secondary": "Contact / Chat"}
-        if vertical == "legal":
-            return {"primary": "Consultation / Contact", "secondary": "Call"}
-        if vertical == "medspa":
-            return {"primary": "Book / Consultation", "secondary": "Call"}
-        if vertical in {"healthcare_clinic", "dental_clinic"}:
-            return {"primary": "Book / Request Appointment / Contact", "secondary": "Call"}
-        if vertical in {"local_service", "professional_service"}:
-            return {"primary": "Get Quote / Contact / Book", "secondary": "Call / Chat"}
-        return {"primary": "Primary Conversion", "secondary": "Contact / Secondary Action"}
+        labels = {
+            "lead_quote": {"primary": "Request Quote / Enquire / Contact", "secondary": "Call / Chat"},
+            "appointment_consultation": {"primary": "Book Appointment / Consultation", "secondary": "Call / Contact"},
+            "reservation_event": {"primary": "Reserve / Book / Event Enquiry", "secondary": "Call / Directions / Contact"},
+            "direct_purchase": {"primary": "Add to Cart / Buy / Checkout", "secondary": "Product Question / Chat"},
+            "demo_sales": {"primary": "Request Demo / Start Trial / Contact Sales", "secondary": "Contact / Chat"},
+            "membership_subscription": {"primary": "Join / Subscribe / Membership", "secondary": "Contact / Community"},
+            "general": {"primary": "Primary Customer Action", "secondary": "Contact / Secondary Action"},
+        }
+        return labels.get(str(vertical or "general"), labels["general"])
 
     @staticmethod
     def _h1_cro_copy(vertical: str, scan: Dict[str, Any]) -> str:
         current = " / ".join(scan.get("h1_tags") or [])
         prefix = f"The current verified H1 is '{current}'. " if current else ""
-        if vertical == "restaurant":
-            return prefix + "Make the hero immediately identify the cuisine/restaurant value and keep Order Now, Reserve or View Menu aligned beneath it."
-        if vertical == "legal":
-            return prefix + "Make the hero clearly communicate the core legal service/jurisdiction and align it to the consultation path."
-        if vertical == "medspa":
-            return prefix + "Make the hero clearly communicate the primary treatment/value proposition and align it to booking or consultation."
-        if vertical == "ecommerce":
-            return prefix + "Make the hero state the product/category value clearly and align it to shopping or product discovery."
-        if vertical == "saas":
-            return prefix + "Make the hero explain the software outcome and align it to trial, signup or demo intent."
-        return prefix + "Make the hero communicate the primary customer outcome and align it to the site's verified primary action."
+        journey_copy = {
+            "lead_quote": "Make the hero state the customer problem/outcome clearly and align it to quote or enquiry intent.",
+            "appointment_consultation": "Make the hero state the service/outcome clearly and align it to appointment or consultation intent.",
+            "reservation_event": "Make the hero identify the experience/event/availability value clearly and align it to reservation or enquiry intent.",
+            "direct_purchase": "Make the hero state the product/category value clearly and align it to shopping or purchase intent.",
+            "demo_sales": "Make the hero explain the business outcome clearly and align it to demo, trial or sales-contact intent.",
+            "membership_subscription": "Make the hero explain the ongoing member/subscriber value and align it to join or subscribe intent.",
+            "general": "Make the hero communicate the primary customer outcome and align it to the site's verified primary action.",
+        }
+        return prefix + journey_copy.get(str(vertical or "general"), journey_copy["general"])
 
     def _build_50_checkpoints(self, scan_data: Dict[str, Any], audit_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         return build_50_checkpoints(scan_data, audit_data)
@@ -911,10 +913,12 @@ class ReportGenerator:
         score = float(report.get("overall_health_score") or 0.0)
         rating = html.escape(str(report.get("score_rating", "")))
         vault_id = html.escape(str(report.get("vault_id", "")))
-        biz_type = html.escape(str(report.get("business_type", "GENERAL")))
+        journey_label = html.escape(str(report.get("journey_label") or report.get("business_type", "GENERAL")).replace("_", " "))
+        context_display = html.escape(", ".join(str(x) for x in (report.get("context_labels") or [])) or "No special context tags verified")
         business_profile = report.get("business_profile") or {}
-        mismatch_warning = bool(business_profile.get("type_mismatch_warning"))
-        mismatch_text = html.escape(str(business_profile.get("type_mismatch_message") or ""))
+        provisional_journey = bool(business_profile.get("provisional"))
+        journey_confidence = business_profile.get("confidence")
+        journey_confidence_text = "N/A" if journey_confidence is None else f"{float(journey_confidence)*100:.0f}%"
         revenue_exposure = html.escape(str(report.get("estimated_revenue_leak", "Not measured")))
         cms = html.escape(str(report.get("cms_platform") or "Not confidently identified"))
         ai_pct = report.get("ai_spectrum_pct")
@@ -934,11 +938,25 @@ class ReportGenerator:
         maturity_cap_text = "N/A" if maturity_cap is None else f"{float(maturity_cap):.0f}"
         failed_gate_names = [str(x).replace("_", " ") for x in (maturity_gate.get("failed_gate_names") or [])]
         failed_gate_text = html.escape(", ".join(failed_gate_names[:6]) if failed_gate_names else "None at the active maturity tier")
+        analysis_layers = report.get("analysis_layers") if isinstance(report.get("analysis_layers"), dict) else {}
+        common_layer = analysis_layers.get("common_foundation") if isinstance(analysis_layers.get("common_foundation"), dict) else {}
+        adaptive_layer = analysis_layers.get("adaptive_architecture") if isinstance(analysis_layers.get("adaptive_architecture"), dict) else {}
+        common_summary = common_layer.get("checkpoint_summary") if isinstance(common_layer.get("checkpoint_summary"), dict) else {}
+        adaptive_summary = adaptive_layer.get("checkpoint_summary") if isinstance(adaptive_layer.get("checkpoint_summary"), dict) else {}
+        common_verified = int(common_summary.get("verified") or 0)
+        common_applicable = int(common_summary.get("applicable") or common_summary.get("total") or common_layer.get("checkpoint_count") or 0)
+        adaptive_verified = int(adaptive_summary.get("verified") or 0)
+        adaptive_applicable = int(adaptive_summary.get("applicable") or adaptive_layer.get("checkpoint_count") or 0)
+        common_strength = float(common_layer.get("strength_awarded") or 0.0)
+        adaptive_strength = float(adaptive_layer.get("strength_awarded") or 0.0)
+        common_penalty = float(common_layer.get("verified_penalty") or 0.0)
+        adaptive_penalty = float(adaptive_layer.get("verified_penalty") or 0.0)
         rescan = report.get("rescan_comparison") if isinstance(report.get("rescan_comparison"), dict) else {}
         confirmation = report.get("high_impact_confirmation") if isinstance(report.get("high_impact_confirmation"), dict) else {}
         confirmation_results = confirmation.get("results") if isinstance(confirmation.get("results"), dict) else {}
         confirmed_count = sum(1 for x in confirmation_results.values() if isinstance(x, dict) and str(x.get("status") or "").upper() == "CONFIRMED")
-        unresolved_count = sum(1 for x in confirmation_results.values() if isinstance(x, dict) and str(x.get("status") or "").upper() != "CONFIRMED")
+        corroborated_count = sum(1 for x in confirmation_results.values() if isinstance(x, dict) and str(x.get("status") or "").upper() == "CORROBORATED")
+        unresolved_count = sum(1 for x in confirmation_results.values() if isinstance(x, dict) and str(x.get("status") or "").upper() in {"DISPUTED", "UNCONFIRMED", ""})
 
         score_color = "#22C55E" if score >= 75 else "#D8B66A" if score >= 50 else "#EF4444"
         findings = report.get("top_10_financial_leaks") or report.get("top_6_financial_leaks") or []
@@ -1052,7 +1070,7 @@ class ReportGenerator:
         confirmation_html = (
             '<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:12px;padding:16px;margin:20px 0;">'
             '<h3 style="font-family:Georgia,serif;font-size:16px;color:#1E3A8A;margin:0 0 6px 0;">High-Impact Confirmation Guardrail</h3>'
-            '<p style="font-family:Inter,sans-serif;font-size:11px;color:#1E40AF;margin:0;line-height:1.55;">Potential deductions at or above ' + html.escape(str(confirmation.get("threshold_points") or "3.5")) + ' points require a second passive check before they may remain in the final score. Confirmed: <strong>' + str(confirmed_count) + '</strong>. Disputed/unconfirmed and therefore unscored: <strong>' + str(unresolved_count) + '</strong>.</p>'
+            '<p style="font-family:Inter,sans-serif;font-size:11px;color:#1E40AF;margin:0;line-height:1.55;">Potential deductions at or above ' + html.escape(str(confirmation.get("threshold_points") or "3.5")) + ' points require independent passive confirmation. Confirmed: <strong>' + str(confirmed_count) + '</strong>. Corroborated with reduced score effect: <strong>' + str(corroborated_count) + '</strong>. Disputed/unconfirmed and therefore unscored: <strong>' + str(unresolved_count) + '</strong>.</p>'
             '</div>'
         )
 
@@ -1062,7 +1080,7 @@ class ReportGenerator:
 <body style="margin:0; padding:0; background:#f5f5f5; font-family:Inter, -apple-system, sans-serif;">
 <div style="max-width:640px; margin:0 auto; background:#fff; padding:32px 28px;">
     <h1 style="font-family:Georgia, serif; font-size:28px; color:#090B12; margin:0 0 8px 0; line-height:1.2;">Trilloka Telemetry & Executive Audit</h1>
-    <p style="font-family:Inter,sans-serif; font-size:14px; color:#5A7A9E; margin:0 0 20px 0;"><strong>Report Vault ID:</strong> {vault_id}<br><strong>Target Domain:</strong> {domain}<br><strong>Business Model:</strong> {biz_type}<br>{('<strong style="color:#D77C83;">Business Type Check:</strong> ' + mismatch_text + '<br>') if mismatch_warning else ''}<strong>CMS Detected:</strong> {cms}<br><strong>AI / Template Pattern Spectrum:</strong> {ai_display}</p>
+    <p style="font-family:Inter,sans-serif; font-size:14px; color:#5A7A9E; margin:0 0 20px 0;"><strong>Report Vault ID:</strong> {vault_id}<br><strong>Target Domain:</strong> {domain}<br><strong>Customer Journey:</strong> {journey_label}<br><strong>Journey Confidence:</strong> {journey_confidence_text}{' — PROVISIONAL' if provisional_journey else ''}<br><strong>Context Tags:</strong> {context_display}<br><strong>CMS Detected:</strong> {cms}<br><strong>AI / Template Pattern Spectrum:</strong> {ai_display}</p>
 
     <div style="background:#121621; color:#F2F0E8; border-radius:12px; padding:24px; margin:20px 0; text-align:center;">
         <p style="font-family:Inter,sans-serif; font-size:12px; color:#A9A7A0; text-transform:uppercase; letter-spacing:2px; margin:0 0 8px 0;">Revenue Readiness Index</p>
@@ -1074,6 +1092,19 @@ class ReportGenerator:
         <p style="font-family:Inter,sans-serif;font-size:11px;color:#5A7A9E;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px 0;font-weight:700;">Evidence & Score Scope</p>
         <p style="font-family:Inter,sans-serif;font-size:12px;color:#374151;margin:0;line-height:1.6;"><strong>Evidence Confidence:</strong> {evidence_level} ({html.escape(evidence_score_text)})<br><strong>Maturity Band:</strong> {maturity_band}<br><strong>Current band cap:</strong> {html.escape(maturity_cap_text)} / 78<br><strong>Unmet gate(s) at next band:</strong> {failed_gate_text}</p>
         <p style="font-family:Inter,sans-serif;font-size:10px;color:#6B7280;margin:8px 0 0 0;line-height:1.5;"><strong>Scope:</strong> {score_scope}</p>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0;">
+        <div style="background:#F8FAFC;border:1px solid #DCE3EA;border-radius:12px;padding:14px;">
+            <p style="font-family:Inter,sans-serif;font-size:10px;color:#5A7A9E;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px 0;font-weight:700;">Common Foundation</p>
+            <p style="font-family:Inter,sans-serif;font-size:12px;color:#374151;margin:0;line-height:1.55;"><strong>Verified:</strong> {common_verified}/{common_applicable}<br><strong>Strength earned:</strong> {common_strength:.2f}<br><strong>Verified penalty:</strong> {common_penalty:.2f}</p>
+            <p style="font-family:Inter,sans-serif;font-size:9px;color:#6B7280;margin:6px 0 0 0;line-height:1.45;">Universal HTTPS, SEO/search structure, performance, mobile and accessibility hygiene. Visible in the analysis but deliberately lower-weight.</p>
+        </div>
+        <div style="background:#FFFDF7;border:1px solid #E8D9B6;border-radius:12px;padding:14px;">
+            <p style="font-family:Inter,sans-serif;font-size:10px;color:#8A6A2F;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px 0;font-weight:700;">Adaptive Architecture</p>
+            <p style="font-family:Inter,sans-serif;font-size:12px;color:#374151;margin:0;line-height:1.55;"><strong>Verified:</strong> {adaptive_verified}/{adaptive_applicable}<br><strong>Strength earned:</strong> {adaptive_strength:.2f}<br><strong>Verified penalty:</strong> {adaptive_penalty:.2f}</p>
+            <p style="font-family:Inter,sans-serif;font-size:9px;color:#6B7280;margin:6px 0 0 0;line-height:1.45;">Higher-value conversion, trust, policy, proof and completion checks selected from the observed journey + context, not an industry checklist.</p>
+        </div>
     </div>
 
     {rescan_html}

@@ -1,12 +1,12 @@
 """Trilloka evidence-weighted Revenue Readiness scorer.
 
-V6.9 final score-calibration guardrails:
-- High score bands are gated by verified commercial maturity; ordinary strengths cannot accumulate into elite scores by themselves.
+V7.0 real-world Journey + Context score-calibration guardrails:
+- High score bands are gated by verified commercial maturity; ordinary strengths cannot accumulate into high-readiness bands by themselves.
 - Evidence Confidence is published separately from website quality.
 - Revenue Readiness explicitly excludes demand, product-market fit, traffic quality, pricing and sales-team execution.
 - Auxiliary Presence/Conversion surfaces are computed from their own applicable checkpoint evidence instead of copying the overall score.
 
-V6.8 proof guardrails:
+Proof guardrails preserved from v6.8/v6.9:
 - High-impact candidates at/above the configured threshold must survive a second passive confirmation pass.
 - Disputed/unconfirmed severe candidates become unscored observations rather than deductions.
 - Every scored finding receives an evidence receipt with URL, signal, method, timestamp and confidence.
@@ -35,6 +35,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from behavioural_engine import BehaviouralEngine
 from checkpoint_engine import FAIL, PASS, UNKNOWN, NA, build_50_checkpoints, checkpoint_summary
+from architecture_model import COMMON_FOUNDATION_IDS, ARCHITECTURAL_CHECKPOINT_IDS, context_has, infer_architecture_profile
 
 
 # -------------------------------
@@ -76,154 +77,75 @@ def _baymard_weight(*reason_keys: str) -> float:
 
 
 CATEGORY_WEIGHTS_BY_BIZ: Dict[str, Dict[str, float]] = {
-    "general": {"seo_technical": 0.90, "trust_conversion": 1.00, "content_eeat": 0.85, "measurement": 0.90},
-    "restaurant": {"seo_technical": 0.85, "trust_conversion": 1.15, "content_eeat": 0.75, "measurement": 0.85},
-    "local_service": {"seo_technical": 0.85, "trust_conversion": 1.30, "content_eeat": 0.90, "measurement": 1.00},
-    "professional_service": {"seo_technical": 0.90, "trust_conversion": 1.25, "content_eeat": 1.05, "measurement": 1.00},
-    "medspa": {"seo_technical": 0.90, "trust_conversion": 1.40, "content_eeat": 1.20, "measurement": 1.05},
-    "legal": {"seo_technical": 0.90, "trust_conversion": 1.45, "content_eeat": 1.25, "measurement": 1.05},
-    "ecommerce": {"seo_technical": 1.00, "trust_conversion": 1.35, "content_eeat": 0.90, "measurement": 1.10},
-    "saas": {"seo_technical": 0.95, "trust_conversion": 1.20, "content_eeat": 1.05, "measurement": 1.10},
-    "agency": {"seo_technical": 0.80, "trust_conversion": 1.35, "content_eeat": 1.20, "measurement": 1.05},
-    "b2b": {"seo_technical": 0.80, "trust_conversion": 1.35, "content_eeat": 1.25, "measurement": 1.05},
-    "creator": {"seo_technical": 0.80, "trust_conversion": 1.15, "content_eeat": 1.10, "measurement": 1.00},
+    # V7: journey model, not industry. SEO/common-foundation influence is deliberately modest.
+    "general": {"seo_technical": 0.55, "trust_conversion": 1.00, "content_eeat": 0.80, "measurement": 0.85},
+    "lead_quote": {"seo_technical": 0.60, "trust_conversion": 1.35, "content_eeat": 1.00, "measurement": 1.00},
+    "appointment_consultation": {"seo_technical": 0.60, "trust_conversion": 1.40, "content_eeat": 1.10, "measurement": 1.00},
+    "reservation_event": {"seo_technical": 0.55, "trust_conversion": 1.30, "content_eeat": 0.90, "measurement": 0.90},
+    "direct_purchase": {"seo_technical": 0.70, "trust_conversion": 1.40, "content_eeat": 0.90, "measurement": 1.10},
+    "demo_sales": {"seo_technical": 0.60, "trust_conversion": 1.30, "content_eeat": 1.10, "measurement": 1.10},
+    "membership_subscription": {"seo_technical": 0.55, "trust_conversion": 1.20, "content_eeat": 1.00, "measurement": 1.00},
 }
 
 BUSINESS_MODEL_MATRIX: Dict[str, Dict[str, float]] = {
-    "general": {"trust": 1.00, "conversion": 1.00, "seo": 0.90, "measurement": 1.00},
-    "restaurant": {"trust": 1.00, "conversion": 1.05, "seo": 0.85, "measurement": 0.90},
-    "local_service": {"trust": 1.15, "conversion": 1.25, "seo": 0.90, "measurement": 1.00},
-    "professional_service": {"trust": 1.20, "conversion": 1.20, "seo": 0.90, "measurement": 1.00},
-    "medspa": {"trust": 1.35, "conversion": 1.35, "seo": 0.90, "measurement": 1.05},
-    "legal": {"trust": 1.40, "conversion": 1.40, "seo": 0.90, "measurement": 1.05},
-    "ecommerce": {"trust": 1.20, "conversion": 1.30, "seo": 0.95, "measurement": 1.10},
-    "saas": {"trust": 1.15, "conversion": 1.15, "seo": 0.90, "measurement": 1.10},
-    "agency": {"trust": 1.35, "conversion": 1.35, "seo": 0.85, "measurement": 1.05},
-    "b2b": {"trust": 1.40, "conversion": 1.30, "seo": 0.85, "measurement": 1.05},
-    "creator": {"trust": 1.05, "conversion": 1.15, "seo": 0.85, "measurement": 1.00},
+    "general": {"trust": 1.00, "conversion": 1.00, "seo": 0.60, "measurement": 0.90},
+    "lead_quote": {"trust": 1.10, "conversion": 1.30, "seo": 0.65, "measurement": 1.00},
+    "appointment_consultation": {"trust": 1.20, "conversion": 1.35, "seo": 0.65, "measurement": 1.00},
+    "reservation_event": {"trust": 1.05, "conversion": 1.30, "seo": 0.60, "measurement": 0.90},
+    "direct_purchase": {"trust": 1.15, "conversion": 1.35, "seo": 0.75, "measurement": 1.10},
+    "demo_sales": {"trust": 1.20, "conversion": 1.30, "seo": 0.65, "measurement": 1.10},
+    "membership_subscription": {"trust": 1.05, "conversion": 1.20, "seo": 0.60, "measurement": 1.00},
 }
 
 RULE_BASE_WEIGHTS: Dict[str, Dict[str, float]] = {
-    # Verified commercial foundations.
-    "unsecured_ssl": {"default": 10.0},
-    "core_web_vitals": {"default": 7.0, "ecommerce": 9.0, "saas": 8.0, "restaurant": 6.0},
+    # Major architectural blockers. Journey-specific weights are intentionally stronger than hygiene checks.
+    "unsecured_ssl": {"default": 8.0},
+    "core_web_vitals": {"default": 5.5, "direct_purchase": 7.0, "demo_sales": 6.0},
     "form_architecture": {
-        "default": 7.0,
-        "restaurant": 6.0,
-        "local_service": 8.0,
-        "professional_service": 7.5,
-        "medspa": 9.0,
-        "legal": 9.0,
-        "ecommerce": 8.0,
-        "saas": 7.5,
-        "agency": 7.5,
-        "b2b": 8.0,
-        "creator": 5.0,
+        "default": 6.0, "lead_quote": 8.0, "appointment_consultation": 8.5,
+        "reservation_event": 8.0, "direct_purchase": 7.5, "demo_sales": 8.0, "membership_subscription": 6.0,
     },
     "primary_conversion_path": {
-        "default": 7.0,
-        "restaurant": 8.0,
-        "local_service": 9.0,
-        "professional_service": 8.0,
-        "medspa": 9.0,
-        "legal": 10.0,
-        "ecommerce": 11.0,
-        "saas": 9.0,
-        "agency": 9.0,
-        "b2b": 10.0,
-        "creator": 6.0,
+        "default": 7.0, "lead_quote": 9.0, "appointment_consultation": 9.5,
+        "reservation_event": 9.5, "direct_purchase": 11.0, "demo_sales": 9.5, "membership_subscription": 7.5,
     },
     "conversion_path_error": {
-        "default": 8.0,
-        "restaurant": 8.0,
-        "local_service": 10.0,
-        "professional_service": 9.0,
-        "medspa": 10.0,
-        "legal": 10.0,
-        "ecommerce": 10.0,
-        "saas": 9.0,
-        "agency": 9.0,
-        "b2b": 9.5,
-        "creator": 7.0,
+        "default": 8.0, "lead_quote": 10.0, "appointment_consultation": 10.5,
+        "reservation_event": 10.5, "direct_purchase": 11.0, "demo_sales": 10.0, "membership_subscription": 8.5,
     },
     "lead_form_friction": {
-        "default": 4.0,
-        "local_service": 6.0,
-        "professional_service": 6.0,
-        "medspa": 6.5,
-        "legal": 6.5,
-        "agency": 6.0,
-        "b2b": 6.5,
-        "creator": 4.0,
+        "default": 4.0, "lead_quote": 6.0, "appointment_consultation": 6.0,
+        "reservation_event": 5.5, "demo_sales": 6.5, "membership_subscription": 4.0,
     },
 
-    # Baymard quantitative reasons: weights are derived relative to the mean of
-    # the published avoidable checkout reasons above.
-    "checkout_cost_transparency": {
-        "default": 0.0,
-        "ecommerce": _baymard_weight("extra_costs", "total_cost_visibility"),
-    },
-    "guest_checkout_barrier": {
-        "default": 0.0,
-        "ecommerce": _baymard_weight("forced_account"),
-    },
-    "checkout_complexity": {
-        "default": 0.0,
-        "ecommerce": _baymard_weight("checkout_complexity"),
-    },
-    "return_policy_discoverability": {
-        "default": 0.0,
-        "ecommerce": _baymard_weight("returns_policy"),
-    },
-    # The scanner can verify delivery-information clarity, but Baymard's 20%
-    # statistic is about delivery being TOO SLOW, which is not the same thing.
-    # Therefore this is deliberately not given the 20% Baymard-derived weight.
-    "delivery_expectation_clarity": {"default": 0.0, "ecommerce": 3.5},
-    "shipping_info_discoverability": {"default": 0.0, "ecommerce": 3.0},
+    # Commerce-only rules. Baymard percentages calibrate relative importance only after site evidence exists.
+    "checkout_cost_transparency": {"default": 0.0, "direct_purchase": _baymard_weight("extra_costs", "total_cost_visibility")},
+    "guest_checkout_barrier": {"default": 0.0, "direct_purchase": _baymard_weight("forced_account")},
+    "checkout_complexity": {"default": 0.0, "direct_purchase": _baymard_weight("checkout_complexity")},
+    "return_policy_discoverability": {"default": 0.0, "direct_purchase": _baymard_weight("returns_policy")},
+    "delivery_expectation_clarity": {"default": 0.0, "direct_purchase": 3.5},
+    "shipping_info_discoverability": {"default": 0.0, "direct_purchase": 3.0},
 
-    # NN/g B2B research: pricing is a high-priority research need, but the
-    # scanner uses medium confidence because complex enterprise pricing can be
-    # legitimately quote-based.
-    "b2b_pricing_transparency": {"default": 0.0, "b2b": 4.5},
+    # Considered/demo-sales pricing evidence remains medium-confidence when pricing can legitimately be quote-based.
+    "b2b_pricing_transparency": {"default": 0.0, "demo_sales": 4.0},
 
     # Supporting conversion signals.
     "click_to_call": {
-        "default": 2.5,
-        "restaurant": 2.5,
-        "local_service": 4.5,
-        "professional_service": 3.5,
-        "medspa": 4.5,
-        "legal": 5.0,
-        "ecommerce": 0.75,
-        "saas": 0.50,
-        "agency": 3.0,
-        "b2b": 2.5,
-        "creator": 0.75,
+        "default": 1.5, "lead_quote": 3.5, "appointment_consultation": 3.5,
+        "reservation_event": 3.0, "direct_purchase": 0.5, "demo_sales": 1.0, "membership_subscription": 0.5,
     },
     "mobile_sticky_cta": {
-        "default": 1.75,
-        "restaurant": 2.0,
-        "local_service": 2.5,
-        "professional_service": 2.0,
-        "medspa": 2.5,
-        "legal": 2.5,
-        "ecommerce": 1.75,
-        "saas": 2.0,
-        "agency": 2.0,
-        "b2b": 2.0,
-        "creator": 1.25,
+        "default": 1.5, "lead_quote": 2.0, "appointment_consultation": 2.25,
+        "reservation_event": 2.25, "direct_purchase": 1.75, "demo_sales": 1.75, "membership_subscription": 1.25,
     },
 
-    # Supporting content / hygiene.
-    "diluted_h1": {"default": 2.0, "legal": 2.5, "saas": 2.5},
-    "missing_alt_images": {"default": 1.5, "ecommerce": 1.75},
-    "favicon_present": {"default": 0.5},
-    "html_lang_attribute": {"default": 0.75},
-    "ai_template_similarity": {"default": 1.75, "legal": 2.25, "medspa": 2.25},
-    "measurement_telemetry": {
-        "default": 3.0, "ecommerce": 3.5, "saas": 3.5,
-        "agency": 3.5, "b2b": 3.5, "creator": 2.5,
-    },
+    # Common foundation / supporting hygiene: deliberately low weight in Revenue Readiness.
+    "diluted_h1": {"default": 1.0},
+    "missing_alt_images": {"default": 0.75},
+    "favicon_present": {"default": 0.25},
+    "html_lang_attribute": {"default": 0.35},
+    "ai_template_similarity": {"default": 0.75},
+    "measurement_telemetry": {"default": 2.5, "direct_purchase": 3.0, "demo_sales": 3.0},
 }
 
 # Research multipliers apply only AFTER the scanner has verified a failure.
@@ -243,9 +165,9 @@ RESEARCH_MULTIPLIER_BY_RULE: Dict[str, Any] = {
     "shipping_info_discoverability": 0.85,
     "b2b_pricing_transparency": 1.00,
     "click_to_call": {
-        "default": 0.65, "restaurant": 0.90, "local_service": 1.05,
-        "professional_service": 0.85, "medspa": 1.05, "legal": 1.00,
-        "ecommerce": 0.40, "saas": 0.40, "agency": 0.75, "b2b": 0.65, "creator": 0.40,
+        "default": 0.55, "lead_quote": 0.90, "appointment_consultation": 0.95,
+        "reservation_event": 0.90, "direct_purchase": 0.25, "demo_sales": 0.45,
+        "membership_subscription": 0.25,
     },
     "mobile_sticky_cta": 0.55,
     "diluted_h1": 0.65,
@@ -259,13 +181,12 @@ RESEARCH_MULTIPLIER_BY_RULE: Dict[str, Any] = {
     "https_redirect": 0.90,
     "retargeting_telemetry": 0.70,
     "phone_visibility": {
-        "default": 0.65, "restaurant": 0.90, "local_service": 1.05,
-        "professional_service": 0.85, "medspa": 1.05, "legal": 1.00,
-        "agency": 0.75, "b2b": 0.65,
+        "default": 0.55, "lead_quote": 0.90, "appointment_consultation": 0.95,
+        "reservation_event": 0.90, "demo_sales": 0.40,
     },
     "location_visibility": {
-        "default": 0.65, "restaurant": 1.00, "local_service": 1.05,
-        "professional_service": 0.80, "medspa": 1.05, "legal": 0.95,
+        "default": 0.60, "lead_quote": 0.85, "appointment_consultation": 0.95,
+        "reservation_event": 0.95,
     },
     "trust_credentials": 0.90,
     "reviews_social_proof": 0.90,
@@ -360,6 +281,9 @@ TIER_PREFIXES = {
 # having SSL, a clean H1 and decent PageSpeed.
 OPERATING_BASELINE_SCORE = 50.0
 STANDARD_STRENGTH_CAP = 30.0
+COMMON_FOUNDATION_STRENGTH_CAP = 9.0
+ADAPTIVE_ARCHITECTURE_STRENGTH_CAP = 21.0
+COMMON_FOUNDATION_PENALTY_CAP = 8.0
 ELITE_BONUS_CAP = 18.0
 REFERENCE_COMPLETENESS_BONUS = 2.0
 
@@ -375,6 +299,7 @@ SOFT_CEILING_START_SCORE = 70.0
 SOFT_CEILING_SCALE = 10.0
 
 # Maturity-band caps are eligibility guardrails, not extra deductions.
+PROVISIONAL_JOURNEY_CAP = 64.0
 FOUNDATIONAL_MATURITY_CAP = 69.0
 STRONG_MATURITY_CAP = 74.0
 EXCEPTIONAL_MATURITY_CAP = 76.0
@@ -527,7 +452,7 @@ class RevenueScorer:
 
         checkpoints = build_50_checkpoints(
             scan_data,
-            {"business_profile": profile, "business_type": biz_type},
+            {"business_profile": profile, "architecture_profile": profile, "business_type": biz_type},
         )
         cp_summary = checkpoint_summary(checkpoints)
         # Do not issue a confident commercial score when almost nothing was actually inspected.
@@ -559,15 +484,24 @@ class RevenueScorer:
             raw_leaks, scan_data
         )
         leaks, overlap_adjustments = self._apply_family_deduplication(raw_leaks)
+        leaks, layer_penalty_adjustments = self._apply_layer_penalty_caps(leaks)
+        overlap_adjustments.extend(layer_penalty_adjustments)
         self._attach_evidence_receipts(leaks, scan_data)
 
         # Harsh-but-defensible calibration:
         # 50 operating baseline + earned verified strengths + gated elite maturity - verified leaks.
+        # Common SEO/technical hygiene is deliberately capped; adaptive architecture carries most of the score.
         strength_ledger = self._evaluate_strengths(scan_data, biz_type, profile)
-        raw_standard_strength = round(sum(float(item.get("points") or 0.0) for item in strength_ledger), 2)
-        standard_strength = round(min(STANDARD_STRENGTH_CAP, raw_standard_strength), 2)
+        raw_common_strength = round(sum(float(item.get("points") or 0.0) for item in strength_ledger if item.get("analysis_layer") == "common_foundation"), 2)
+        raw_adaptive_strength = round(sum(float(item.get("points") or 0.0) for item in strength_ledger if item.get("analysis_layer") != "common_foundation"), 2)
+        common_strength = round(min(COMMON_FOUNDATION_STRENGTH_CAP, raw_common_strength), 2)
+        adaptive_strength = round(min(ADAPTIVE_ARCHITECTURE_STRENGTH_CAP, raw_adaptive_strength), 2)
+        raw_standard_strength = round(raw_common_strength + raw_adaptive_strength, 2)
+        standard_strength = round(min(STANDARD_STRENGTH_CAP, common_strength + adaptive_strength), 2)
 
-        total_loss = round(sum(float(leak.get("final_score_loss") or 0.0) for leak in leaks), 2)
+        common_loss = round(sum(float(leak.get("final_score_loss") or 0.0) for leak in leaks if leak.get("analysis_layer") == "common_foundation"), 2)
+        adaptive_loss = round(sum(float(leak.get("final_score_loss") or 0.0) for leak in leaks if leak.get("analysis_layer") != "common_foundation"), 2)
+        total_loss = round(common_loss + adaptive_loss, 2)
         elite_ledger, elite_bonus = self._evaluate_elite_bonus(
             scan_data=scan_data,
             biz_type=biz_type,
@@ -636,7 +570,7 @@ class RevenueScorer:
         perf = self._safe_float(scan_data.get("performance_score"))
         seo = self._safe_float(scan_data.get("google_seo_score"))
         # Maturity caps express unverified readiness; they must not create extra modeled dollar exposure.
-        exposure = self._revenue_exposure(preliminary_public_score, biz_type, total_loss)
+        exposure = self._revenue_exposure(biz_type, total_loss)
 
         # Preserve the public keys, but do not represent unavailable telemetry as a
         # real score of zero. Availability flags remain explicit for the frontend.
@@ -665,6 +599,8 @@ class RevenueScorer:
                 checkpoints,
                 checkpoint_ids={3, 4, 5, 7, 8, 10, 11, 13, 14, 43, 48, 50},
             ),
+            "common_foundation_index": self._checkpoint_surface_index(checkpoints, checkpoint_ids=set(COMMON_FOUNDATION_IDS)),
+            "adaptive_architecture_index": self._checkpoint_surface_index(checkpoints, checkpoint_ids=set(ARCHITECTURAL_CHECKPOINT_IDS)),
             "competitor_gap_score": competitor_gap,
             "competitor_gap_kind": competitor_gap_kind,
             "competitor_data_available": measured_competitor or bool(competitor_data_present),
@@ -681,6 +617,8 @@ class RevenueScorer:
             "surface_metric_notes": {
                 "online_presence_index": "Checkpoint-based public presence/trust/technical surface; not traffic, demand or brand awareness.",
                 "conversion_efficiency": "Checkpoint-based observable conversion-path readiness; not measured conversion rate.",
+                "common_foundation_index": "Universal HTTPS/SEO/performance/mobile/accessibility checks. Useful hygiene, intentionally lower-weight in Revenue Readiness.",
+                "adaptive_architecture_index": "Journey/context-specific conversion, trust, policy, proof and completion checks; this is the higher-value architectural layer.",
             },
         }
 
@@ -699,13 +637,41 @@ class RevenueScorer:
             "target_domain": str(scan_data.get("domain") or ""),
             "business_type": biz_type,
             "business_profile": profile,
+            "architecture_profile": profile,
             "overall_health_score": overall,
             "overall_score": overall,
             "score_status": "available",
-            "score_rating": self._get_score_rating(overall),
+            "score_rating": self._get_score_rating(overall, evidence_confidence, total_loss, cp_summary, maturity_gate),
             "score_scope": "Observable website Revenue Readiness only. It does not measure product-market fit, market demand, traffic quality, pricing, sales-team performance, offline operations or actual revenue.",
             "evidence_confidence": evidence_confidence,
             "maturity_gate": maturity_gate,
+            "analysis_layers": {
+                "model": "common_foundation_plus_adaptive_architecture",
+                "common_foundation": {
+                    "checkpoint_ids": sorted(COMMON_FOUNDATION_IDS),
+                    "checkpoint_count": len(COMMON_FOUNDATION_IDS),
+                    "strength_raw": raw_common_strength,
+                    "strength_awarded": common_strength,
+                    "strength_cap": COMMON_FOUNDATION_STRENGTH_CAP,
+                    "verified_penalty": common_loss,
+                    "checkpoint_summary": ((cp_summary.get("layers") or {}).get("common_foundation") or {}),
+                    "note": "Universal SEO, HTTPS, performance, mobile and accessibility foundations remain visible but intentionally carry less Revenue Readiness weight than the customer journey.",
+                },
+                "adaptive_architecture": {
+                    "checkpoint_ids": sorted(ARCHITECTURAL_CHECKPOINT_IDS),
+                    "checkpoint_count": len(ARCHITECTURAL_CHECKPOINT_IDS),
+                    "strength_raw": raw_adaptive_strength,
+                    "strength_awarded": adaptive_strength,
+                    "strength_cap": ADAPTIVE_ARCHITECTURE_STRENGTH_CAP,
+                    "verified_penalty": adaptive_loss,
+                    "checkpoint_summary": ((cp_summary.get("layers") or {}).get("adaptive_architecture") or {}),
+                    "journey_model": biz_type,
+                    "journey_label": profile.get("journey_label"),
+                    "context_tags": profile.get("context_tags") or [],
+                    "provisional": bool(profile.get("provisional")),
+                    "note": "High-value scoring adapts to the observed customer journey and context tags rather than an expanding industry taxonomy.",
+                },
+            },
             "surface_metrics": surface_metrics,
             "competitor_benchmark": competitor_benchmark,
             "key_friction_insight": key_friction,
@@ -718,6 +684,7 @@ class RevenueScorer:
                 "exposure_level": exposure["level"],
                 "method_note": exposure["method_note"],
                 "model_based": True,
+                "verified_penalty_basis": exposure.get("verified_penalty_basis"),
                 "measured_revenue_loss": False,
             },
             "ai_spectrum_pct": ai_pct,
@@ -756,10 +723,18 @@ class RevenueScorer:
                 "operating_baseline": OPERATING_BASELINE_SCORE,
                 "raw_verified_strength_points": raw_standard_strength,
                 "standard_strength_cap": STANDARD_STRENGTH_CAP,
+                "common_foundation_strength_raw": raw_common_strength,
+                "common_foundation_strength_cap": COMMON_FOUNDATION_STRENGTH_CAP,
+                "common_foundation_strength_awarded": common_strength,
+                "adaptive_architecture_strength_raw": raw_adaptive_strength,
+                "adaptive_architecture_strength_cap": ADAPTIVE_ARCHITECTURE_STRENGTH_CAP,
+                "adaptive_architecture_strength_awarded": adaptive_strength,
                 "verified_strength_points_awarded": standard_strength,
                 "elite_bonus_points": elite_bonus,
                 "reference_completeness_bonus": reference_bonus,
                 "total_final_penalty": total_loss,
+                "common_foundation_penalty": common_loss,
+                "adaptive_architecture_penalty": adaptive_loss,
                 "pre_clamp_score": round(pre_clamp, 2),
                 "raw_pre_ceiling_score": round(raw_readiness, 2),
                 "pre_maturity_gate_public_score": round(preliminary_public_score, 2),
@@ -774,96 +749,55 @@ class RevenueScorer:
         }
 
     def _resolve_business_profile(self, scan_data: Dict[str, Any], requested: str) -> Tuple[Dict[str, Any], str]:
-        profile_raw = scan_data.get("business_profile") if isinstance(scan_data, dict) else {}
-        automatic = dict(profile_raw) if isinstance(profile_raw, dict) else {}
-        auto_vertical = self._normalize_business_type(automatic.get("vertical"))
-        auto_conf = self._safe_float(automatic.get("confidence"))
-        if auto_conf is None:
-            auto_conf = 0.0
+        """Resolve the v7 Journey + Context profile.
 
-        requested_norm = self._normalize_business_type(requested)
-        requested_raw = str(requested or "auto").strip().lower()
-
-        # Explicit known types win. If the frontend intentionally sends GENERAL, preserve it.
-        if requested_raw == "general":
-            profile = automatic
-            inferred_subtype = auto_vertical if auto_vertical != "general" and auto_conf >= 0.55 else "general"
-            profile.update(
-                {
-                    "vertical": "general",
-                    "inferred_subtype": inferred_subtype,
-                    "inferred_subtype_confidence": auto_conf if inferred_subtype != "general" else 0.0,
-                    "confidence": 1.0,
-                    "source": "explicit_request",
-                }
-            )
-            return profile, "general"
-        if requested_raw not in {"", "auto", "unknown", "none"} and requested_norm != "general":
-            profile = automatic
-            automatic_vertical = auto_vertical
-            mismatch = bool(automatic_vertical != "general" and automatic_vertical != requested_norm and auto_conf >= 0.72)
-            automatic_subtype = str(profile.get("inferred_subtype") or automatic_vertical)
-            profile.update({
-                "vertical": requested_norm,
-                "inferred_subtype": requested_norm if mismatch else automatic_subtype,
-                "automatic_subtype": automatic_subtype,
-                "confidence": 1.0,
-                "source": "explicit_request",
-                "automatic_vertical": automatic_vertical,
-                "automatic_confidence": round(auto_conf, 2),
-                "type_mismatch_warning": mismatch,
-                "type_mismatch_message": (
-                    f"Selected business type '{requested_norm}' differs from high-confidence site evidence suggesting '{automatic_vertical}'."
-                    if mismatch else ""
-                ),
-            })
-            return profile, requested_norm
-
-        if auto_vertical != "general" and auto_conf >= 0.55:
-            automatic["source"] = "automatic_classifier"
-            return automatic, auto_vertical
-
-        fallback = automatic or {}
-        fallback.update({"vertical": "general", "confidence": max(auto_conf, 0.4), "source": "general_fallback"})
-        return fallback, "general"
+        Legacy ``business_type`` input is retained only as a weak inference hint for API/backward
+        compatibility. It never overrides stronger public page/action evidence.
+        """
+        profile_raw = scan_data.get("architecture_profile") if isinstance(scan_data, dict) else {}
+        if not isinstance(profile_raw, dict) or not profile_raw.get("journey_model"):
+            legacy_raw = scan_data.get("business_profile") if isinstance(scan_data, dict) else {}
+            profile_raw = legacy_raw if isinstance(legacy_raw, dict) else {}
+        if isinstance(profile_raw, dict) and profile_raw.get("journey_model"):
+            profile = dict(profile_raw)
+        else:
+            profile = infer_architecture_profile(scan_data, requested)
+        journey = self._normalize_business_type(profile.get("journey_model") or profile.get("vertical"))
+        if journey == "general" and not profile.get("model_basis"):
+            profile = infer_architecture_profile(scan_data, requested)
+            journey = self._normalize_business_type(profile.get("journey_model"))
+        profile["journey_model"] = journey
+        profile["journey_label"] = profile.get("journey_label") or journey.replace("_", " ").title()
+        profile["vertical"] = journey  # legacy compatibility alias
+        profile["inferred_subtype"] = ""
+        profile["model_basis"] = profile.get("model_basis") or "journey_context_v1"
+        return profile, journey
 
     @staticmethod
     def _normalize_business_type(raw: Any) -> str:
+        """Normalize either a v7 journey model or a legacy business hint to a journey model."""
         value = str(raw or "general").lower().replace("-", "_").replace(" ", "_")
-        aliases = {
-            "restaurant": "restaurant",
-            "cafe": "restaurant",
-            "café": "restaurant",
-            "food_service": "restaurant",
-            "local_service": "local_service",
-            "home_service": "local_service",
-            "professional_service": "professional_service",
-            "professional_services": "professional_service",
-            "consulting": "professional_service",
-            "medspa": "medspa",
-            "aesthetics": "medspa",
-            "legal": "legal",
-            "law": "legal",
-            "ecommerce": "ecommerce",
-            "e_commerce": "ecommerce",
-            "store": "ecommerce",
-            "saas": "saas",
-            "software": "saas",
-            "agency": "agency",
-            "marketing_agency": "agency",
-            "design_agency": "agency",
-            "creative_agency": "agency",
-            "b2b": "b2b",
-            "business_to_business": "b2b",
-            "enterprise": "b2b",
-            "wholesale": "b2b",
-            "creator": "creator",
-            "content_creator": "creator",
-            "newsletter": "creator",
-            "general": "general",
-            "auto": "general",
+        journeys = {
+            "lead_quote", "appointment_consultation", "reservation_event", "direct_purchase",
+            "demo_sales", "membership_subscription", "general",
         }
-        return aliases.get(value, "general")
+        if value in journeys:
+            return value
+        legacy = {
+            "restaurant": "reservation_event", "cafe": "reservation_event", "café": "reservation_event",
+            "food_service": "reservation_event", "local_service": "lead_quote", "home_service": "lead_quote",
+            "professional_service": "lead_quote", "professional_services": "lead_quote", "consulting": "lead_quote",
+            "medspa": "appointment_consultation", "aesthetics": "appointment_consultation",
+            "legal": "appointment_consultation", "law": "appointment_consultation",
+            "ecommerce": "direct_purchase", "e_commerce": "direct_purchase", "store": "direct_purchase",
+            "saas": "demo_sales", "software": "demo_sales", "b2b": "demo_sales",
+            "business_to_business": "demo_sales", "enterprise": "demo_sales", "wholesale": "demo_sales",
+            "agency": "lead_quote", "marketing_agency": "lead_quote", "design_agency": "lead_quote",
+            "creative_agency": "lead_quote", "creator": "membership_subscription",
+            "content_creator": "membership_subscription", "newsletter": "membership_subscription",
+            "auto": "general", "unknown": "general", "none": "general", "": "general",
+        }
+        return legacy.get(value, "general")
 
     def _evaluate_strengths(
         self,
@@ -871,229 +805,181 @@ class RevenueScorer:
         biz_type: str,
         profile: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
-        """Award only verified strengths. Unknown evidence earns zero points.
+        """Award verified strengths with a hard split between common basics and adaptive architecture.
 
-        The standard strength pool is intentionally capped at 30 points. A normal
-        professional site can therefore reach the upper 60s / 70s by proving good
-        fundamentals, but cannot drift into the 90s simply because nothing obvious
-        failed.
+        Common technical/SEO foundations remain visible but can contribute at most 9 standard points.
+        The adaptive customer-journey/context layer can contribute at most 21. This prevents metadata,
+        schema and Lighthouse hygiene from overpowering the actual revenue path.
         """
         strengths: List[Dict[str, Any]] = []
+        common_keys = {
+            "secure_reachable_foundation", "mobile_performance_quality", "seo_technical_quality",
+            "single_primary_h1", "h1_present_but_multiple", "search_snippet_metadata",
+            "structured_search_foundation", "mobile_accessibility_hygiene", "brand_identity_hygiene",
+        }
 
-        def add(key: str, points: float, category: str, evidence: Dict[str, Any], source: str) -> None:
+        def add(key: str, points: float, category: str, evidence: Dict[str, Any], source: str, layer: str | None = None) -> None:
             if points <= 0:
                 return
             strengths.append({
                 "strength_key": key,
                 "points": round(float(points), 2),
                 "category": category,
+                "analysis_layer": layer or ("common_foundation" if key in common_keys else "adaptive_architecture"),
                 "evidence": evidence,
                 "source": source,
             })
 
-        # 1. Secure, reachable foundation.
+        # Universal low-value foundation layer.
         if data.get("response_ok") is True and data.get("has_ssl") is True:
-            add("secure_reachable_foundation", 3.0, "seo_technical", {
-                "status_code": data.get("status_code"),
-                "final_url": data.get("final_url"),
-                "has_ssl": True,
+            add("secure_reachable_foundation", 2.0, "seo_technical", {
+                "status_code": data.get("status_code"), "final_url": data.get("final_url"), "has_ssl": True,
             }, "HTTP preflight")
 
-        # 2. Google mobile performance quality. Only real PageSpeed data earns points.
         perf = self._safe_float(data.get("performance_score"))
         if data.get("pagespeed_api_status") == "success" and perf is not None:
-            perf_points = 3.0 if perf >= 90 else (2.0 if perf >= 75 else (1.0 if perf >= 60 else 0.0))
+            perf_points = 2.0 if perf >= 90 else (1.35 if perf >= 75 else (0.65 if perf >= 60 else 0.0))
             add("mobile_performance_quality", perf_points, "seo_technical", {"performance_score": perf}, "Google PageSpeed")
 
-        # 3. Lighthouse SEO quality. Useful discovery hygiene, but deliberately
-        # modest in Revenue Readiness because it is not itself a completed sale/lead.
         seo = self._safe_float(data.get("google_seo_score"))
         if data.get("pagespeed_api_status") == "success" and seo is not None:
-            seo_points = 0.75 if seo >= 90 else (0.45 if seo >= 80 else (0.20 if seo >= 70 else 0.0))
+            seo_points = 0.55 if seo >= 90 else (0.30 if seo >= 80 else (0.12 if seo >= 70 else 0.0))
             add("seo_technical_quality", seo_points, "seo_technical", {"google_seo_score": seo}, "Google Lighthouse SEO")
 
-        # 4. Mobile conversion access.
-        if str(data.get("mobile_cta_status") or "unknown").lower() == "verified":
-            if data.get("mobile_primary_cta_present") is True:
-                add("mobile_primary_conversion_action", 2.0, "trust_conversion", {
-                    "cta_types": data.get("mobile_cta_types") or [],
-                }, "Rendered mobile DOM")
-            if data.get("mobile_sticky_cta_present") is True:
-                add("persistent_mobile_conversion_access", 1.5, "trust_conversion", {
-                    "cta_types": data.get("mobile_cta_types") or [],
-                }, "Rendered mobile DOM after scroll")
-
-        # 5. Business-specific primary conversion path.
-        business_conversion_points, business_conversion_evidence = self._business_conversion_strength(data, biz_type, profile)
-        add("business_specific_conversion_path", business_conversion_points, "trust_conversion", business_conversion_evidence, "Rendered conversion architecture")
-
-        # 6. Direct contact readiness when it actually matters to the vertical.
-        if biz_type in {"restaurant", "local_service", "professional_service", "medspa", "legal", "agency"}:
-            if data.get("click_to_call_status") == "verified" and data.get("click_to_call_present") is True:
-                add("direct_mobile_contact", 1.0, "trust_conversion", {"click_to_call_present": True}, "Rendered mobile DOM")
-        elif biz_type in {"ecommerce", "saas"}:
-            if data.get("live_chat_present") or data.get("whatsapp_present"):
-                add("instant_query_channel", 1.0, "trust_conversion", {
-                    "live_chat_present": bool(data.get("live_chat_present")),
-                    "whatsapp_present": bool(data.get("whatsapp_present")),
-                }, "Rendered DOM")
-
-        # 7. Hero semantics. One verified H1 earns the full standard strength.
-        h1_tags_raw = data.get("h1_tags")
-        h1_tags = h1_tags_raw if isinstance(h1_tags_raw, list) else []
+        h1_tags = data.get("h1_tags") if isinstance(data.get("h1_tags"), list) else []
         if str(data.get("h1_status") or "unknown").lower() == "present":
             if len(h1_tags) == 1:
-                add("single_primary_h1", 1.5, "content_eeat", {"h1": h1_tags[0]}, "Rendered DOM + source")
+                add("single_primary_h1", 0.7, "content_eeat", {"h1": h1_tags[0]}, "Rendered DOM + source")
             elif len(h1_tags) > 1:
-                add("h1_present_but_multiple", 0.4, "content_eeat", {"h1_count": len(h1_tags)}, "Rendered DOM")
+                add("h1_present_but_multiple", 0.15, "content_eeat", {"h1_count": len(h1_tags)}, "Rendered DOM")
 
-        # 8. Metadata.
         meta_desc = str(data.get("meta_description") or "").strip()
         title = str(data.get("title") or "").strip()
-        metadata_points = 0.0
-        if title:
-            metadata_points += 0.08
-        if meta_desc:
-            metadata_points += 0.17 if 80 <= len(meta_desc) <= 170 else 0.08
+        metadata_points = (0.12 if title else 0.0) + (0.18 if meta_desc else 0.0)
         add("search_snippet_metadata", metadata_points, "seo_technical", {
             "title_present": bool(title), "meta_description_length": len(meta_desc),
         }, "Rendered document head")
 
-        # 9. Structured technical foundation: each item is independently verified.
         structured_items = {
-            "schema": data.get("schema_present"),
-            "canonical": data.get("canonical_present"),
-            "sitemap": data.get("sitemap_present"),
-            "robots": data.get("robots_valid"),
+            "schema": data.get("schema_present"), "canonical": data.get("canonical_present"),
+            "sitemap": data.get("sitemap_present"), "robots": data.get("robots_valid"),
         }
-        structured_points = 0.25 * sum(value is True for value in structured_items.values())
-        add("structured_search_foundation", structured_points, "seo_technical", structured_items, "DOM + HTTP discovery")
+        add("structured_search_foundation", 0.18 * sum(v is True for v in structured_items.values()),
+            "seo_technical", structured_items, "DOM + HTTP discovery")
 
-        # 10. Mobile/accessibility hygiene.
-        mobile_hygiene_points = 0.0
+        hygiene_points = 0.0
         hygiene_evidence: Dict[str, Any] = {}
         if data.get("mobile_viewport_configured") is True:
-            mobile_hygiene_points += 0.5
-            hygiene_evidence["mobile_viewport_configured"] = True
+            hygiene_points += 0.35; hygiene_evidence["mobile_viewport_configured"] = True
         if data.get("html_lang_present") is True:
-            mobile_hygiene_points += 0.5
-            hygiene_evidence["html_lang_present"] = True
+            hygiene_points += 0.25; hygiene_evidence["html_lang_present"] = True
         total_images = self._safe_int(data.get("total_images"), self._safe_int(data.get("image_count"), 0)) or 0
         missing_alt = self._safe_int(data.get("missing_alt_images"), 0) or 0
         if data.get("browser_loaded") and total_images > 0 and missing_alt == 0:
-            mobile_hygiene_points += 0.75
-            hygiene_evidence["all_rendered_images_accessible"] = True
+            hygiene_points += 0.35; hygiene_evidence["all_rendered_images_accessible"] = True
         if data.get("pagespeed_api_status") == "success" and not data.get("tap_targets_flagged"):
-            mobile_hygiene_points += 0.25
-            hygiene_evidence["tap_targets_flagged"] = 0
-        add("mobile_accessibility_hygiene", mobile_hygiene_points, "seo_technical", hygiene_evidence, "Rendered DOM + PageSpeed")
+            hygiene_points += 0.25; hygiene_evidence["tap_targets_flagged"] = 0
+        add("mobile_accessibility_hygiene", hygiene_points, "seo_technical", hygiene_evidence, "Rendered DOM + PageSpeed")
 
-        # 11. Trust proof. No hardcoded passes.
-        trust_points = 0.0
-        trust_evidence: Dict[str, Any] = {}
-        if data.get("reviews_visible") is True:
-            trust_points += 1.0
-            trust_evidence["reviews_visible"] = True
-        if data.get("social_proof_present") is True:
-            trust_points += 0.75
-            trust_evidence["social_proof_present"] = True
-        if data.get("privacy_terms_linked") is True or (data.get("privacy_policy_linked") is True and data.get("terms_linked") is True):
-            trust_points += 0.75
-            trust_evidence["privacy_terms_linked"] = True
-        if biz_type in {"restaurant", "local_service", "medspa", "legal", "professional_service"}:
-            if data.get("address_location_visible") is True:
-                trust_points += 0.5
-                trust_evidence["address_location_visible"] = True
-        elif data.get("about_team_linked") is True:
-            trust_points += 0.5
-            trust_evidence["about_team_linked"] = True
-        add("trust_and_proof_foundation", trust_points, "content_eeat", trust_evidence, "Rendered DOM / Places evidence")
-
-        # 12. Measurement foundation. This is deliberately modest: analytics is useful, not conversion itself.
-        measurement_points = 0.0
-        measurement_evidence: Dict[str, Any] = {}
-        if data.get("has_ga4") is True:
-            measurement_points += 1.25
-            measurement_evidence["has_ga4_or_gtm"] = True
-        if data.get("retargeting_pixel_installed") is True:
-            measurement_points += 0.50
-            measurement_evidence["retargeting_pixel_installed"] = True
-        if data.get("has_qualitative_analytics") is True:
-            measurement_points += 0.25
-            measurement_evidence["qualitative_analytics"] = True
-        add("measurement_foundation", measurement_points, "measurement", measurement_evidence, "Rendered script inspection")
-
-        # 13. Form / contact execution when relevant.
-        if data.get("forms_present") is True and data.get("form_action_valid") is True:
-            add("valid_form_architecture", 1.0, "trust_conversion", {"form_action_valid": True}, "Rendered form DOM")
-
-        # 14. Basic brand/identity hygiene.
         identity_points = 0.0
         identity_evidence: Dict[str, Any] = {}
         if data.get("favicon_present") is True:
-            identity_points += 0.25
-            identity_evidence["favicon_present"] = True
+            identity_points += 0.12; identity_evidence["favicon_present"] = True
         if data.get("custom_photography_status") == "PASS":
-            identity_points += 0.50
-            identity_evidence["custom_photography_status"] = "PASS"
+            identity_points += 0.25; identity_evidence["custom_photography_status"] = "PASS"
         add("brand_identity_hygiene", identity_points, "content_eeat", identity_evidence, "Rendered DOM")
+
+        # Adaptive architecture layer.
+        if str(data.get("mobile_cta_status") or "unknown").lower() == "verified":
+            if data.get("mobile_primary_cta_present") is True:
+                add("mobile_primary_conversion_action", 2.0, "trust_conversion", {"cta_types": data.get("mobile_cta_types") or []}, "Rendered mobile DOM")
+            if data.get("mobile_sticky_cta_present") is True and biz_type in {"lead_quote", "appointment_consultation", "reservation_event", "direct_purchase"}:
+                add("persistent_mobile_conversion_access", 0.8, "trust_conversion", {"cta_types": data.get("mobile_cta_types") or []}, "Rendered mobile DOM after scroll")
+
+        conversion_points, conversion_evidence = self._business_conversion_strength(data, biz_type, profile)
+        add("journey_conversion_path", conversion_points, "trust_conversion", conversion_evidence, "Rendered conversion architecture")
+
+        if context_has(profile, "local_location_dependent") and biz_type in {"lead_quote", "appointment_consultation", "reservation_event"}:
+            if data.get("click_to_call_status") == "verified" and data.get("click_to_call_present") is True:
+                add("direct_mobile_contact", 0.75, "trust_conversion", {"click_to_call_present": True}, "Rendered mobile DOM")
+        elif data.get("live_chat_present") or data.get("whatsapp_present"):
+            add("instant_query_channel", 0.35, "trust_conversion", {
+                "live_chat_present": bool(data.get("live_chat_present")), "whatsapp_present": bool(data.get("whatsapp_present")),
+            }, "Rendered DOM")
+
+        trust_points = 0.0
+        trust_evidence: Dict[str, Any] = {}
+        if data.get("reviews_visible") is True:
+            trust_points += 1.2; trust_evidence["reviews_visible"] = True
+        if data.get("social_proof_present") is True:
+            trust_points += 1.0; trust_evidence["social_proof_present"] = True
+        if data.get("credential_signals_present") is True and context_has(profile, "regulated_high_trust"):
+            trust_points += 1.1; trust_evidence["regulated_credentials"] = True
+        if data.get("case_studies_portfolio_present") is True and context_has(profile, "enterprise_considered_purchase"):
+            trust_points += 1.1; trust_evidence["proof_of_work"] = True
+        if context_has(profile, "local_location_dependent") and data.get("address_location_visible") is True:
+            trust_points += 0.55; trust_evidence["address_location_visible"] = True
+        if data.get("about_team_linked") is True:
+            trust_points += 0.45; trust_evidence["about_team_linked"] = True
+        policy_ok = bool(data.get("privacy_policy_linked"))
+        if context_has(profile, "commerce_payment") and data.get("checkout_context_detected"):
+            policy_ok = bool(data.get("privacy_policy_linked") and data.get("terms_linked"))
+        if policy_ok:
+            trust_points += 0.45; trust_evidence["applicable_policy_path"] = True
+        add("contextual_trust_architecture", min(4.5, trust_points), "content_eeat", trust_evidence, "Rendered/journey/Places evidence")
+
+        measurement_present = bool(data.get("measurement_layer_present") or data.get("has_ga4") or data.get("has_meta_pixel") or data.get("has_other_measurement") or data.get("has_qualitative_analytics"))
+        if measurement_present:
+            add("measurement_foundation", 1.3, "measurement", {"measurement_platforms": data.get("measurement_platforms") or []}, "Rendered/source measurement inspection")
+        if data.get("forms_present") is True and data.get("form_action_valid") is True:
+            add("valid_form_architecture", 1.3, "trust_conversion", {"form_action_valid": True}, "Rendered form DOM")
 
         return strengths
 
     def _business_conversion_strength(
         self, data: Dict[str, Any], biz_type: str, profile: Dict[str, Any]
     ) -> Tuple[float, Dict[str, Any]]:
-        """Score whether the site exposes the conversion path that matters for its business model."""
-        evidence: Dict[str, Any] = {"primary_conversion": profile.get("primary_conversion")}
-        points = 0.0
-        if biz_type == "restaurant":
-            if data.get("order_online_present"):
-                points = 2.5
-                evidence["order_online_present"] = True
-            elif data.get("reservation_present"):
-                points = 2.0
-                evidence["reservation_present"] = True
-            elif data.get("mobile_primary_cta_present"):
-                points = 1.25
-                evidence["mobile_primary_cta_present"] = True
-        elif biz_type == "ecommerce":
-            if data.get("add_to_cart_visible"):
-                points = 2.5
-                evidence["add_to_cart_visible"] = True
-            elif data.get("mobile_primary_cta_present"):
-                points = 1.25
-                evidence["mobile_primary_cta_present"] = True
-        elif biz_type in {"legal", "medspa", "local_service", "professional_service", "agency"}:
-            if data.get("mobile_primary_cta_present") and (data.get("click_to_call_present") or data.get("forms_present")):
-                points = 2.5
-                evidence["qualified_primary_action"] = True
-            elif data.get("mobile_primary_cta_present"):
-                points = 1.5
-                evidence["mobile_primary_cta_present"] = True
-        elif biz_type == "b2b":
-            ctas = set(data.get("mobile_cta_types") or [])
-            if data.get("mobile_primary_cta_present") and (data.get("forms_present") or {"quote", "demo", "contact", "book"} & ctas):
-                points = 2.5
-                evidence["qualified_primary_action"] = True
-            elif data.get("mobile_primary_cta_present"):
-                points = 1.25
-                evidence["mobile_primary_cta_present"] = True
-        elif biz_type == "creator":
-            ctas = set(data.get("mobile_cta_types") or [])
-            if "subscribe" in ctas:
-                points = 2.5
-                evidence["subscribe_action"] = True
-            elif data.get("mobile_primary_cta_present"):
-                points = 1.25
-                evidence["mobile_primary_cta_present"] = True
-        elif biz_type == "saas":
-            if data.get("mobile_primary_cta_present"):
-                points = 2.5
-                evidence["mobile_primary_cta_present"] = True
+        """Score the observed customer journey rather than an asserted industry category."""
+        ctas = {str(x).lower() for x in (data.get("mobile_cta_types") or []) if x}
+        evidence: Dict[str, Any] = {
+            "journey_model": biz_type,
+            "journey_label": profile.get("journey_label"),
+            "primary_conversion": profile.get("primary_conversion"),
+        }
+        primary = bool(data.get("mobile_primary_cta_present"))
+        forms = bool(data.get("forms_present") and data.get("form_action_valid") is not False)
+        call = bool(data.get("click_to_call_present"))
+        booking = bool(data.get("reservation_present") or data.get("booking_provider_links"))
+
+        if biz_type == "lead_quote":
+            qualified = bool(({"quote", "contact", "book"} & ctas) or forms or call)
+        elif biz_type == "appointment_consultation":
+            qualified = bool(({"book", "reserve", "contact"} & ctas) or booking or forms or call)
+        elif biz_type == "reservation_event":
+            qualified = bool(({"reserve", "book", "contact", "order"} & ctas) or data.get("reservation_present") or forms or call)
+        elif biz_type == "direct_purchase":
+            qualified = bool(data.get("add_to_cart_visible") or data.get("checkout_context_detected") or {"buy", "order", "add_to_cart"} & ctas)
+        elif biz_type == "demo_sales":
+            qualified = bool(({"demo", "trial", "contact", "quote", "book"} & ctas) or forms)
+        elif biz_type == "membership_subscription":
+            qualified = bool(({"subscribe", "join", "buy", "contact"} & ctas) or forms)
         else:
-            if data.get("mobile_primary_cta_present"):
-                points = 1.75
-                evidence["mobile_primary_cta_present"] = True
+            qualified = primary
+
+        if qualified and primary:
+            points = 3.5
+        elif qualified:
+            points = 2.6
+        elif primary:
+            points = 1.4
+        else:
+            points = 0.0
+        evidence.update({
+            "qualified_primary_action": qualified,
+            "mobile_primary_cta_present": primary,
+            "cta_types": sorted(ctas),
+            "forms_present": bool(data.get("forms_present")),
+        })
         return points, evidence
 
     def _evaluate_elite_bonus(
@@ -1104,115 +990,60 @@ class RevenueScorer:
         leaks: List[Dict[str, Any]],
         standard_strength: float,
     ) -> Tuple[List[Dict[str, Any]], float]:
-        """Award rare maturity points needed to move above ordinary-good territory.
-
-        Elite eligibility is based on verified commercial/core experience maturity,
-        not on accumulating SEO-hygiene points. This avoids a meta/schema/sitemap
-        bundle switching off the entire elite pool while still requiring strong
-        conversion, trust, measurement and measured performance evidence.
-        """
-        perf_gate = self._safe_float(scan_data.get("performance_score"))
-        performance_mature = (
-            scan_data.get("pagespeed_api_status") == "success"
-            and perf_gate is not None
-            and perf_gate >= 75
-        )
-        conversion_points, _ = self._business_conversion_strength(scan_data, biz_type, profile)
-        conversion_mature_gate = conversion_points >= 1.5
-        secure_mature = bool(scan_data.get("response_ok") and scan_data.get("has_ssl") is True)
-        trust_mature = bool(scan_data.get("reviews_visible") or scan_data.get("social_proof_present") or scan_data.get("trust_badges_present"))
-        measurement_mature = bool(scan_data.get("has_ga4") or scan_data.get("has_meta_pixel") or scan_data.get("retargeting_pixel_installed"))
-        form_mature = bool(scan_data.get("forms_present") is not True or scan_data.get("form_action_valid") is True)
-
-        core_gate_count = sum((
-            secure_mature, performance_mature, conversion_mature_gate,
-            trust_mature, measurement_mature, form_mature,
-        ))
-        if core_gate_count < 5:
+        """Award rare maturity points only after the core customer architecture is credible."""
+        perf = self._safe_float(scan_data.get("performance_score"))
+        psi_success = scan_data.get("pagespeed_api_status") == "success" and perf is not None
+        crux_good = str(scan_data.get("real_user_speed_grade") or "UNKNOWN").upper() == "GOOD"
+        performance_mature = bool((psi_success and perf >= 75) or crux_good)
+        conversion_points, conversion_evidence = self._business_conversion_strength(scan_data, biz_type, profile)
+        secure = bool(scan_data.get("response_ok") and scan_data.get("has_ssl") is True)
+        trust_state = self._maturity_trust_state(scan_data, biz_type, profile)
+        measurement = bool(scan_data.get("measurement_layer_present") or scan_data.get("has_ga4") or scan_data.get("has_meta_pixel") or scan_data.get("has_other_measurement") or scan_data.get("has_qualitative_analytics"))
+        form_clear = bool(scan_data.get("forms_present") is not True or scan_data.get("form_action_valid") is True)
+        if bool(profile.get("provisional")) or sum((secure, performance_mature, conversion_points >= 2.0, bool(trust_state["passed"]), measurement, form_clear)) < 5:
             return [], 0.0
 
         elite: List[Dict[str, Any]] = []
-
         def add(key: str, points: float, evidence: Dict[str, Any], source: str) -> None:
-            if points <= 0:
-                return
-            elite.append({
-                "strength_key": key,
-                "points": round(float(points), 2),
-                "category": "elite_maturity",
-                "evidence": evidence,
-                "source": source,
-            })
+            if points > 0:
+                elite.append({"strength_key": key, "points": round(float(points), 2), "category": "elite_maturity", "analysis_layer": "adaptive_architecture", "evidence": evidence, "source": source})
 
-        perf = self._safe_float(scan_data.get("performance_score"))
-        seo = self._safe_float(scan_data.get("google_seo_score"))
-        if scan_data.get("pagespeed_api_status") == "success" and perf is not None and perf >= 95:
-            add("elite_mobile_performance", 1.5, {"performance_score": perf}, "Google PageSpeed")
-        if scan_data.get("pagespeed_api_status") == "success" and seo is not None and seo >= 95:
-            add("elite_lighthouse_seo", 0.25, {"google_seo_score": seo}, "Google Lighthouse SEO")
+        if conversion_points >= 3.5:
+            add("mature_customer_journey", 1.75, conversion_evidence, "Rendered customer-journey architecture")
+        elif conversion_points >= 2.6:
+            add("strong_customer_journey", 0.9, conversion_evidence, "Rendered customer-journey architecture")
 
-        # Current Core Web Vitals: LCP, INP, CLS. Field data gets preference; lab fallback is accepted where applicable.
-        lcp = self._safe_float(scan_data.get("crux_lcp_ms"))
-        if lcp is None:
-            lcp = self._safe_float(scan_data.get("psi_lcp_ms"))
+        if measurement:
+            platforms = scan_data.get("measurement_platforms") or []
+            add("mature_measurement_layer", 1.0, {"measurement_platforms": platforms}, "Rendered/source measurement inspection")
+        if scan_data.get("retargeting_pixel_installed") and scan_data.get("has_qualitative_analytics"):
+            add("multi_layer_measurement_stack", 0.75, {"retargeting": True, "qualitative_analytics": True}, "Rendered script inspection")
+
+        if bool(trust_state["passed"]) and int(trust_state.get("signal_count") or 0) >= 2:
+            add("mature_contextual_trust", 1.25, trust_state, "Rendered/journey/Places evidence")
+
+        if performance_mature:
+            add("strong_measured_performance", 0.75, {"performance_score": perf, "crux_grade": scan_data.get("real_user_speed_grade")}, "Google PageSpeed / CrUX")
+        if psi_success and perf is not None and perf >= 95:
+            add("elite_mobile_performance", 0.75, {"performance_score": perf}, "Google PageSpeed")
+
+        lcp = self._safe_float(scan_data.get("crux_lcp_ms")) or self._safe_float(scan_data.get("psi_lcp_ms"))
         inp = self._safe_float(scan_data.get("crux_inp_ms"))
         cls = self._safe_float(scan_data.get("crux_cls"))
         if cls is None:
             cls = self._safe_float(scan_data.get("psi_cls"))
-        if lcp is not None and lcp <= 2500:
-            add("good_lcp", 0.5, {"lcp_ms": lcp}, "CrUX / PageSpeed")
-        if inp is not None and inp <= 200:
-            add("good_inp", 1.0, {"inp_ms": inp}, "CrUX")
-        if cls is not None and cls <= 0.1:
-            add("good_cls", 0.25, {"cls": cls}, "CrUX / PageSpeed")
+        cwv_good = sum((lcp is not None and lcp <= 2500, inp is not None and inp <= 200, cls is not None and cls <= 0.1))
+        if cwv_good >= 2:
+            add("mature_core_web_vitals", 0.6, {"lcp_ms": lcp, "inp_ms": inp, "cls": cls}, "CrUX / PageSpeed")
 
-        coverage_raw = scan_data.get("evidence_coverage") if isinstance(scan_data, dict) else {}
-        coverage_dict = coverage_raw if isinstance(coverage_raw, dict) else {}
-        coverage = self._safe_float(coverage_dict.get("ratio")) or 0.0
+        coverage_raw = scan_data.get("evidence_coverage") if isinstance(scan_data.get("evidence_coverage"), dict) else {}
+        coverage = self._safe_float(coverage_raw.get("ratio")) or 0.0
         if coverage >= 0.85:
-            add("high_evidence_coverage", 0.25, {"coverage_ratio": coverage}, "Scanner evidence coverage")
+            add("high_evidence_coverage", 0.35, {"coverage_ratio": coverage}, "Scanner evidence coverage")
 
-        conversion_mature = bool(scan_data.get("mobile_primary_cta_present") and scan_data.get("mobile_sticky_cta_present"))
-        if biz_type == "restaurant":
-            conversion_mature = conversion_mature and bool(scan_data.get("order_online_present") or scan_data.get("reservation_present"))
-        elif biz_type == "ecommerce":
-            conversion_mature = conversion_mature and bool(scan_data.get("add_to_cart_visible"))
-        if conversion_mature:
-            add("mature_conversion_architecture", 1.0, {
-                "mobile_primary_cta_present": True,
-                "mobile_sticky_cta_present": True,
-                "primary_conversion": profile.get("primary_conversion"),
-            }, "Rendered conversion architecture")
-
-        if scan_data.get("has_ga4") and scan_data.get("retargeting_pixel_installed") and scan_data.get("has_qualitative_analytics"):
-            add("mature_measurement_stack", 2.0, {
-                "ga4_or_gtm": True, "retargeting": True, "qualitative_analytics": True,
-            }, "Rendered script inspection")
-
-        if scan_data.get("reviews_visible") and scan_data.get("social_proof_present") and (
-            scan_data.get("privacy_terms_linked") or (scan_data.get("privacy_policy_linked") and scan_data.get("terms_linked"))
-        ):
-            add("mature_trust_architecture", 0.75, {
-                "reviews_visible": True, "social_proof_present": True, "privacy_terms_linked": True,
-            }, "Rendered DOM / Places evidence")
-
-        technical_complete = all(scan_data.get(key) is True for key in (
-            "schema_present", "canonical_present", "sitemap_present", "robots_valid",
-            "mobile_viewport_configured", "html_lang_present", "favicon_present",
-        ))
-        if technical_complete:
-            add("mature_technical_foundation", 0.25, {"all_core_technical_signals_verified": True}, "DOM + HTTP discovery")
-
-        total_images = self._safe_int(scan_data.get("total_images"), self._safe_int(scan_data.get("image_count"), 0)) or 0
-        missing_alt = self._safe_int(scan_data.get("missing_alt_images"))
-        no_alt_failures = scan_data.get("browser_loaded") and total_images > 0 and missing_alt == 0
-        no_tap_failures = scan_data.get("pagespeed_api_status") == "success" and not scan_data.get("tap_targets_flagged")
-        if no_alt_failures and no_tap_failures:
-            add("mature_mobile_accessibility", 0.25, {"alt_coverage": "complete", "tap_targets": "clear"}, "DOM + PageSpeed")
-
-        high_impact = [leak for leak in leaks if float(leak.get("severity_factor") or 0.0) >= 0.65]
-        if not high_impact:
-            add("no_high_impact_verified_leaks", 0.5, {"high_impact_leaks": 0}, "Scoring ledger")
+        major = [x for x in leaks if float(x.get("final_score_loss") or 0.0) >= 3.5]
+        if not major:
+            add("no_major_verified_leaks", 0.6, {"major_verified_leaks": 0}, "Scoring ledger")
 
         raw = sum(float(item.get("points") or 0.0) for item in elite)
         return elite, round(min(ELITE_BONUS_CAP, raw), 2)
@@ -1221,7 +1052,7 @@ class RevenueScorer:
     def _reference_completeness_bonus(
         scan_data: Dict[str, Any], standard_strength: float, elite_bonus: float, total_loss: float
     ) -> float:
-        """Make 100 theoretically possible but exceptionally difficult."""
+        """Award the tiny final completeness increment only to unusually complete evidence sets."""
         coverage_raw = scan_data.get("evidence_coverage") if isinstance(scan_data, dict) else {}
         coverage_dict = coverage_raw if isinstance(coverage_raw, dict) else {}
         coverage = RevenueScorer._safe_float(coverage_dict.get("ratio")) or 0.0
@@ -1285,28 +1116,33 @@ class RevenueScorer:
 
     @staticmethod
     def _maturity_trust_state(scan_data: Dict[str, Any], biz_type: str, profile: Dict[str, Any]) -> Dict[str, Any]:
-        subtype = str(profile.get("inferred_subtype") or biz_type)
-        credentials = bool(scan_data.get("credential_signals_present") or scan_data.get("credential_signal_types"))
+        credentials = bool(scan_data.get("credential_signals_present"))
         reviews = bool(scan_data.get("reviews_visible"))
         social = bool(scan_data.get("social_proof_present"))
         badges = bool(scan_data.get("trust_badges_present"))
         about = bool(scan_data.get("about_team_linked"))
         proof_work = bool(scan_data.get("case_studies_portfolio_present"))
         signal_count = sum((credentials, reviews, social, badges, about, proof_work))
-        if biz_type in {"legal", "medspa"} or subtype in {"healthcare_clinic", "dental_clinic"}:
+        regulated = context_has(profile, "regulated_high_trust")
+        enterprise = context_has(profile, "enterprise_considered_purchase")
+        commerce = context_has(profile, "commerce_payment")
+        local = context_has(profile, "local_location_dependent")
+        hospitality = context_has(profile, "hospitality_event")
+
+        if regulated:
             passed = credentials and bool(reviews or social or about)
-            rationale = "regulated/professional trust requires a credential plus an independent proof/identity signal"
-        elif biz_type in {"saas", "agency", "b2b"}:
-            passed = bool(reviews or social or proof_work) and about
-            rationale = "evaluation-led businesses require proof-of-work/customer proof plus clear company/team identity"
-        elif biz_type == "ecommerce":
+            rationale = "regulated/high-trust context requires verified credentials plus an independent proof or identity signal"
+        elif enterprise or biz_type == "demo_sales":
+            passed = bool(proof_work or reviews or social) and about
+            rationale = "considered-purchase/demo journeys require proof-of-work/customer proof plus clear organization identity"
+        elif commerce or biz_type == "direct_purchase":
             passed = bool(reviews or social or badges)
-            rationale = "commerce trust requires at least one verified customer/trust signal"
-        elif biz_type in {"restaurant", "local_service"}:
+            rationale = "commerce journeys require at least one independently verified customer/trust signal"
+        elif local or hospitality:
             passed = bool(reviews or social)
-            rationale = "local purchase decisions require at least one verified review/social-proof signal for elite readiness"
+            rationale = "local/hospitality journeys require at least one public reputation or customer-proof signal for elite readiness"
         else:
-            passed = bool(signal_count >= 1)
+            passed = signal_count >= 1
             rationale = "at least one independently verified trust, proof or identity signal is required for elite readiness"
         return {
             "passed": passed, "signal_count": signal_count, "credentials": credentials, "reviews": reviews,
@@ -1324,10 +1160,10 @@ class RevenueScorer:
         def status(cp_id: int) -> str:
             return str((by_id.get(cp_id) or {}).get("status") or UNKNOWN)
 
-        subtype = str(profile.get("inferred_subtype") or biz_type)
+        provisional = bool(profile.get("provisional"))
         conversion_points, conversion_evidence = self._business_conversion_strength(scan_data, biz_type, profile)
         secure = bool(scan_data.get("response_ok") and scan_data.get("has_ssl") is True)
-        conversion = bool(conversion_points >= 1.5 and status(50) != FAIL)
+        conversion = bool((conversion_points >= 2.0 or status(7) == PASS) and status(50) != FAIL)
         trust_state = self._maturity_trust_state(scan_data, biz_type, profile)
         measurement = bool(scan_data.get("measurement_layer_present") or scan_data.get("has_ga4") or scan_data.get("has_meta_pixel") or scan_data.get("has_other_measurement") or scan_data.get("has_qualitative_analytics"))
 
@@ -1339,30 +1175,37 @@ class RevenueScorer:
         performance_reference = bool((psi_success and perf >= 90 and crux_grade != "POOR") or (not psi_success and crux_grade == "GOOD"))
 
         evidence_score = float(evidence_confidence.get("score") or 0.0)
-        unresolved = len([x for x in (unconfirmed_high_impact or []) if isinstance(x, dict)])
+        unresolved = len([x for x in (unconfirmed_high_impact or []) if isinstance(x, dict) and str(x.get("status") or "").upper() not in {"CORROBORATED", "CONFIRMED"}])
         confirmed_major = [leak for leak in (leaks or []) if float(leak.get("pre_dedupe_penalty") or leak.get("final_score_loss") or 0.0) >= 3.5]
 
+        # Critical architecture requirements come from journey + context, not industry names.
         critical_ids = {1, 7, 31}
-        critical_by_business = {
-            "restaurant": {8, 9, 11}, "local_service": {8, 9, 11}, "professional_service": {13},
-            "medspa": {9, 10, 11, 13, 48}, "legal": {9, 10, 13, 48}, "ecommerce": {48},
-            "saas": {13, 45, 48}, "agency": {13, 45}, "b2b": {13, 45}, "creator": {13}, "general": set(),
-        }
-        critical_ids |= critical_by_business.get(biz_type, set())
-        if subtype in {"healthcare_clinic", "dental_clinic"}:
-            critical_ids |= {9, 10, 11, 48}
-        critical_failures = [{"id": cp_id, "check": (by_id.get(cp_id) or {}).get("check")} for cp_id in sorted(critical_ids) if status(cp_id) == FAIL]
+        if context_has(profile, "local_location_dependent"):
+            critical_ids.add(9)
+        if context_has(profile, "regulated_high_trust"):
+            critical_ids |= {10, 48}
+        if context_has(profile, "hospitality_event"):
+            critical_ids.add(11)
+        if context_has(profile, "enterprise_considered_purchase") or biz_type == "demo_sales":
+            critical_ids |= {13, 45}
+        if context_has(profile, "commerce_payment") or biz_type == "direct_purchase":
+            critical_ids.add(48)
+        critical_failures = [
+            {"id": cp_id, "check": (by_id.get(cp_id) or {}).get("check")}
+            for cp_id in sorted(critical_ids) if status(cp_id) == FAIL
+        ]
 
         foundational_gates = {
+            "journey_model_not_provisional": not provisional,
             "secure_foundation": secure,
-            "business_conversion_path": conversion,
-            "business_appropriate_trust": bool(trust_state["passed"]),
+            "customer_conversion_path": conversion,
+            "context_appropriate_trust": bool(trust_state["passed"]),
             "performance_foundation": performance_foundation,
             "measurement_layer": measurement,
             "evidence_confidence_at_least_70": evidence_score >= 70.0,
             "no_confirmed_major_leak": len(confirmed_major) == 0,
             "no_unresolved_major_observation": unresolved == 0,
-            "no_business_critical_checkpoint_failure": len(critical_failures) == 0,
+            "no_context_critical_checkpoint_failure": len(critical_failures) == 0,
         }
         foundational_pass = all(foundational_gates.values())
         policy_clear = status(48) in {PASS, NA}
@@ -1375,6 +1218,7 @@ class RevenueScorer:
             "form_architecture_clear_when_applicable": form_clear,
             "no_more_than_two_applicable_failures": int(cp_summary.get("failed") or 0) <= 2,
             "verified_penalty_burden_at_most_4": total_loss <= 4.0,
+            "adaptive_architecture_verified_ratio_at_least_80": float(((cp_summary.get("layers") or {}).get("adaptive_architecture") or {}).get("verified_applicable_ratio") or 0.0) >= 0.80,
         }
         exceptional_pass = all(exceptional_gates.values())
         reference_gates = {
@@ -1383,14 +1227,16 @@ class RevenueScorer:
             "evidence_confidence_at_least_90": evidence_score >= 90.0,
             "at_most_one_applicable_failure": int(cp_summary.get("failed") or 0) <= 1,
             "verified_penalty_burden_at_most_1_5": total_loss <= 1.5,
-            "strongest_business_conversion_path": conversion_points >= 2.5,
+            "strongest_customer_conversion_path": conversion_points >= 3.5,
             "at_least_two_trust_proof_signals": int(trust_state["signal_count"]) >= 2,
-            "substantial_standard_strength": standard_strength >= 24.0,
+            "substantial_standard_strength": standard_strength >= 22.0,
             "meaningful_elite_strength": elite_bonus >= 4.0,
         }
         reference_pass = all(reference_gates.values())
 
-        if not foundational_pass:
+        if provisional:
+            band, cap = "PROVISIONAL_CUSTOMER_JOURNEY", PROVISIONAL_JOURNEY_CAP
+        elif not foundational_pass:
             band, cap = "FOUNDATIONAL_MATURITY_NOT_FULLY_VERIFIED", FOUNDATIONAL_MATURITY_CAP
         elif not exceptional_pass:
             band, cap = "STRONG_VERIFIED_MATURITY", STRONG_MATURITY_CAP
@@ -1399,18 +1245,29 @@ class RevenueScorer:
         else:
             band, cap = "REFERENCE_LEVEL_ELIGIBLE", REFERENCE_MATURITY_CAP
 
-        active = list(foundational_gates.items()) if not foundational_pass else (list(exceptional_gates.items()) if not exceptional_pass else (list(reference_gates.items()) if not reference_pass else []))
+        if provisional:
+            active = [("journey_model_not_provisional", False)]
+        elif not foundational_pass:
+            active = list(foundational_gates.items())
+        elif not exceptional_pass:
+            active = list(exceptional_gates.items())
+        elif not reference_pass:
+            active = list(reference_gates.items())
+        else:
+            active = []
         failed_gate_names = [name for name, passed in active if not passed]
         return {
             "band": band, "score_cap": cap, "foundational_pass": foundational_pass,
             "exceptional_pass": exceptional_pass, "reference_pass": reference_pass,
+            "journey_model": biz_type, "journey_confidence": profile.get("confidence"), "journey_provisional": provisional,
+            "context_tags": list(profile.get("context_tags") or []),
             "foundational_gates": foundational_gates, "exceptional_gates": exceptional_gates, "reference_gates": reference_gates,
             "failed_gate_names": failed_gate_names, "critical_checkpoint_failures": critical_failures, "trust_state": trust_state,
             "performance": {"pagespeed_score": perf, "crux_grade": crux_grade, "foundation": performance_foundation, "exceptional": performance_exceptional, "reference": performance_reference},
             "conversion_strength_points": conversion_points, "conversion_evidence": conversion_evidence,
             "policy_checkpoint_status": status(48), "form_checkpoint_status": status(5),
             "confirmed_major_leak_count": len(confirmed_major), "unresolved_major_observation_count": unresolved,
-            "note": "This cap is an eligibility guardrail, not an extra penalty. Ordinary strengths cannot accumulate into elite score bands unless core commercial maturity is independently verified.",
+            "note": "Score-band caps are eligibility guardrails, not deductions. Basic SEO/technical strengths cannot accumulate into elite Revenue Readiness unless the actual customer journey, trust, evidence and performance maturity are verified.",
         }
 
     def _evaluate_leaks(
@@ -1420,636 +1277,187 @@ class RevenueScorer:
         profile: Dict[str, Any],
         competitor_verified: bool,
     ) -> List[Dict[str, Any]]:
+        """Evaluate dedicated high-value rules using Journey + Context applicability.
+
+        Common SEO/technical failures are mostly promoted from the 50-checkpoint ledger at low
+        weight; this method focuses on blockers that can materially change a real customer path.
+        """
         leaks: List[Dict[str, Any]] = []
-        quality_raw = data.get("scan_quality") if isinstance(data, dict) else {}
-        quality = quality_raw if isinstance(quality_raw, dict) else {}
+        quality = data.get("scan_quality") if isinstance(data.get("scan_quality"), dict) else {}
         quality_conf = str(quality.get("confidence") or "unknown").lower()
+        provisional = bool(profile.get("provisional"))
+        local = context_has(profile, "local_location_dependent")
+        commerce = context_has(profile, "commerce_payment") or biz_type == "direct_purchase"
+        enterprise = context_has(profile, "enterprise_considered_purchase") or biz_type == "demo_sales"
 
-        # 1. HTTPS / SSL
+        # Universal foundations with real commercial implications.
         if data.get("response_ok") and data.get("has_ssl") is False:
-            leaks.append(
-                self._build_leak(
-                    "unsecured_ssl",
-                    "Unsecured HTTPS/SSL Foundation",
-                    "Site is reachable without an HTTPS-secured final URL.",
-                    "seo_technical",
-                    biz_type,
-                    severity_factor=1.0,
-                    confidence="high",
-                    substitution_factor=1.0,
-                    competitor_verified=competitor_verified,
-                    evidence={"final_url": data.get("final_url"), "status_code": data.get("status_code")},
-                    source="HTTP preflight",
-                )
-            )
+            leaks.append(self._build_leak(
+                "unsecured_ssl", "Unsecured HTTPS/SSL Foundation",
+                "The reachable final site URL was not HTTPS-secured.", "seo_technical", biz_type,
+                1.0, "high", 1.0, competitor_verified,
+                {"final_url": data.get("final_url"), "status_code": data.get("status_code")}, "HTTP preflight"))
 
-        # 2. Performance / Core Web Vitals
         perf = self._safe_float(data.get("performance_score"))
-        crux_grade = str(data.get("real_user_speed_grade") or "UNKNOWN")
-        pagespeed_success = data.get("pagespeed_api_status") == "success"
-        if pagespeed_success and perf is not None and perf < 60:
+        crux_grade = str(data.get("real_user_speed_grade") or "UNKNOWN").upper()
+        if data.get("pagespeed_api_status") == "success" and perf is not None and perf < 60:
             severity = max(0.30, min(1.0, (60.0 - perf) / 40.0 + 0.25))
             if crux_grade == "POOR":
                 severity = min(1.0, severity + 0.20)
-            leaks.append(
-                self._build_leak(
-                    "core_web_vitals",
-                    "Severe Mobile Performance Latency" if severity >= 0.75 else "Sub-optimal Mobile Performance Latency",
-                    f"Google mobile performance telemetry returned {perf:.1f}/100.",
-                    "seo_technical",
-                    biz_type,
-                    severity_factor=severity,
-                    confidence="high" if data.get("pagespeed_api_status") == "success" else "unknown",
-                    substitution_factor=1.0,
-                    competitor_verified=competitor_verified,
-                    evidence={
-                        "performance_score": perf,
-                        "crux_grade": crux_grade,
-                        "crux_lcp_ms": data.get("crux_lcp_ms"),
-                        "crux_inp_ms": data.get("crux_inp_ms"),
-                        "crux_cls": data.get("crux_cls"),
-                    },
-                    source="Google PageSpeed / CrUX",
-                )
-            )
+            leaks.append(self._build_leak(
+                "core_web_vitals", "Critical Mobile Performance Drag",
+                f"Google PageSpeed measured mobile performance at {perf:.0f}/100.", "seo_technical", biz_type,
+                severity, "high", 1.0, competitor_verified,
+                {"performance_score": perf, "crux_grade": crux_grade}, "Google PageSpeed / CrUX"))
         elif crux_grade == "POOR":
-            leaks.append(
-                self._build_leak(
-                    "core_web_vitals",
-                    "Poor Real-User Core Web Vitals",
-                    "Google CrUX field telemetry indicates poor real-user Core Web Vitals.",
-                    "seo_technical",
-                    biz_type,
-                    severity_factor=0.8,
-                    confidence="high",
-                    substitution_factor=1.0,
-                    competitor_verified=competitor_verified,
-                    evidence={
-                        "crux_lcp_ms": data.get("crux_lcp_ms"),
-                        "crux_inp_ms": data.get("crux_inp_ms"),
-                        "crux_cls": data.get("crux_cls"),
-                    },
-                    source="Google CrUX",
-                )
-            )
+            leaks.append(self._build_leak(
+                "core_web_vitals", "Poor Real-User Core Web Vitals",
+                "Google CrUX field telemetry indicates poor real-user Core Web Vitals.", "seo_technical", biz_type,
+                0.8, "high", 1.0, competitor_verified,
+                {"crux_lcp_ms": data.get("crux_lcp_ms"), "crux_inp_ms": data.get("crux_inp_ms"), "crux_cls": data.get("crux_cls")}, "Google CrUX"))
 
-        # 3. Phone visibility vs click-to-call
+        # Journey-supporting call action only when local direct contact is a normal path.
+        call_relevant = bool(local and biz_type in {"lead_quote", "appointment_consultation", "reservation_event"})
         call_status = str(data.get("click_to_call_status") or "unknown").lower()
         phone_status = str(data.get("phone_visibility_status") or "unknown").lower()
-        call_relevant = biz_type in {"restaurant", "local_service", "professional_service", "medspa", "legal"}
-        if call_relevant and call_status == "verified" and phone_status == "verified" and not bool(data.get("click_to_call_present")):
+        if call_relevant and call_status == "verified" and phone_status == "verified" and not data.get("click_to_call_present"):
             phone_visible = bool(data.get("phone_number_visible"))
-            severity = 0.40 if phone_visible else 0.85
-            substitution = self._conversion_substitution("click_to_call", biz_type, data, profile)
-            description = (
-                "A phone number is visible, but no explicit touch-optimized tel: action was detected."
-                if phone_visible
-                else "No verified tap-to-call action was detected in the rendered mobile experience."
-            )
-            leaks.append(
-                self._build_leak(
-                    "click_to_call",
-                    "Sub-optimal Mobile Click-to-Call" if phone_visible else "Missing Mobile Click-to-Call / Instant Call Action",
-                    description,
-                    "trust_conversion",
-                    biz_type,
-                    severity_factor=severity,
-                    confidence="high" if quality_conf == "high" else "medium",
-                    substitution_factor=substitution,
-                    competitor_verified=competitor_verified,
-                    evidence={
-                        "phone_number_visible": phone_visible,
-                        "detected_phone_numbers": data.get("detected_phone_numbers") or [],
-                        "tel_link_present": bool(data.get("click_to_call_present")),
-                        "primary_conversion": profile.get("primary_conversion"),
-                    },
-                    source="Rendered mobile DOM",
-                )
-            )
+            leaks.append(self._build_leak(
+                "click_to_call",
+                "Sub-optimal Mobile Click-to-Call" if phone_visible else "Missing Mobile Click-to-Call / Instant Call Action",
+                "A phone number is visible, but no explicit touch-optimized tel: action was detected." if phone_visible else "No verified tap-to-call action was detected in the rendered mobile experience.",
+                "trust_conversion", biz_type, 0.40 if phone_visible else 0.80,
+                "high" if quality_conf == "high" else "medium",
+                self._conversion_substitution("click_to_call", biz_type, data, profile), competitor_verified,
+                {"phone_visible": phone_visible, "click_to_call_present": False}, "Rendered mobile DOM"))
 
-        # 4. Sticky CTA, distinct from normal CTA. It is not a universal requirement.
-        sticky_url = str(data.get("final_url") or data.get("url") or "").lower()
-        sticky_product_context = bool(data.get("add_to_cart_visible") or data.get("checkout_context_detected") or any(token in sticky_url for token in ("/product/", "/products/", "/item/", "/p/")))
-        sticky_relevant = call_relevant or (biz_type == "ecommerce" and sticky_product_context)
-        if sticky_relevant and str(data.get("mobile_cta_status") or "unknown").lower() == "verified" and not bool(data.get("mobile_sticky_cta_present")):
-            primary_present = bool(data.get("mobile_primary_cta_present"))
-            severity = 0.45 if primary_present else 0.90
-            substitution = self._conversion_substitution("mobile_sticky_cta", biz_type, data, profile)
-            leaks.append(
-                self._build_leak(
-                    "mobile_sticky_cta",
-                    "Absence of Mobile Sticky Call-to-Action (CTA)",
-                    (
-                        "Primary actions exist, but no verified fixed/sticky conversion action remains accessible after mobile scrolling."
-                        if primary_present
-                        else "No verified persistent mobile conversion action was detected after scrolling."
-                    ),
-                    "trust_conversion",
-                    biz_type,
-                    severity_factor=severity,
-                    confidence="high" if quality_conf == "high" else "medium",
-                    substitution_factor=substitution,
-                    competitor_verified=competitor_verified,
-                    evidence={
-                        "mobile_primary_cta_present": primary_present,
-                        "mobile_sticky_cta_present": False,
-                        "cta_types": data.get("mobile_cta_types") or [],
-                    },
-                    source="Rendered mobile DOM after scroll",
-                )
-            )
-
-        # 5. Business-specific primary conversion path.
-        #
-        # This is intentionally conservative: absence is penalized only when the
-        # scanner has verified the mobile action layer and the page context makes
-        # the expected action commercially relevant. A generic ecommerce homepage,
-        # for example, is not failed merely because it has no Add-to-Cart button.
-        cta_types = {str(x or "").lower() for x in (data.get("mobile_cta_types") or [])}
-        cta_verified = str(data.get("mobile_cta_status") or "unknown").lower() == "verified"
-        form_usable = bool(data.get("forms_present") and data.get("form_action_valid") is True)
-        page_url = str(data.get("final_url") or data.get("url") or data.get("domain") or "").lower()
-        schema_types = {str(x or "").lower() for x in (data.get("schema_types") or [])}
-        product_context = (
-            "product" in schema_types
-            or any(token in page_url for token in ("/product/", "/products/", "/item/", "/p/"))
+        # Sticky/direct action continuity is adaptive; missing sticky is never treated like a broken form.
+        final_url = str(data.get("final_url") or data.get("url") or "").lower()
+        product_context = bool(data.get("add_to_cart_visible") or data.get("checkout_context_detected") or any(x in final_url for x in ("/product/", "/products/", "/item/")))
+        sticky_relevant = bool(
+            (biz_type in {"appointment_consultation", "reservation_event"} and (local or context_has(profile, "hospitality_event")))
+            or (biz_type == "lead_quote" and local)
+            or (biz_type == "direct_purchase" and product_context)
         )
+        if sticky_relevant and str(data.get("mobile_cta_status") or "unknown").lower() == "verified" and not data.get("mobile_sticky_cta_present"):
+            severity = 0.45 if data.get("mobile_primary_cta_present") else 0.72
+            leaks.append(self._build_leak(
+                "mobile_sticky_cta", "Absence of Mobile Sticky Call-to-Action (CTA)",
+                "Primary actions exist, but no verified fixed/sticky conversion action remains accessible after mobile scrolling." if data.get("mobile_primary_cta_present") else "No verified persistent mobile conversion action was detected after scrolling.",
+                "trust_conversion", biz_type, severity, "high",
+                self._conversion_substitution("mobile_sticky_cta", biz_type, data, profile), competitor_verified,
+                {"mobile_primary_cta_present": bool(data.get("mobile_primary_cta_present")), "mobile_sticky_cta_present": False, "cta_types": data.get("mobile_cta_types") or []}, "Rendered mobile DOM after scroll"))
 
-        conversion_gap = False
-        conversion_gap_severity = 0.0
-        conversion_gap_description = ""
-        conversion_evidence: Dict[str, Any] = {
-            "business_type": biz_type,
-            "mobile_cta_types": sorted(cta_types),
-            "forms_present": bool(data.get("forms_present")),
-            "form_action_valid": data.get("form_action_valid"),
-            "product_context": product_context,
-            "primary_conversion": profile.get("primary_conversion"),
-        }
+        # Primary journey path. Provisional models never fail this rule.
+        conversion_points, conversion_evidence = self._business_conversion_strength(data, biz_type, profile)
+        if not provisional and str(data.get("mobile_cta_status") or "unknown").lower() == "verified" and conversion_points <= 0.0:
+            labels = {
+                "lead_quote": "No verified quote, enquiry, contact-form or equivalent qualified lead action was found.",
+                "appointment_consultation": "No verified appointment, consultation, booking or equivalent customer action was found.",
+                "reservation_event": "No verified reservation, event enquiry, booking or equivalent action was found.",
+                "direct_purchase": "No verified Add-to-Cart, Buy, Order or checkout action was found in the inspected purchase context.",
+                "demo_sales": "No verified demo, trial, sales-contact or equivalent evaluation action was found.",
+                "membership_subscription": "No verified subscribe, join, membership or equivalent conversion action was found.",
+                "general": "No verified primary customer action was found, but the journey model is unresolved.",
+            }
+            leaks.append(self._build_leak(
+                "primary_conversion_path", "Primary Customer Journey Action Missing", labels.get(biz_type, labels["general"]),
+                "trust_conversion", biz_type, 0.78, "high" if quality_conf == "high" else "medium", 1.0,
+                competitor_verified, conversion_evidence, "Rendered customer-journey architecture"))
 
-        if cta_verified:
-            if biz_type == "ecommerce":
-                # Product pages must expose a purchase/cart path. A homepage or
-                # category page is not treated as broken solely for lacking one.
-                if product_context and not bool(data.get("add_to_cart_visible")):
-                    conversion_gap = True
-                    conversion_gap_severity = 0.95
-                    conversion_gap_description = (
-                        "A verified ecommerce product page exposes no Add-to-Cart, Buy, or equivalent purchase action."
-                    )
-            elif biz_type == "restaurant":
-                direct = bool(
-                    data.get("order_online_present")
-                    or data.get("reservation_present")
-                    or data.get("click_to_call_present")
-                    or data.get("directions_present")
-                    or {"order", "reserve", "book", "call", "directions"} & cta_types
-                )
-                if not direct:
-                    conversion_gap = True
-                    conversion_gap_severity = 0.85
-                    conversion_gap_description = (
-                        "No verified order, reservation, call, or directions action was found in the mobile journey."
-                    )
-            elif biz_type in {"legal", "medspa", "local_service", "professional_service", "agency"}:
-                direct = bool(
-                    form_usable
-                    or data.get("click_to_call_present")
-                    or {"quote", "book", "contact", "call", "demo"} & cta_types
-                )
-                if not direct:
-                    conversion_gap = True
-                    conversion_gap_severity = 0.90
-                    conversion_gap_description = (
-                        "No verified lead-generation path was found: no usable form, quote/booking/contact action, or direct call path."
-                    )
-            elif biz_type == "b2b":
-                direct = bool(
-                    form_usable
-                    or {"quote", "demo", "contact", "book", "call"} & cta_types
-                )
-                if not direct:
-                    conversion_gap = True
-                    conversion_gap_severity = 0.90
-                    conversion_gap_description = (
-                        "No verified B2B lead path was found for quote, demo, contact, booking, call, or a usable lead form."
-                    )
-            elif biz_type == "creator":
-                direct = bool(
-                    "subscribe" in cta_types
-                    or form_usable
-                    or {"contact", "book"} & cta_types
-                )
-                if not direct:
-                    conversion_gap = True
-                    conversion_gap_severity = 0.75
-                    conversion_gap_description = (
-                        "No verified creator conversion path was found for subscription, membership/join intent, contact, or a usable signup form."
-                    )
-            elif biz_type == "saas":
-                direct = bool(
-                    form_usable
-                    or {"trial", "demo", "contact", "book"} & cta_types
-                )
-                if not direct:
-                    conversion_gap = True
-                    conversion_gap_severity = 0.90
-                    conversion_gap_description = (
-                        "No verified SaaS conversion path was found for trial, demo, contact, booking, or a usable lead form."
-                    )
-            elif not form_usable and not cta_types:
-                conversion_gap = True
-                conversion_gap_severity = 0.65
-                conversion_gap_description = (
-                    "The verified mobile page exposes no clear primary action or usable lead form."
-                )
-
-        if conversion_gap:
-            leaks.append(
-                self._build_leak(
-                    "primary_conversion_path",
-                    "Primary Conversion Path Failure",
-                    conversion_gap_description,
-                    "trust_conversion",
-                    biz_type,
-                    severity_factor=conversion_gap_severity,
-                    confidence="high" if quality_conf == "high" else "medium",
-                    substitution_factor=1.0,
-                    competitor_verified=competitor_verified,
-                    evidence=conversion_evidence,
-                    source="Rendered mobile conversion-path evidence",
-                )
-            )
-
-
-        # 6. Research-calibrated ecommerce checkout friction.
-        # These rules activate only when the scanner actually observes a cart or
-        # checkout context. They do not infer checkout problems from a homepage.
-        if biz_type == "ecommerce" and bool(data.get("checkout_context_detected")):
-            if data.get("late_cost_disclosure_risk") is True:
-                leaks.append(
-                    self._build_leak(
-                        "checkout_cost_transparency",
-                        "Late Checkout Cost Disclosure",
-                        "The inspected cart/checkout experience indicates shipping, taxes, or fees are deferred until checkout instead of being made clear earlier.",
-                        "trust_conversion",
-                        biz_type,
-                        severity_factor=0.95,
-                        confidence="high",
-                        substitution_factor=1.0,
-                        competitor_verified=False,
-                        evidence={"late_cost_disclosure_risk": True},
-                        source="Observed cart/checkout copy",
-                    )
-                )
-
-            if data.get("guest_checkout_available") is False:
-                leaks.append(
-                    self._build_leak(
-                        "guest_checkout_barrier",
-                        "Guest Checkout Barrier",
-                        "The inspected checkout context indicates account sign-in/creation is required or strongly implied without a visible guest-checkout route.",
-                        "trust_conversion",
-                        biz_type,
-                        severity_factor=0.90,
-                        confidence="high",
-                        substitution_factor=1.0,
-                        competitor_verified=False,
-                        evidence={"guest_checkout_available": False},
-                        source="Observed cart/checkout controls and copy",
-                    )
-                )
-
-            checkout_fields = self._safe_float(data.get("checkout_form_field_count"))
-            if checkout_fields is not None and checkout_fields > 8:
-                severity = min(0.90, 0.35 + (checkout_fields - 8.0) * 0.08)
-                leaks.append(
-                    self._build_leak(
-                        "checkout_complexity",
-                        "High Checkout Form Burden",
-                        f"The inspected checkout exposes about {int(checkout_fields)} customer-input fields. The scanner treats this as checkout effort, not as a claim that every field is unnecessary.",
-                        "trust_conversion",
-                        biz_type,
-                        severity_factor=severity,
-                        confidence="medium",
-                        substitution_factor=1.0,
-                        competitor_verified=False,
-                        evidence={"checkout_form_field_count": int(checkout_fields)},
-                        source="Observed checkout form structure",
-                    )
-                )
-
-            # Missing delivery-date wording is useful context but is NOT equivalent
-            # to Baymard's 'delivery was too slow' survey reason, so its weight is
-            # intentionally much lower.
-            if data.get("delivery_date_visible") is False:
-                leaks.append(
-                    self._build_leak(
-                        "delivery_expectation_clarity",
-                        "Delivery Expectation Clarity Gap",
-                        "No clear estimated-delivery or arrival-date wording was detected in the inspected checkout context.",
-                        "trust_conversion",
-                        biz_type,
-                        severity_factor=0.35,
-                        confidence="medium",
-                        substitution_factor=1.0,
-                        competitor_verified=False,
-                        evidence={"delivery_date_visible": False},
-                        source="Observed checkout content",
-                    )
-                )
-
-        # Ecommerce policy discoverability is lower-confidence than an observed
-        # checkout blocker and therefore receives a smaller penalty.
-        if biz_type == "ecommerce" and str(data.get("content_signal_status") or "").lower() == "verified":
-            if data.get("return_policy_linked") is False:
-                leaks.append(
-                    self._build_leak(
-                        "return_policy_discoverability",
-                        "Return Policy Hard to Find",
-                        "No clear return/refund policy link was detected in the verified page evidence.",
-                        "trust_conversion",
-                        biz_type,
-                        severity_factor=0.45,
-                        confidence="medium",
-                        substitution_factor=1.0,
-                        competitor_verified=False,
-                        evidence={"return_policy_linked": False},
-                        source="Verified rendered/static navigation evidence",
-                    )
-                )
-            if data.get("shipping_info_linked") is False:
-                leaks.append(
-                    self._build_leak(
-                        "shipping_info_discoverability",
-                        "Shipping Information Hard to Find",
-                        "No clear shipping/delivery information link was detected in the verified page evidence.",
-                        "trust_conversion",
-                        biz_type,
-                        severity_factor=0.35,
-                        confidence="medium",
-                        substitution_factor=1.0,
-                        competitor_verified=False,
-                        evidence={"shipping_info_linked": False},
-                        source="Verified rendered/static navigation evidence",
-                    )
-                )
-
-        # NN/g B2B research shows that users need substantial information before
-        # they will submit lead-generation forms and that pricing is especially
-        # important. Because public enterprise pricing can legitimately be quote-
-        # based, this remains a medium-confidence, moderate-weight finding.
-        if (
-            biz_type == "b2b"
-            and str(data.get("content_signal_status") or "").lower() == "verified"
-            and data.get("pricing_linked") is False
-        ):
-            leaks.append(
-                self._build_leak(
-                    "b2b_pricing_transparency",
-                    "B2B Pricing / Commercial Context Gap",
-                    "No clear pricing, plans, packages, or commercial-context path was detected in the verified B2B page evidence.",
-                    "trust_conversion",
-                    biz_type,
-                    severity_factor=0.45,
-                    confidence="medium",
-                    substitution_factor=1.0,
-                    competitor_verified=False,
-                    evidence={"pricing_linked": False},
-                    source="Verified B2B page/navigation evidence",
-                )
-            )
-
-        # Form length is treated as a friction heuristic, never a universal rule.
-        # NN/g supports minimizing unnecessary questions; the threshold below is a
-        # conservative scanner heuristic rather than a claimed NN/g cutoff.
-        if (
-            biz_type in {"local_service", "professional_service", "medspa", "legal", "agency", "b2b", "creator"}
-            and data.get("forms_present")
-            and data.get("form_action_valid") is not False
-        ):
-            max_fields = self._safe_float(data.get("form_max_field_count"))
-            if max_fields is not None and max_fields > 8:
-                severity = min(0.80, 0.30 + (max_fields - 8.0) * 0.07)
-                leaks.append(
-                    self._build_leak(
-                        "lead_form_friction",
-                        "High Lead-Form Effort",
-                        f"At least one lead/contact form exposes about {int(max_fields)} customer-input fields, increasing completion effort on a conversion path.",
-                        "trust_conversion",
-                        biz_type,
-                        severity_factor=severity,
-                        confidence="medium",
-                        substitution_factor=1.0,
-                        competitor_verified=False,
-                        evidence={
-                            "form_max_field_count": int(max_fields),
-                            "form_max_required_field_count": data.get("form_max_required_field_count"),
-                        },
-                        source="Rendered form structure",
-                    )
-                )
-
-        # 7. H1 / hero semantics - unknown never fails
-        h1_status = str(data.get("h1_status") or "unknown").lower()
-        h1_tags_raw = data.get("h1_tags")
-        h1_tags = h1_tags_raw if isinstance(h1_tags_raw, list) else []
+        # Form architecture only when a real form exists.
         ai_flags = data.get("ai_flags") if isinstance(data.get("ai_flags"), dict) else {}
-        if h1_status == "missing":
-            leaks.append(
-                self._build_leak(
-                    "diluted_h1",
-                    "Missing Primary H1 / Hero Semantic Anchor",
-                    "Rendered DOM and serialized page source both confirmed no H1 element.",
-                    "content_eeat",
-                    biz_type,
-                    severity_factor=0.75,
-                    confidence="high",
-                    substitution_factor=1.0,
-                    competitor_verified=competitor_verified,
-                    evidence={"h1_dom_count": data.get("h1_dom_count"), "h1_source_count": data.get("h1_source_count")},
-                    source="Rendered DOM + serialized source",
-                )
-            )
-        elif h1_status == "present" and len(h1_tags) > 1:
-            leaks.append(
-                self._build_leak(
-                    "diluted_h1",
-                    "Multiple Primary H1 Signals",
-                    f"{len(h1_tags)} rendered H1 elements were detected; review whether the hero hierarchy is intentional.",
-                    "content_eeat",
-                    biz_type,
-                    severity_factor=0.25,
-                    confidence="high",
-                    substitution_factor=1.0,
-                    competitor_verified=competitor_verified,
-                    evidence={"h1_tags": h1_tags},
-                    source="Rendered DOM",
-                )
-            )
-        elif h1_status == "present" and bool(ai_flags.get("generic_headline")):
-            leaks.append(
-                self._build_leak(
-                    "diluted_h1",
-                    "Generic Hero Value Proposition",
-                    "A primary heading exists, but the template-pattern heuristic detected generic positioning language.",
-                    "content_eeat",
-                    biz_type,
-                    severity_factor=0.25,
-                    confidence="medium",
-                    substitution_factor=1.0,
-                    competitor_verified=competitor_verified,
-                    evidence={"h1_tags": h1_tags},
-                    source="Rendered headings",
-                )
-            )
+        if data.get("forms_present") and data.get("form_action_valid") is False:
+            leaks.append(self._build_leak(
+                "form_architecture", "Broken / Unresolved Form Submission Architecture",
+                "At least one rendered form lacked both a valid action target and a complete SPA-style input/submit structure.",
+                "trust_conversion", biz_type, 0.82, "high", 1.0, competitor_verified,
+                {"form_action_valid": False, "unlinked_forms": ai_flags.get("unlinked_forms")}, "Rendered form DOM"))
 
-        # 7. Alt accessibility
-        total_images = self._safe_int(data.get("total_images"), self._safe_int(data.get("image_count"), 0)) or 0
-        missing_alt = self._safe_int(data.get("missing_alt_images"), 0) or 0
-        if data.get("browser_loaded") and total_images > 0 and missing_alt > 0:
-            ratio = missing_alt / max(1, total_images)
-            severity = 0.25 if ratio < 0.30 else (0.50 if ratio < 0.75 else 0.80)
-            leaks.append(
-                self._build_leak(
-                    "missing_alt_images",
-                    "Missing Image Accessibility Text",
-                    f"{missing_alt} of {total_images} rendered images lacked alt/WAI-ARIA accessibility treatment.",
-                    "content_eeat",
-                    biz_type,
-                    severity_factor=severity,
-                    confidence="high",
-                    substitution_factor=1.0,
-                    competitor_verified=competitor_verified,
-                    evidence={"missing_alt_images": missing_alt, "total_images": total_images},
-                    source="Rendered DOM",
-                )
-            )
-
-        # 8. Favicon - small hygiene penalty only when verified.
-        if data.get("favicon_present") is False and data.get("browser_loaded"):
-            leaks.append(
-                self._build_leak(
-                    "favicon_present",
-                    "Missing Website Favicon",
-                    "No favicon link was detected in the rendered document head.",
-                    "seo_technical",
-                    biz_type,
-                    severity_factor=0.35,
-                    confidence="high",
-                    substitution_factor=1.0,
-                    competitor_verified=False,
-                    evidence={"favicon_present": False},
-                    source="Rendered document head",
-                )
-            )
-
-        # 9. HTML language
-        if data.get("html_lang_present") is False and data.get("browser_loaded"):
-            leaks.append(
-                self._build_leak(
-                    "html_lang_attribute",
-                    "Missing HTML Language Attribute",
-                    "The root HTML element has no verified lang attribute.",
-                    "seo_technical",
-                    biz_type,
-                    severity_factor=0.35,
-                    confidence="high",
-                    substitution_factor=1.0,
-                    competitor_verified=False,
-                    evidence={"html_lang_present": False},
-                    source="Rendered DOM",
-                )
-            )
-
-        # 10. AI/template pattern index - only when measured, and kept modest.
-        ai_pct = self._safe_float(data.get("ai_spectrum_pct"))
-        if data.get("ai_spectrum_status") == "heuristic" and ai_pct is not None and ai_pct > 50:
-            severity = min(0.70, max(0.20, (ai_pct - 50.0) / 70.0))
-            leaks.append(
-                self._build_leak(
-                    "ai_template_similarity",
-                    "High AI / Template Pattern Spectrum",
-                    f"Template-pattern heuristic measured {ai_pct:.1f}/100. This is a pattern index, not proof of AI authorship.",
-                    "content_eeat",
-                    biz_type,
-                    severity_factor=severity,
-                    confidence="medium",
-                    substitution_factor=1.0,
-                    competitor_verified=False,
-                    evidence={"ai_template_pattern_index": ai_pct, "ai_flags": ai_flags},
-                    source="Rendered DOM/template heuristic",
-                )
-            )
-
-        # 11. Explicit customer-path errors discovered on bounded same-origin journey pages.
+        # Explicit visible customer-path errors. The confirmation guardrail decides final score effect.
         error_signals = data.get("conversion_error_signals") or []
         if data.get("conversion_path_error_detected") and isinstance(error_signals, list) and error_signals:
-            high_conf = [item for item in error_signals if str(item.get("confidence") or "").lower() == "high"]
-            chosen = high_conf or error_signals
-            severity = max(0.50, min(1.0, max(self._safe_float(item.get("severity")) or 0.75 for item in chosen)))
-            first = chosen[0]
-            observed = str(first.get("message") or "A public customer conversion path exposes a verified error state.")
-            affected_urls = sorted({str(item.get("url") or "") for item in chosen if item.get("url")})[:5]
-            leaks.append(
-                self._build_leak(
-                    "conversion_path_error",
-                    "Broken Customer Conversion Path",
-                    observed + " The scanner observed this passively; it did not submit the form or mutate customer data.",
-                    "trust_conversion",
-                    biz_type,
-                    severity_factor=severity,
-                    confidence="high",
-                    substitution_factor=1.0,
-                    competitor_verified=False,
-                    evidence={
-                        "error_signals": chosen[:6],
-                        "affected_urls": affected_urls,
-                        "journey_pages_verified": data.get("journey_pages_verified"),
-                    },
-                    source="Passive multi-page journey and allow-listed booking-destination inspection",
-                )
-            )
+            high_conf = [item for item in error_signals if isinstance(item, dict) and str(item.get("confidence") or "").lower() == "high"]
+            chosen = high_conf or [x for x in error_signals if isinstance(x, dict)]
+            if chosen:
+                severity = max(0.50, min(1.0, max(self._safe_float(item.get("severity")) or 0.75 for item in chosen)))
+                affected_urls = sorted({str(item.get("url") or "") for item in chosen if item.get("url")})[:5]
+                observed = str(chosen[0].get("message") or "A public customer conversion path exposes a verified error state.")
+                leaks.append(self._build_leak(
+                    "conversion_path_error", "Broken Customer Conversion Path",
+                    observed + " The scanner observed this passively; it did not submit a live form, make a booking, or mutate customer data.",
+                    "trust_conversion", biz_type, severity, "high", 1.0, False,
+                    {"error_signals": chosen[:6], "affected_urls": affected_urls, "journey_pages_verified": data.get("journey_pages_verified")},
+                    "Passive multi-page journey and allow-listed booking-destination inspection"))
 
-        # 12. Measurement telemetry - evidence-backed absence, not universal catastrophe.
+        # Measurement is a maturity signal. Missing common measurement stays small and is not failed on a provisional journey.
         measurement_present = data.get("measurement_layer_present")
         if measurement_present is None:
             measurement_present = bool(data.get("has_ga4") or data.get("has_meta_pixel") or data.get("has_qualitative_analytics") or data.get("has_other_measurement"))
         tracking_verified = str(data.get("tracking_evidence_status") or "").lower() == "verified" or bool(data.get("browser_loaded"))
-        if tracking_verified and not measurement_present:
-            leaks.append(
-                self._build_leak(
-                    "measurement_telemetry",
-                    "Common Measurement Layer Not Detected",
-                    "No supported common analytics/measurement platform was detected in the verified rendered/source evidence. This does not prove the business has no server-side or proprietary analytics.",
-                    "measurement",
-                    biz_type,
-                    severity_factor=0.40,
-                    confidence="medium",
-                    substitution_factor=1.0,
-                    competitor_verified=False,
-                    evidence={"measurement_platforms": data.get("measurement_platforms") or [], "measurement_layer_present": False},
-                    source="Rendered/source measurement-platform inspection",
-                )
-            )
+        if not provisional and tracking_verified and not measurement_present:
+            leaks.append(self._build_leak(
+                "measurement_telemetry", "Common Measurement Layer Not Detected",
+                "No supported common analytics/measurement platform was detected in the verified rendered/source evidence. This does not prove the business has no server-side or proprietary analytics.",
+                "measurement", biz_type, 0.40, "medium", 1.0, False,
+                {"measurement_platforms": data.get("measurement_platforms") or [], "measurement_layer_present": False}, "Rendered/source measurement-platform inspection"))
 
-        # 13. Form architecture - only when a form is actually present and structurally invalid.
-        if data.get("forms_present") and data.get("form_action_valid") is False:
-            leaks.append(
-                self._build_leak(
-                    "form_architecture",
-                    "Broken / Unresolved Form Submission Architecture",
-                    "At least one rendered form lacked both a valid action target and a complete SPA-style input/submit structure.",
-                    "trust_conversion",
-                    biz_type,
-                    severity_factor=0.80,
-                    confidence="high",
-                    substitution_factor=1.0,
-                    competitor_verified=competitor_verified,
-                    evidence={"form_action_valid": False, "unlinked_forms": ai_flags.get("unlinked_forms")},
-                    source="Rendered form DOM",
-                )
-            )
+        # Direct-purchase checkout architecture only when checkout context is actually observed.
+        if biz_type == "direct_purchase" and commerce and bool(data.get("checkout_context_detected")):
+            if data.get("checkout_costs_disclosed_before_final_step") is False:
+                leaks.append(self._build_leak("checkout_cost_transparency", "Late Checkout Cost Visibility", "Additional costs were not clearly disclosed before the final checkout step in the inspected checkout context.", "trust_conversion", biz_type, 0.72, "high", 1.0, False, {"checkout_costs_disclosed_before_final_step": False}, "Observed checkout content"))
+            if data.get("guest_checkout_available") is False:
+                leaks.append(self._build_leak("guest_checkout_barrier", "Account Creation Required Before Purchase", "The inspected checkout appears to require account creation rather than offering a verified guest path.", "trust_conversion", biz_type, 0.68, "medium", 1.0, False, {"guest_checkout_available": False}, "Observed checkout structure"))
+            checkout_fields = self._safe_float(data.get("checkout_form_field_count"))
+            if checkout_fields is not None and checkout_fields > 8:
+                severity = min(0.90, 0.35 + (checkout_fields - 8.0) * 0.08)
+                leaks.append(self._build_leak("checkout_complexity", "High Checkout Form Burden", f"The inspected checkout exposes about {int(checkout_fields)} customer-input fields. This is treated as effort, not a claim that every field is unnecessary.", "trust_conversion", biz_type, severity, "medium", 1.0, False, {"checkout_form_field_count": int(checkout_fields)}, "Observed checkout form structure"))
+            if data.get("delivery_date_visible") is False:
+                leaks.append(self._build_leak("delivery_expectation_clarity", "Delivery Expectation Clarity Gap", "No clear estimated-delivery or arrival-date wording was detected in the inspected checkout context.", "trust_conversion", biz_type, 0.35, "medium", 1.0, False, {"delivery_date_visible": False}, "Observed checkout content"))
+
+        if biz_type == "direct_purchase" and str(data.get("content_signal_status") or "").lower() == "verified":
+            if data.get("return_policy_linked") is False:
+                leaks.append(self._build_leak("return_policy_discoverability", "Return Policy Hard to Find", "No clear return/refund policy link was detected in the verified purchase-path evidence.", "trust_conversion", biz_type, 0.45, "medium", 1.0, False, {"return_policy_linked": False}, "Verified rendered/static navigation evidence"))
+            if data.get("shipping_info_linked") is False:
+                leaks.append(self._build_leak("shipping_info_discoverability", "Shipping Information Hard to Find", "No clear shipping/delivery information link was detected in the verified purchase-path evidence.", "trust_conversion", biz_type, 0.35, "medium", 1.0, False, {"shipping_info_linked": False}, "Verified rendered/static navigation evidence"))
+
+        # Considered-purchase/demo journeys can legitimately hide pricing, so this remains modest/medium confidence.
+        if enterprise and biz_type == "demo_sales" and str(data.get("content_signal_status") or "").lower() == "verified" and data.get("pricing_linked") is False:
+            leaks.append(self._build_leak(
+                "b2b_pricing_transparency", "Commercial Context / Pricing Path Gap",
+                "No clear pricing, plans, packages, budget guidance, or commercial-context path was detected in the verified evaluation journey. Quote-only pricing may still be legitimate.",
+                "trust_conversion", biz_type, 0.42, "medium", 1.0, False, {"pricing_linked": False}, "Verified evaluation/navigation evidence"))
+
+        # Form length is a conservative friction heuristic for form-led journeys.
+        if biz_type in {"lead_quote", "appointment_consultation", "reservation_event", "demo_sales", "membership_subscription"} and data.get("forms_present") and data.get("form_action_valid") is not False:
+            max_fields = self._safe_float(data.get("form_max_field_count"))
+            if max_fields is not None and max_fields > 8:
+                severity = min(0.80, 0.30 + (max_fields - 8.0) * 0.07)
+                leaks.append(self._build_leak(
+                    "lead_form_friction", "High Lead / Enquiry Form Effort",
+                    f"At least one customer form exposes about {int(max_fields)} input fields, increasing completion effort on the observed journey.",
+                    "trust_conversion", biz_type, severity, "medium", 1.0, False,
+                    {"form_max_field_count": int(max_fields), "form_max_required_field_count": data.get("form_max_required_field_count")}, "Rendered form structure"))
+
+        # Low-value common presentation/accessibility signals remain visible and score lightly.
+        h1_status = str(data.get("h1_status") or "unknown").lower()
+        h1_tags = data.get("h1_tags") if isinstance(data.get("h1_tags"), list) else []
+        if h1_status == "missing":
+            leaks.append(self._build_leak("diluted_h1", "Missing Primary H1 / Hero Semantic Anchor", "No primary H1 heading was detected in the rendered document.", "content_eeat", biz_type, 0.45, "high", 1.0, False, {"h1_tags": h1_tags}, "Rendered DOM"))
+        elif h1_status == "present" and len(h1_tags) > 1:
+            leaks.append(self._build_leak("diluted_h1", "Multiple Primary H1 Signals", f"{len(h1_tags)} rendered H1 elements were detected; review whether the hero hierarchy is intentional.", "content_eeat", biz_type, 0.25, "high", 1.0, False, {"h1_tags": h1_tags}, "Rendered DOM"))
+
+        total_images = self._safe_int(data.get("total_images"), self._safe_int(data.get("image_count"), 0)) or 0
+        missing_alt = self._safe_int(data.get("missing_alt_images"), 0) or 0
+        if data.get("browser_loaded") and total_images > 0 and missing_alt > 0:
+            ratio = missing_alt / max(1, total_images)
+            severity = 0.20 if ratio < 0.30 else (0.38 if ratio < 0.75 else 0.55)
+            leaks.append(self._build_leak("missing_alt_images", "Missing Image Accessibility Text", f"{missing_alt} of {total_images} rendered images lacked alt/WAI-ARIA accessibility treatment.", "content_eeat", biz_type, severity, "high", 1.0, False, {"missing_alt_images": missing_alt, "total_images": total_images}, "Rendered DOM"))
+
+        ai_pct = self._safe_float(data.get("ai_spectrum_pct"))
+        if data.get("ai_spectrum_status") == "heuristic" and ai_pct is not None and ai_pct > 60:
+            severity = min(0.55, max(0.18, (ai_pct - 60.0) / 80.0))
+            leaks.append(self._build_leak("ai_template_similarity", "High AI / Template Pattern Spectrum", f"Template-pattern heuristic measured {ai_pct:.1f}/100. This is a sameness/pattern index, not proof of AI authorship.", "content_eeat", biz_type, severity, "medium", 1.0, False, {"ai_template_pattern_index": ai_pct, "ai_flags": ai_flags}, "Rendered DOM/template heuristic"))
 
         return leaks
 
@@ -2059,7 +1467,7 @@ class RevenueScorer:
         existing_leaks: List[Dict[str, Any]],
         biz_type: str,
     ) -> List[Dict[str, Any]]:
-        """Promote verified checkpoint failures into scoring/report leaks without duplicating dedicated rules."""
+        """Promote verified checkpoint failures without duplicating dedicated rules."""
         existing_rules = {str(item.get("rule_key") or "") for item in existing_leaks}
         promoted: List[Dict[str, Any]] = []
         for checkpoint in checkpoints:
@@ -2072,51 +1480,30 @@ class RevenueScorer:
             severity = float(checkpoint.get("severity_factor") or 0.0)
             if base_weight <= 0 or severity <= 0:
                 continue
-
             category = str(checkpoint.get("category") or "seo_technical")
-            category_multiplier = CATEGORY_WEIGHTS_BY_BIZ[biz_type].get(category, 1.0)
-            matrix = BUSINESS_MODEL_MATRIX[biz_type]
+            category_multiplier = CATEGORY_WEIGHTS_BY_BIZ.get(biz_type, CATEGORY_WEIGHTS_BY_BIZ["general"]).get(category, 1.0)
+            matrix = BUSINESS_MODEL_MATRIX.get(biz_type, BUSINESS_MODEL_MATRIX["general"])
             business_multiplier = {
-                "trust_conversion": matrix["conversion"],
-                "seo_technical": matrix["seo"],
-                "content_eeat": matrix["trust"],
-                "measurement": matrix["measurement"],
+                "trust_conversion": matrix["conversion"], "seo_technical": matrix["seo"],
+                "content_eeat": matrix["trust"], "measurement": matrix["measurement"],
             }.get(category, 1.0)
             research_multiplier = _research_multiplier(rule_key, biz_type)
-            research_basis = _research_basis(rule_key)
             pre_dedupe = base_weight * category_multiplier * business_multiplier * severity * research_multiplier
             title, impact = self._checkpoint_failure_copy(checkpoint)
-            promoted.append(
-                {
-                    "rule_key": rule_key,
-                    "family": str(checkpoint.get("family") or rule_key),
-                    "checkpoint_id": checkpoint.get("id"),
-                    "checkpoint_name": checkpoint.get("check"),
-                    "title": title,
-                    "description": impact,
-                    "category": category,
-                    "base_impact_weight": round(base_weight, 2),
-                    "category_multiplier": round(category_multiplier, 3),
-                    "business_multiplier": round(business_multiplier, 3),
-                    "research_multiplier": round(research_multiplier, 3),
-                    "research_basis": research_basis,
-                    "severity_factor": round(severity, 2),
-                    "confidence": "high",
-                    "confidence_multiplier": 1.0,
-                    "substitution_factor": 1.0,
-                    "competitor_advantage_bonus": 0.0,
-                    "pre_dedupe_penalty": round(pre_dedupe, 2),
-                    "family_adjustment": 1.0,
-                    "final_score_loss": round(pre_dedupe, 2),
-                    "final_severity_score": round(pre_dedupe, 2),
-                    "evidence": {
-                        "checkpoint_id": checkpoint.get("id"),
-                        "checkpoint": checkpoint.get("check"),
-                        "evidence": checkpoint.get("evidence"),
-                    },
-                    "source": "Verified 50-point checkpoint evidence",
-                }
-            )
+            promoted.append({
+                "rule_key": rule_key, "family": str(checkpoint.get("family") or rule_key),
+                "checkpoint_id": checkpoint.get("id"), "checkpoint_name": checkpoint.get("check"),
+                "analysis_layer": checkpoint.get("analysis_layer") or "adaptive_architecture",
+                "title": title, "description": impact, "category": category,
+                "base_impact_weight": round(base_weight, 2), "category_multiplier": round(category_multiplier, 3),
+                "business_multiplier": round(business_multiplier, 3), "research_multiplier": round(research_multiplier, 3),
+                "research_basis": _research_basis(rule_key), "severity_factor": round(severity, 2),
+                "confidence": "high", "confidence_multiplier": 1.0, "substitution_factor": 1.0,
+                "competitor_advantage_bonus": 0.0, "pre_dedupe_penalty": round(pre_dedupe, 2),
+                "family_adjustment": 1.0, "final_score_loss": round(pre_dedupe, 2), "final_severity_score": round(pre_dedupe, 2),
+                "evidence": {"checkpoint_id": checkpoint.get("id"), "checkpoint": checkpoint.get("check"), "evidence": checkpoint.get("evidence")},
+                "source": "Verified 50-point checkpoint evidence",
+            })
             existing_rules.add(rule_key)
         return promoted
 
@@ -2136,7 +1523,7 @@ class RevenueScorer:
             "location_visibility": ("Location Confidence Gap", "The page did not expose a clear address/location signal, which can weaken local intent and trust."),
             "trust_credentials": ("Credential / Trust Signal Gap", "No clear credential, certification, secure-purchase or comparable trust signal was detected."),
             "reviews_social_proof": ("Review Proof Gap", "No clear testimonial/review proof was detected in the inspected page evidence."),
-            "guarantee_refund_clarity": ("Guarantee / Refund Clarity Gap", "A relevant guarantee/refund reassurance signal was not found for this business model."),
+            "guarantee_refund_clarity": ("Guarantee / Refund Clarity Gap", "A relevant guarantee/refund reassurance signal was not found for this customer journey/context."),
             "about_team_signal": ("Identity / About Signal Gap", "No clear About/Team identity path was detected, reducing business transparency."),
             "social_proof_signal": ("Social Proof Gap", "The inspected page did not expose a strong review, credential or comparable proof signal."),
             "instant_query_channel": ("Instant Query Channel Gap", "No live-chat or WhatsApp-style instant query option was detected."),
@@ -2160,11 +1547,11 @@ class RevenueScorer:
             "lazy_loading_gap": ("Image Loading Efficiency Gap", "Relevant image loading behavior did not meet the scanner's optimization requirement."),
             "author_bylines_missing": ("Content Authorship Signal Gap", "Relevant editorial content lacks a verified author/byline signal."),
             "publication_dates_missing": ("Content Freshness Signal Gap", "Relevant editorial content lacks a visible publication/date signal."),
-            "thin_visible_content": ("Thin Visible Content Depth", "The verified visible page content is below the scanner's minimum depth threshold for this business model."),
+            "thin_visible_content": ("Thin Visible Content Depth", "The verified visible page content is below the scanner's minimum depth threshold for this customer journey/context."),
             "generic_headline": ("Generic Template Headline", "The verified headline language matched generic/template-style phrasing that can weaken differentiation."),
             "unlinked_form_structure": ("Structurally Unlinked Form", "A verified form lacks a complete action or SPA-style submission structure."),
-            "faq_missing": ("FAQ / Objection-Handling Gap", "No FAQ-style objection-handling section was detected where it is relevant to the business model."),
-            "case_studies_missing": ("Proof-of-Work Gap", "No case-study/portfolio proof path was detected for a business model where proof-of-work is commercially relevant."),
+            "faq_missing": ("FAQ / Objection-Handling Gap", "No FAQ-style objection-handling section was detected where it is relevant to the verified customer journey/context."),
+            "case_studies_missing": ("Proof-of-Work Gap", "No case-study/portfolio proof path was detected for a journey/context where proof-of-work is commercially relevant."),
             "content_hub_missing": ("Content Authority Gap", "No blog/content-hub path was detected for a model where ongoing expertise content is relevant."),
             "social_links_missing": ("Social Identity Link Gap", "No verified outbound social-profile links were detected."),
                     }
@@ -2189,45 +1576,28 @@ class RevenueScorer:
         conf_mult = CONFIDENCE_MULTIPLIERS[confidence_key]
         substitution = max(0.0, min(1.0, float(substitution_factor)))
         base_weight = self._get_base_weight(rule_key, biz_type)
-        category_multiplier = CATEGORY_WEIGHTS_BY_BIZ[biz_type].get(category, 1.0)
-
-        matrix = BUSINESS_MODEL_MATRIX[biz_type]
+        category_multiplier = CATEGORY_WEIGHTS_BY_BIZ.get(biz_type, CATEGORY_WEIGHTS_BY_BIZ["general"]).get(category, 1.0)
+        matrix = BUSINESS_MODEL_MATRIX.get(biz_type, BUSINESS_MODEL_MATRIX["general"])
         business_multiplier = {
-            "trust_conversion": matrix["conversion"],
-            "seo_technical": matrix["seo"],
-            "content_eeat": matrix["trust"],
-            "measurement": matrix["measurement"],
+            "trust_conversion": matrix["conversion"], "seo_technical": matrix["seo"],
+            "content_eeat": matrix["trust"], "measurement": matrix["measurement"],
         }.get(category, 1.0)
-
         research_multiplier = _research_multiplier(rule_key, biz_type)
-        research_basis = _research_basis(rule_key)
         weighted = base_weight * category_multiplier * business_multiplier * research_multiplier
         competitor_bonus = 1.0 if competitor_verified and rule_key in {"click_to_call", "mobile_sticky_cta", "core_web_vitals", "form_architecture", "primary_conversion_path"} else 0.0
         pre_dedupe = (weighted * severity * conf_mult * substitution) + (competitor_bonus * severity * conf_mult)
-
+        common_rule_keys = {"unsecured_ssl", "core_web_vitals", "diluted_h1", "missing_alt_images", "favicon_present", "html_lang_attribute"}
         return {
-            "rule_key": rule_key,
-            "family": LEAK_FAMILY.get(rule_key, rule_key),
-            "title": title,
-            "description": description,
-            "category": category,
-            "base_impact_weight": round(base_weight, 2),
-            "category_multiplier": round(category_multiplier, 3),
-            "business_multiplier": round(business_multiplier, 3),
-            "research_multiplier": round(research_multiplier, 3),
-            "research_basis": research_basis,
-            "severity_factor": round(severity, 2),
-            "confidence": confidence_key,
-            "confidence_multiplier": conf_mult,
-            "substitution_factor": round(substitution, 3),
-            "competitor_advantage_bonus": round(competitor_bonus, 2),
-            "pre_dedupe_penalty": round(pre_dedupe, 2),
-            "family_adjustment": 1.0,
-            "final_score_loss": round(pre_dedupe, 2),
-            # Legacy field retained; now equals the actual post-dedupe score contribution after dedupe.
-            "final_severity_score": round(pre_dedupe, 2),
-            "evidence": evidence,
-            "source": source,
+            "rule_key": rule_key, "family": LEAK_FAMILY.get(rule_key, rule_key),
+            "analysis_layer": "common_foundation" if rule_key in common_rule_keys else "adaptive_architecture",
+            "title": title, "description": description, "category": category,
+            "base_impact_weight": round(base_weight, 2), "category_multiplier": round(category_multiplier, 3),
+            "business_multiplier": round(business_multiplier, 3), "research_multiplier": round(research_multiplier, 3),
+            "research_basis": _research_basis(rule_key), "severity_factor": round(severity, 2),
+            "confidence": confidence_key, "confidence_multiplier": conf_mult, "substitution_factor": round(substitution, 3),
+            "competitor_advantage_bonus": round(competitor_bonus, 2), "pre_dedupe_penalty": round(pre_dedupe, 2),
+            "family_adjustment": 1.0, "final_score_loss": round(pre_dedupe, 2), "final_severity_score": round(pre_dedupe, 2),
+            "evidence": evidence, "source": source,
         }
 
     def _apply_high_impact_confirmation_guardrail(
@@ -2235,9 +1605,14 @@ class RevenueScorer:
         leaks: List[Dict[str, Any]],
         scan_data: Dict[str, Any],
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Require independent support for severe deductions.
+
+        CONFIRMED = full score effect.
+        CORROBORATED = exact signal independently supported but not fully browser-reproduced; 55% score effect.
+        DISPUTED/UNCONFIRMED = zero score effect and retained as transparent observation only.
+        """
         confirmation = scan_data.get("high_impact_confirmation") if isinstance(scan_data, dict) else {}
         if not isinstance(confirmation, dict) or not confirmation.get("completed"):
-            # Preliminary scoring pass: confirmation has not run yet, so preserve normal behavior.
             return leaks, []
         threshold = self._safe_float(confirmation.get("threshold_points")) or 3.5
         result_map = confirmation.get("results") if isinstance(confirmation.get("results"), dict) else {}
@@ -2249,27 +1624,57 @@ class RevenueScorer:
                 potential = self._safe_float(leak.get("final_score_loss")) or 0.0
             rule = str(leak.get("rule_key") or "")
             if potential < threshold:
-                kept.append(leak)
-                continue
+                kept.append(leak); continue
             record = result_map.get(rule) if isinstance(result_map.get(rule), dict) else {}
             status = str(record.get("status") or "UNCONFIRMED").upper()
             if status == "CONFIRMED":
+                leak["confirmation"] = dict(record); kept.append(leak); continue
+            if status == "CORROBORATED":
+                factor = 0.55
                 leak["confirmation"] = dict(record)
-                kept.append(leak)
-                continue
-            observation = {
-                "rule_key": rule,
-                "title": leak.get("title"),
-                "potential_pre_dedupe_points": round(float(potential), 2),
-                "status": status,
-                "confirmation": dict(record),
-                "evidence": leak.get("evidence") or {},
-                "source": leak.get("source"),
+                leak["confirmation_score_factor"] = factor
+                leak["pre_dedupe_penalty"] = round(float(potential) * factor, 2)
+                leak["final_score_loss"] = round(float(leak.get("final_score_loss") or potential) * factor, 2)
+                leak["final_severity_score"] = leak["final_score_loss"]
+                leak["confidence"] = "medium"
+                leak["confidence_multiplier"] = CONFIDENCE_MULTIPLIERS["medium"]
+                leak["description"] = str(leak.get("description") or "") + " The exact public signal was independently corroborated, but not fully reproduced in the rendered confirmation pass; the score effect is intentionally reduced."
+                kept.append(leak); continue
+            unscored.append({
+                "rule_key": rule, "title": leak.get("title"), "potential_pre_dedupe_points": round(float(potential), 2),
+                "status": status, "confirmation": dict(record), "evidence": leak.get("evidence") or {}, "source": leak.get("source"),
                 "score_effect": 0.0,
-                "customer_note": "This first-pass signal could have produced a large deduction, but it did not survive the required second passive confirmation. It is therefore treated as UNKNOWN/unscored.",
-            }
-            unscored.append(observation)
+                "customer_note": "This first-pass signal could have produced a large deduction, but independent confirmation was insufficient or contradictory. It is therefore UNKNOWN/unscored.",
+            })
         return kept, unscored
+
+    def _apply_layer_penalty_caps(self, leaks: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Cap the combined low-level foundation burden without hiding individual findings.
+
+        The findings remain visible at their original evidence/severity. Only their aggregate score
+        contribution is proportionally compressed when common technical/SEO issues would otherwise
+        overwhelm the adaptive revenue architecture.
+        """
+        common = [x for x in leaks if x.get("analysis_layer") == "common_foundation"]
+        raw = sum(float(x.get("final_score_loss") or 0.0) for x in common)
+        if raw <= COMMON_FOUNDATION_PENALTY_CAP or raw <= 0:
+            return leaks, []
+        factor = COMMON_FOUNDATION_PENALTY_CAP / raw
+        adjustments: List[Dict[str, Any]] = []
+        for leak in common:
+            before = float(leak.get("final_score_loss") or 0.0)
+            after = round(before * factor, 2)
+            leak["layer_penalty_adjustment"] = round(factor, 4)
+            leak["final_score_loss"] = after
+            leak["final_severity_score"] = after
+        adjustments.append({
+            "type": "common_foundation_penalty_cap",
+            "raw_common_penalty": round(raw, 2),
+            "capped_common_penalty": COMMON_FOUNDATION_PENALTY_CAP,
+            "proportional_factor": round(factor, 4),
+            "note": "Common technical/SEO issues remain visible but their combined Revenue Readiness deduction is capped so they cannot outweigh verified customer-journey architecture.",
+        })
+        return leaks, adjustments
 
     def _attach_evidence_receipts(self, leaks: List[Dict[str, Any]], scan_data: Dict[str, Any]) -> None:
         scan_time = str(scan_data.get("scan_completed_at") or scan_data.get("scan_started_at") or "")
@@ -2479,37 +1884,20 @@ class RevenueScorer:
     def _conversion_substitution(
         self, rule_key: str, biz_type: str, data: Dict[str, Any], profile: Dict[str, Any]
     ) -> float:
-        primary_present = bool(data.get("mobile_primary_cta_present"))
-        order_present = bool(data.get("order_online_present"))
-        cart_present = bool(data.get("add_to_cart_visible"))
-        chat_present = bool(data.get("live_chat_present") or data.get("whatsapp_present"))
-
+        primary = bool(data.get("mobile_primary_cta_present"))
+        cart = bool(data.get("add_to_cart_visible"))
+        chat = bool(data.get("live_chat_present") or data.get("whatsapp_present"))
         if rule_key == "click_to_call":
-            if biz_type == "restaurant" and order_present:
-                return 0.45
-            if biz_type == "ecommerce" and (cart_present or primary_present):
+            if biz_type in {"direct_purchase", "membership_subscription"} and (cart or primary):
                 return 0.20
-            if biz_type == "saas" and primary_present:
-                return 0.30
-            if biz_type in {"legal", "medspa", "local_service"}:
+            if biz_type == "demo_sales" and (primary or chat):
+                return 0.35
+            if context_has(profile, "local_location_dependent") and biz_type in {"lead_quote", "appointment_consultation", "reservation_event"}:
                 return 1.0
-            if biz_type == "agency":
-                return 0.70
-            if biz_type == "b2b":
-                return 0.45
-            if biz_type == "creator":
-                return 0.20
-            if primary_present or chat_present:
-                return 0.65
-            return 0.85
-
+            return 0.50 if (primary or chat) else 0.70
         if rule_key == "mobile_sticky_cta":
-            if primary_present:
-                if biz_type == "restaurant" and order_present:
-                    return 0.65
-                if biz_type == "ecommerce" and cart_present:
-                    return 0.75
-                return 0.80
+            if primary:
+                return 0.75 if biz_type in {"reservation_event", "direct_purchase", "appointment_consultation"} else 0.80
             return 1.0
         return 1.0
 
@@ -2522,6 +1910,7 @@ class RevenueScorer:
             "id": self.generate_tier_id(tier_level),
             "rule_key": leak.get("rule_key"),
             "family": leak.get("family"),
+            "analysis_layer": leak.get("analysis_layer") or "adaptive_architecture",
             "severity_score": float(leak.get("final_score_loss") or 0.0),
             "severity_factor": leak.get("severity_factor"),
             "leak_name": str(leak.get("title") or ""),
@@ -2553,6 +1942,7 @@ class RevenueScorer:
         keys = (
             "rule_key",
             "family",
+            "analysis_layer",
             "base_impact_weight",
             "category_multiplier",
             "business_multiplier",
@@ -2592,7 +1982,22 @@ class RevenueScorer:
         return min(MAX_REVENUE_READINESS_SCORE, compressed)
 
     @staticmethod
-    def _get_score_rating(score: float) -> str:
+    def _get_score_rating(
+        score: float,
+        evidence_confidence: Dict[str, Any] | None = None,
+        total_loss: float = 0.0,
+        cp_summary: Dict[str, Any] | None = None,
+        maturity_gate: Dict[str, Any] | None = None,
+    ) -> str:
+        evidence_confidence = evidence_confidence or {}
+        cp_summary = cp_summary or {}
+        maturity_gate = maturity_gate or {}
+        evidence_score = float(evidence_confidence.get("score") or 0.0)
+        verified_ratio = float(cp_summary.get("verified_applicable_ratio") or 0.0)
+        provisional = bool(maturity_gate.get("journey_provisional"))
+
+        if provisional:
+            return "PROVISIONAL READINESS — CUSTOMER JOURNEY NOT YET RESOLVED"
         if score >= 77:
             return "REFERENCE-LEVEL WEBSITE READINESS — HEADROOM STILL EXISTS"
         if score >= 75:
@@ -2602,8 +2007,12 @@ class RevenueScorer:
         if score >= 65:
             return "STRONG FUNDAMENTALS — ELITE MATURITY NOT FULLY VERIFIED"
         if score >= 50:
+            if (evidence_score < 82 or verified_ratio < 0.78) and float(total_loss or 0.0) < 4.0:
+                return "MODERATE READINESS — MATERIAL EVIDENCE GAPS"
             return "MATERIAL REMEDIATION OPPORTUNITY"
         if score >= 35:
+            if evidence_score < 70 and float(total_loss or 0.0) < 6.0:
+                return "LOW VERIFIED READINESS — EVIDENCE ALSO INCOMPLETE"
             return "HIGH STRUCTURAL / CONVERSION RISK"
         return "SEVERE STRUCTURAL / CONVERSION RISK"
 
@@ -2627,50 +2036,52 @@ class RevenueScorer:
         return f"Low Template Pattern — {cms}"
 
     @staticmethod
-    def _revenue_exposure(score: float, biz_type: str, total_loss: float) -> Dict[str, Any]:
-        """Return a transparent model-based annual dollar exposure range.
+    def _revenue_exposure(biz_type: str, total_loss: float) -> Dict[str, Any]:
+        """Return a conservative *diagnostic* exposure proxy from verified leak burden only.
 
-        This is intentionally an exposure model, not a claim about measured revenue loss.
-        It gives prospects a financially legible range while preserving the disclaimer that
-        traffic, conversion rate and customer value were not supplied.
+        Missing evidence, maturity-band caps and an unverified distance from a theoretical score ceiling
+        must never create dollar exposure.  The absolute range is still only a model-based prioritization
+        aid because Trilloka does not know the customer's traffic, close rate, average order value or
+        accounting revenue.  Confidence weighting has already been applied to ``total_loss`` upstream.
         """
-        if score >= 76:
+        verified_loss = max(0.0, min(18.0, float(total_loss or 0.0)))
+        if verified_loss <= 0.05:
             level = "VERY LOW"
-        elif score >= 72:
+        elif verified_loss <= 1.5:
             level = "LOW"
-        elif score >= 65:
+        elif verified_loss <= 4.0:
             level = "MODERATE"
-        elif score >= 50:
+        elif verified_loss <= 8.0:
             level = "HIGH"
         else:
-            level = "CRITICAL"
+            level = "VERY HIGH"
 
+        # Broad journey economics proxy. These are deliberately conservative and are never presented
+        # as measured lost revenue. A future upgrade can replace them with customer-supplied economics.
         multipliers = {
-            "general": (280.0, 650.0),
-            "restaurant": (220.0, 520.0),
-            "local_service": (420.0, 950.0),
-            "professional_service": (500.0, 1150.0),
-            "medspa": (650.0, 1450.0),
-            "legal": (800.0, 1800.0),
-            "ecommerce": (450.0, 1100.0),
-            "saas": (550.0, 1300.0),
+            "general": (250.0, 600.0),
+            "lead_quote": (450.0, 1050.0),
+            "appointment_consultation": (500.0, 1200.0),
+            "reservation_event": (400.0, 1050.0),
+            "direct_purchase": (450.0, 1100.0),
+            "demo_sales": (650.0, 1500.0),
+            "membership_subscription": (300.0, 800.0),
         }
         low_mult, high_mult = multipliers.get(biz_type, multipliers["general"])
-        readiness_gap = max(0.0, 80.0 - float(score))
-        exposure_units = max(0.0, readiness_gap + min(18.0, float(total_loss) * 0.55))
-        annual_min = int(round(exposure_units * low_mult / 100.0) * 100)
-        annual_max = int(round(exposure_units * high_mult / 100.0) * 100)
-        # Even the maximum public readiness score retains a small modeled
-        # residual-exposure band; the product never implies perfect conversion.
+        annual_min = int(round((verified_loss * low_mult) / 100.0) * 100)
+        annual_max = int(round((verified_loss * high_mult) / 100.0) * 100)
         annual_max = max(annual_max, annual_min)
         range_text = f"${annual_min:,} – ${annual_max:,} / year"
         return {
-            "level": level,
-            "min": annual_min,
-            "max": annual_max,
-            "range": range_text,
+            "level": level, "min": annual_min, "max": annual_max, "range": range_text,
+            "verified_penalty_basis": round(verified_loss, 2),
             "display": f"{range_text} — {level} model-based exposure",
-            "method_note": "Model-based exposure derived from Revenue Readiness gap and verified weighted leak severity; not measured accounting loss.",
+            "method_note": (
+                "Conservative model-based exposure proxy derived only from verified, confidence-weighted "
+                "architectural leak severity and the inferred customer journey. Missing evidence, UNKNOWN "
+                "checkpoints and maturity score caps do not create dollar exposure. This is not measured "
+                "accounting loss, a revenue forecast or proof that remediation will produce this amount."
+            ),
         }
 
     @staticmethod

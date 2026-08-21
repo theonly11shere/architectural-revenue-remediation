@@ -1,4 +1,4 @@
-"""Trilloka Architect Engine V6 API gateway with tiered paid-plan entitlements.
+"""Trilloka Architect Engine V7 API gateway with Journey + Context scoring and tiered paid-plan entitlements.
 
 Scanner compatibility
 ---------------------
@@ -82,7 +82,7 @@ _ALLOWED_ORIGINS = [
 app = FastAPI(
     title="Trilloka Architect Engine API",
     description="Evidence-weighted Revenue Readiness Diagnostic, local competitor benchmark & tiered report gateway",
-    version="6.9.1",
+    version="7.0.0",
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -303,7 +303,7 @@ def handle_trilloka_guardrail(target_domain: str) -> Optional[Dict[str, Any]]:
 def health_check() -> Dict[str, Any]:
     return {
         "status": "online",
-        "system": "Trilloka Architect Engine v6.9.1",
+        "system": "Trilloka Architect Engine v7.0",
         "google_api_configured": bool(os.environ.get("PAGESPEED_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
         "places_api_configured": bool(os.environ.get("GOOGLE_PLACES_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("PAGESPEED_API_KEY")),
         "report_engine": REPORT_ENGINE_AVAILABLE,
@@ -371,18 +371,14 @@ def _admin_console_html() -> str:
     <div class="grid">
       <input id="ownerScanDomain" placeholder="example.com" autocomplete="off">
       <select id="ownerScanType">
-        <option value="auto" selected>Auto-detect business type</option>
-        <option value="general">General / Other Business</option>
-        <option value="local_service">Local Services &amp; Trades</option>
-        <option value="professional_service">Professional Services</option>
-        <option value="medspa">MedSpa &amp; Aesthetics</option>
-        <option value="legal">Legal Services</option>
-        <option value="restaurant">Restaurant &amp; Hospitality</option>
-        <option value="ecommerce">E-commerce / Online Store</option>
-        <option value="saas">SaaS &amp; Software</option>
-        <option value="agency">Agency &amp; Creative Services</option>
-        <option value="b2b">B2B Products &amp; Services</option>
-        <option value="creator">Creator &amp; Membership</option>
+        <option value="auto" selected>Auto-detect customer journey (recommended)</option>
+        <option value="general">General / no journey hint</option>
+        <option value="lead_quote">Lead / Quote</option>
+        <option value="appointment_consultation">Appointment / Consultation</option>
+        <option value="reservation_event">Reservation / Event</option>
+        <option value="direct_purchase">Direct Purchase</option>
+        <option value="demo_sales">Demo / Sales</option>
+        <option value="membership_subscription">Membership / Subscription</option>
       </select>
     </div>
     <button id="ownerScan">Your Architectural Analysis</button>
@@ -764,8 +760,8 @@ async def _run_scan_async(
     business_type: str = "auto",
 ) -> Dict[str, Any]:
     # HybridScanner is already async; keep Playwright on the active event loop.
-    # V6.5 competitor benchmarking needs business_type so local comparisons use
-    # the same vertical/context selected for the target business.
+    # The legacy business_type field now carries an optional customer-journey hint.
+    # Auto-detect remains the recommended path; explicit hints do not bypass evidence guardrails.
     return await scanner.execute_hybrid_scan(domain, business_name, business_type)
 
 
@@ -799,7 +795,13 @@ def _base_success_payload(
         "top_5_seo_leaks": all_leaks[:5],
         "top_10_financial_leaks": all_leaks[:10],
         "message": "Scan complete.",
-        "business_profile": audit_results.get("business_profile", {}),
+        "architecture_profile": audit_results.get("architecture_profile", audit_results.get("business_profile", {})),
+        "journey_model": (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("journey_model", "general"),
+        "journey_label": (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("journey_label", "General / Unresolved Journey"),
+        "context_tags": (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("context_tags", []),
+        "analysis_layers": audit_results.get("analysis_layers", {}),
+        # Legacy alias retained for existing consumers.
+        "business_profile": audit_results.get("business_profile", audit_results.get("architecture_profile", {})),
         "scan_quality": scan_data.get("scan_quality", {}),
         "evidence_coverage": scan_data.get("evidence_coverage", {}),
         "scoring_ledger": audit_results.get("scoring_ledger", []),
@@ -811,7 +813,7 @@ def _base_success_payload(
         "verification_coverage_note": (admin_master_report or {}).get("verification_coverage_note", ""),
         # Kept in protected server cache. Free responses strip this; paid responses expose all 50.
         "full_50_checkpoint_basis": audit_results.get("full_50_checkpoint_basis", []),
-        "scanner_engine_version": scan_data.get("scanner_engine_version", "v6.9.1"),
+        "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.0"),
         "evidence_receipts": audit_results.get("evidence_receipts", []),
         "high_impact_confirmation": audit_results.get("high_impact_confirmation", {}),
         "unconfirmed_high_impact_observations": audit_results.get("unconfirmed_high_impact_observations", []),
@@ -1161,7 +1163,7 @@ async def _run_audit_impl(
 
         try:
             # Pass 1 identifies candidates. It is not the final commercial score when a finding can
-            # create a large deduction; V6.8 requires those candidates to survive a second passive check.
+            # create a large deduction; proof-backed candidates must survive an independent passive recheck.
             preliminary_audit = scorer.audit_and_score(
                 scan_data=scan_data,
                 business_type=payload.business_type,
@@ -1196,8 +1198,8 @@ async def _run_audit_impl(
                     "policy": "Confirmation method unavailable; severe first-pass candidates are unscored.",
                 }
 
-            # Pass 2 is the authoritative score. The scorer now removes any severe candidate that
-            # was disputed or could not be confirmed.
+            # Pass 2 is authoritative. Confirmed severe findings score fully, corroborated findings
+            # score conservatively, and disputed/unconfirmed findings remain unscored observations.
             audit_results = scorer.audit_and_score(
                 scan_data=scan_data,
                 business_type=payload.business_type,

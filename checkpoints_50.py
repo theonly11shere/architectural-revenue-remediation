@@ -1,3 +1,10 @@
+"""Legacy 50-check catalog retained for compatibility and reference.
+
+V7 scoring is driven by checkpoint_engine.py. Common technical/SEO architecture remains visible
+as a low-weight foundation layer, while journey/context-aware architecture carries the main
+Revenue Readiness weight.
+"""
+
 from typing import Dict, Any
 
 CHECKPOINT_CATALOG: Dict[str, Dict[str, Any]] = {
@@ -15,9 +22,9 @@ CHECKPOINT_CATALOG: Dict[str, Dict[str, Any]] = {
 
     # SEO FOUNDATIONS
     "SEO-01": {"category": "SEO", "name": "Title Tag Existence", "weight": 8.0, "desc": "Document title element present."},
-    "SEO-02": {"category": "SEO", "name": "Title Tag Length Optimization", "weight": 6.0, "desc": "Title length between 30 and 60 characters."},
+    "SEO-02": {"category": "SEO", "name": "Title Tag Length Readability", "weight": 6.0, "desc": "Broad title-length readability heuristic; not a ranking guarantee."},
     "SEO-03": {"category": "SEO", "name": "Meta Description Existence", "weight": 8.0, "desc": "Meta description tag present."},
-    "SEO-04": {"category": "SEO", "name": "Meta Description Length", "weight": 5.0, "desc": "Meta description length between 50 and 160 characters."},
+    "SEO-04": {"category": "SEO", "name": "Meta Description Length", "weight": 5.0, "desc": "Broad snippet-readability heuristic; search engines may rewrite descriptions."},
     "SEO-05": {"category": "SEO", "name": "H1 Heading Tag Presence", "weight": 8.0, "desc": "At least one H1 tag present in DOM."},
     "SEO-06": {"category": "SEO", "name": "Single Primary H1 Enforcement", "weight": 4.0, "desc": "Exactly one H1 tag present per page."},
     "SEO-07": {"category": "SEO", "name": "Google SEO Score >= 80", "weight": 10.0, "desc": "Google PageSpeed API SEO audit threshold met."},
@@ -62,7 +69,7 @@ CHECKPOINT_CATALOG: Dict[str, Dict[str, Any]] = {
     "CONV-07": {"category": "Conversion", "name": "Clear Value Proposition", "weight": 4.0, "desc": "H1/Hero text contains descriptive offer."},
     "CONV-08": {"category": "Conversion", "name": "Contact Information Access", "weight": 3.0, "desc": "Phone, email, or contact link in header/footer."},
     "CONV-09": {"category": "Conversion", "name": "Page Speed Bounce Risk", "weight": 5.0, "desc": "Estimated bounce risk from load latency below 15%."},
-    "CONV-10": {"category": "Conversion", "name": "Niche Flow Optimization", "weight": 4.0, "desc": "Layout matches business model best practices."},
+    "CONV-10": {"category": "Conversion", "name": "Journey / Context Flow Alignment", "weight": 4.0, "desc": "Primary customer journey and relevant context are supported by the observable architecture."},
     
     # NEW ADVANCED CRO
     "CONV-11": {"category": "Conversion", "name": "Qualitative Session Telemetry", "weight": 6.0, "desc": "Heatmap or session recording scripts (Clarity/Hotjar) detected."},

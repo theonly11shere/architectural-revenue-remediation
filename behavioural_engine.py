@@ -1,9 +1,8 @@
-"""Trilloka behavioural risk heuristics.
+"""Trilloka behavioural-risk heuristics (v7.0 Journey + Context).
 
-These outputs are modeled diagnostic indices, not observed analytics. Legacy keys are
-retained for compatibility, but the payload explicitly labels the estimates.
+These outputs are modeled diagnostic indices, not observed analytics. They supplement the
+observable architecture scan and never pretend to be real conversion/bounce telemetry.
 """
-
 from __future__ import annotations
 
 from typing import Any, Dict, List
@@ -11,6 +10,11 @@ from typing import Any, Dict, List
 
 class BehaviouralEngine:
     def analyze_behavioral_friction(self, scraped_data: Dict[str, Any], business_type: str = "general") -> Dict[str, Any]:
+        """Analyze generic friction with a light customer-journey sensitivity.
+
+        ``business_type`` is retained for call compatibility but v7 treats it as a journey model.
+        """
+        journey = str(business_type or "general")
         title = str(scraped_data.get("title") or "")
         meta_desc = str(scraped_data.get("meta_description") or "")
         h1_tags = scraped_data.get("h1_tags") or []
@@ -23,30 +27,22 @@ class BehaviouralEngine:
         cognitive_load_score = self._calc_cognitive_load(word_count, img_count)
         value_prop_score = self._calc_value_prop_prominence(title, meta_desc, h1_tags, scraped_data.get("h1_status"))
         trust_anchor_score = self._calc_trust_anchors(has_ssl, missing_alt, img_count)
-        estimated_bounce_risk_index = self._estimate_bounce_risk_index(perf_score, cognitive_load_score, business_type)
+        estimated_bounce_risk_index = self._estimate_bounce_risk_index(perf_score, cognitive_load_score, journey)
 
         behavioral_score = round(
-            (value_prop_score * 0.35)
-            + (trust_anchor_score * 0.35)
-            + (cognitive_load_score * 0.30),
-            1,
+            (value_prop_score * 0.35) + (trust_anchor_score * 0.35) + (cognitive_load_score * 0.30), 1
         )
-
         leaks = self._extract_behavioral_leaks(
-            value_prop_score,
-            trust_anchor_score,
-            cognitive_load_score,
-            estimated_bounce_risk_index,
-            business_type,
-            scraped_data,
+            value_prop_score, trust_anchor_score, cognitive_load_score,
+            estimated_bounce_risk_index, journey, scraped_data,
         )
-
         return {
             "status": "modeled",
+            "model_basis": "journey_sensitive_heuristic_v1",
+            "journey_model": journey,
             "behavioral_score": behavioral_score,
             "estimated_bounce_risk_index": estimated_bounce_risk_index,
-            # Legacy key retained. It is explicitly labeled below as modeled, not observed abandonment.
-            "bounce_risk_percentage": f"{estimated_bounce_risk_index}%",
+            "bounce_risk_percentage": f"{estimated_bounce_risk_index}%",  # legacy key
             "bounce_risk_kind": "MODELED_ESTIMATE",
             "heuristics": {
                 "cognitive_load_score": cognitive_load_score,
@@ -54,6 +50,7 @@ class BehaviouralEngine:
                 "trust_anchor_score": trust_anchor_score,
             },
             "behavioral_friction_leaks": leaks,
+            "note": "Heuristic behavioral indicators are not observed visitor analytics and do not replace real funnel/session data.",
         }
 
     @staticmethod
@@ -80,17 +77,12 @@ class BehaviouralEngine:
         elif str(h1_status or "").lower() == "present" and len(h1_tags) > 1:
             score += 35.0
         elif str(h1_status or "").lower() == "unknown":
-            # Unknown evidence is neutral rather than a confirmed failure.
             score += 25.0
         return min(100.0, score)
 
     @staticmethod
     def _calc_trust_anchors(has_ssl: Any, missing_alt: int, total_img: int) -> float:
-        score = 0.0
-        if has_ssl is True:
-            score += 55.0
-        elif has_ssl is None:
-            score += 30.0
+        score = 55.0 if has_ssl is True else (30.0 if has_ssl is None else 0.0)
         if total_img > 0:
             alt_ratio = max(0.0, min(1.0, (total_img - missing_alt) / total_img))
             score += alt_ratio * 45.0
@@ -99,59 +91,42 @@ class BehaviouralEngine:
         return round(min(100.0, score), 1)
 
     @staticmethod
-    def _estimate_bounce_risk_index(perf_score: Any, cognitive_load: float, business_type: str) -> float:
+    def _estimate_bounce_risk_index(perf_score: Any, cognitive_load: float, journey: str) -> float:
         try:
             perf = float(perf_score) if perf_score is not None else None
         except (TypeError, ValueError):
             perf = None
-
-        # This is intentionally an index, not an observed probability.
         base = 25.0 if perf is None else max(8.0, (100.0 - perf) * 0.55)
         if cognitive_load < 60.0:
             base += 12.0
-        if business_type in {"medspa", "legal", "ecommerce"}:
-            base *= 1.05
+        if journey in {"appointment_consultation", "direct_purchase", "demo_sales", "reservation_event"}:
+            base *= 1.04
         return round(min(85.0, max(5.0, base)), 1)
 
     def _extract_behavioral_leaks(
-        self,
-        value_prop: float,
-        trust: float,
-        cog_load: float,
-        bounce_index: float,
-        business_type: str,
-        scraped_data: Dict[str, Any],
+        self, value_prop: float, trust: float, cog_load: float, bounce_index: float,
+        journey: str, scraped_data: Dict[str, Any],
     ) -> List[str]:
         leaks: List[str] = []
         data = scraped_data or {}
-
         if data.get("browser_loaded") and not data.get("has_qualitative_analytics"):
-            leaks.append(
-                "Blind Qualitative Telemetry: no Hotjar/Clarity-style session replay signal was detected."
-            )
-
+            leaks.append("Blind Qualitative Telemetry: no supported session-replay/qualitative-analytics signal was detected; server-side or unsupported tools may still exist.")
         if data.get("real_user_speed_grade") == "POOR":
-            leaks.append(
-                f"CrUX Real-User Speed Warning: field telemetry is poor (LCP {data.get('crux_lcp_ms')} ms where available)."
-            )
-
+            leaks.append(f"CrUX Real-User Speed Warning: field telemetry is poor (LCP {data.get('crux_lcp_ms')} ms where available).")
         if value_prop < 65.0 and data.get("h1_status") != "unknown":
-            if business_type == "legal":
-                leaks.append("Weak Practice-Area Hero Clarity: the verified hero structure does not strongly support immediate legal positioning.")
-            elif business_type == "medspa":
-                leaks.append("Weak Treatment Hero Clarity: the verified hero structure does not strongly support the primary aesthetic offer.")
-            else:
-                leaks.append("Weak Above-the-Fold Hero Clarity: verified title/meta/H1 signals are not strongly aligned.")
-
+            journey_copy = {
+                "lead_quote": "the quote/enquiry value proposition",
+                "appointment_consultation": "the appointment/consultation value proposition",
+                "reservation_event": "the reservation/event value proposition",
+                "direct_purchase": "the purchase value proposition",
+                "demo_sales": "the demo/sales value proposition",
+                "membership_subscription": "the membership/subscription value proposition",
+            }.get(journey, "the primary customer value proposition")
+            leaks.append(f"Weak Above-the-Fold Journey Clarity: verified title/meta/H1 signals do not strongly support {journey_copy}.")
         if trust < 65.0:
             leaks.append("Modeled Trust Friction: verified security/accessibility signals are weaker than the diagnostic baseline.")
-
         if cog_load < 60.0:
             leaks.append("Modeled Cognitive-Load Risk: page density may increase scanning friction.")
-
         if bounce_index > 40.0:
-            leaks.append(
-                f"Modeled Latency/Clutter Risk Index: {bounce_index}/100. This is a heuristic risk index, not observed visitor abandonment."
-            )
-
+            leaks.append(f"Modeled Latency/Clutter Risk Index: {bounce_index}/100. This is a heuristic risk index, not observed visitor abandonment.")
         return leaks
