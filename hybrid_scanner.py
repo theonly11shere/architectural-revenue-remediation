@@ -24,6 +24,7 @@ import math
 import os
 import re
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from html.parser import HTMLParser
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -201,10 +202,18 @@ class HybridScanner:
             or os.environ.get("GOOGLE_API_KEY", "")
             or ""
         ).strip()
+        # Places may use a separately restricted Google key. If none is provided, fall back
+        # to GOOGLE_API_KEY and finally the existing PageSpeed/general key for compatibility.
+        self.places_api_key = str(
+            os.environ.get("GOOGLE_PLACES_API_KEY", "")
+            or os.environ.get("GOOGLE_API_KEY", "")
+            or self.google_api_key
+            or ""
+        ).strip()
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "TrillokaBot/2.0 Revenue Architecture Auditor"})
 
-    async def execute_hybrid_scan(self, target_domain: str, business_name: str = "") -> Dict[str, Any]:
+    async def execute_hybrid_scan(self, target_domain: str, business_name: str = "", business_type: str = "auto") -> Dict[str, Any]:
         """Run HTTP, Google and mobile-browser evidence collection."""
         url = self._normalize_url(target_domain)
 
@@ -222,10 +231,6 @@ class HybridScanner:
         site_files = await asyncio.to_thread(self._fetch_site_files, resolved_url)
         pagespeed_meta = await asyncio.to_thread(self._fetch_google_pagespeed, resolved_url)
         crux_meta = await asyncio.to_thread(self._fetch_crux_telemetry, resolved_url)
-        places_meta = await asyncio.to_thread(
-            self._fetch_google_places, target_domain, business_name
-        )
-
         try:
             mobile_dom = await self._run_targeted_playwright(
                 http_meta.get("final_url") or url,
@@ -250,6 +255,13 @@ class HybridScanner:
 
         evidence_meta = self._merge_static_and_dom(static_meta, dom_meta)
 
+        # Resolve the target business in Google Places only after page evidence exists, so the
+        # page title can help identify a business when the user supplies only a domain.
+        place_query_name = self._business_name_hint(target_domain, business_name, evidence_meta)
+        places_meta = await asyncio.to_thread(
+            self._fetch_google_places, target_domain, place_query_name
+        )
+
         combined: Dict[str, Any] = {
             "domain": target_domain,
             "url": url,
@@ -272,6 +284,21 @@ class HybridScanner:
         business_profile = self._classify_business(combined)
         combined["business_profile"] = business_profile
         combined["h1_relevance_status"] = self._assess_h1_relevance(combined, business_profile)
+
+        # Local competitor benchmarking is contextual evidence only. It does not directly change
+        # Revenue Readiness. When a target Place location is available, compare the site with
+        # nearby businesses of the same Google primary type (or the selected/inferred vertical).
+        requested_competitor_type = self._normalize_competitor_business_type(
+            business_type, business_profile.get("vertical")
+        )
+        competitor_benchmark = await asyncio.to_thread(
+            self._fetch_local_competitors,
+            places_meta,
+            requested_competitor_type,
+            combined,
+        )
+        combined["competitor_benchmark"] = competitor_benchmark
+        combined["competitor_data_available"] = bool(competitor_benchmark.get("available"))
 
         combined["scan_quality"] = self._build_scan_quality(combined)
         combined["evidence_coverage"] = self._evidence_coverage(combined)
@@ -584,36 +611,394 @@ class HybridScanner:
             return "NEEDS_IMPROVEMENT"
         return "GOOD"
 
-    def _fetch_google_places(self, target_domain: str, business_name: str = "") -> Dict[str, Any]:
-        if not self.google_api_key:
-            return {"places_found": False, "places_confidence": "unknown"}
+    @staticmethod
+    def _host_from_url(value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        try:
+            if not text.startswith(("http://", "https://")):
+                text = "https://" + text
+            host = urllib.parse.urlparse(text).netloc.lower().split("@")[-1].split(":")[0]
+            return host[4:] if host.startswith("www.") else host
+        except Exception:
+            return ""
 
-        query = business_name.strip() if business_name else target_domain.replace("https://", "").replace("http://", "").split("/")[0]
+    @staticmethod
+    def _business_name_hint(target_domain: str, business_name: str, evidence: Dict[str, Any]) -> str:
+        explicit = str(business_name or "").strip()
+        if explicit:
+            return explicit[:100]
+        title = str((evidence or {}).get("title") or "").strip()
+        if title:
+            # Most business titles put the brand before a pipe/dash. Keep this conservative.
+            piece = re.split(r"\s*[|–—]\s*|\s+-\s+", title, maxsplit=1)[0].strip()
+            if 2 <= len(piece) <= 80:
+                return piece
+        host = HybridScanner._host_from_url(target_domain)
+        stem = host.split(".")[0] if host else str(target_domain or "")
+        return re.sub(r"[-_]+", " ", stem).strip()[:100]
+
+    @staticmethod
+    def _normalize_competitor_business_type(requested: str, inferred: Any) -> str:
+        known = {
+            "general", "restaurant", "local_service", "professional_service", "medspa",
+            "legal", "ecommerce", "saas", "agency", "b2b", "creator",
+        }
+        value = str(requested or "").strip().lower()
+        if value in known and value != "general":
+            return value
+        inferred_value = str(inferred or "general").strip().lower()
+        return inferred_value if inferred_value in known else "general"
+
+    def _fetch_google_places(self, target_domain: str, business_name: str = "") -> Dict[str, Any]:
+        if not self.places_api_key:
+            return {"places_found": False, "places_confidence": "unknown", "places_reason": "Google API key unavailable"}
+
+        query = str(business_name or "").strip() or self._host_from_url(target_domain) or str(target_domain or "")
         endpoint = "https://places.googleapis.com/v1/places:searchText"
         headers = {
             "Content-Type": "application/json",
-            "X-Goog-Api-Key": self.google_api_key,
-            "X-Goog-FieldMask": "places.id,places.displayName,places.rating,places.userRatingCount",
+            "X-Goog-Api-Key": self.places_api_key,
+            "X-Goog-FieldMask": (
+                "places.id,places.displayName,places.rating,places.userRatingCount,"
+                "places.formattedAddress,places.location,places.primaryType,places.types,places.websiteUri"
+            ),
         }
+        target_host = self._host_from_url(target_domain)
         try:
-            response = self.session.post(endpoint, json={"textQuery": query}, headers=headers, timeout=(4, 12))
-            if response.status_code == 200:
-                places = response.json().get("places") or []
-                if places:
-                    place = places[0]
-                    return {
-                        "places_found": True,
-                        "places_confidence": "medium",
-                        "place_id": place.get("id"),
-                        "place_display_name": (place.get("displayName") or {}).get("text", ""),
-                        "google_rating": place.get("rating"),
-                        "google_review_count": place.get("userRatingCount"),
-                        # Do not manufacture review-photo evidence from a field we did not request.
-                        "has_visual_review_proof": None,
-                    }
+            response = self.session.post(
+                endpoint,
+                json={"textQuery": query, "pageSize": 5},
+                headers=headers,
+                timeout=(4, 12),
+            )
+            if response.status_code != 200:
+                return {
+                    "places_found": False,
+                    "places_confidence": "unknown",
+                    "places_reason": f"Places HTTP {response.status_code}",
+                }
+            places = response.json().get("places") or []
+            if not places:
+                return {"places_found": False, "places_confidence": "unknown", "places_reason": "No matching place"}
+
+            def candidate_score(place: Dict[str, Any]) -> float:
+                website_host = self._host_from_url(place.get("websiteUri") or "")
+                display = str((place.get("displayName") or {}).get("text") or "").lower()
+                q = query.lower()
+                score = 0.0
+                if target_host and website_host and (website_host == target_host or website_host.endswith("." + target_host) or target_host.endswith("." + website_host)):
+                    score += 10.0
+                q_tokens = {x for x in re.findall(r"[a-z0-9]+", q) if len(x) >= 3}
+                d_tokens = set(re.findall(r"[a-z0-9]+", display))
+                if q_tokens:
+                    score += 3.0 * (len(q_tokens & d_tokens) / max(1, len(q_tokens)))
+                score += min(1.0, (self._to_float(place.get("userRatingCount")) or 0.0) / 500.0)
+                return score
+
+            place = max(places, key=candidate_score)
+            best_score = candidate_score(place)
+            website_host = self._host_from_url(place.get("websiteUri") or "")
+            domain_match = bool(target_host and website_host and (website_host == target_host or website_host.endswith("." + target_host) or target_host.endswith("." + website_host)))
+            confidence = "high" if domain_match else ("medium" if best_score >= 1.5 else "low")
+            location = place.get("location") or {}
+            return {
+                "places_found": True,
+                "places_confidence": confidence,
+                "place_match_basis": "website_domain" if domain_match else "name_ranked_search",
+                "place_id": place.get("id"),
+                "place_display_name": (place.get("displayName") or {}).get("text", ""),
+                "google_rating": self._to_float(place.get("rating")),
+                "google_review_count": self._to_int(place.get("userRatingCount"), 0),
+                "place_formatted_address": place.get("formattedAddress") or "",
+                "place_location": {
+                    "latitude": self._to_float(location.get("latitude")),
+                    "longitude": self._to_float(location.get("longitude")),
+                },
+                "place_primary_type": place.get("primaryType") or "",
+                "place_types": list(place.get("types") or []),
+                "place_website_uri": place.get("websiteUri") or "",
+                "has_visual_review_proof": None,
+            }
         except Exception as exc:
             print(f"[Hybrid Scanner] Places API error: {exc}")
-        return {"places_found": False, "places_confidence": "unknown"}
+            return {"places_found": False, "places_confidence": "unknown", "places_reason": str(exc)}
+
+    @staticmethod
+    def _competitor_search_text(business_type: str) -> str:
+        return {
+            "restaurant": "restaurant",
+            "local_service": "local service business",
+            "professional_service": "professional services",
+            "medspa": "medical spa",
+            "legal": "law firm",
+            "ecommerce": "retail store",
+            "saas": "software company",
+            "agency": "marketing agency",
+            "b2b": "business services",
+            "creator": "media company",
+        }.get(str(business_type or "general"), "business")
+
+    @staticmethod
+    def _expected_competitor_actions(business_type: str) -> set:
+        mapping = {
+            "restaurant": {"order", "reserve", "book", "call", "directions"},
+            "local_service": {"quote", "call", "book", "contact"},
+            "professional_service": {"quote", "call", "book", "contact"},
+            "medspa": {"book", "call", "contact"},
+            "legal": {"call", "book", "contact"},
+            "ecommerce": {"add_to_cart", "buy", "order"},
+            "saas": {"trial", "demo", "contact"},
+            "agency": {"quote", "demo", "book", "contact"},
+            "b2b": {"quote", "demo", "book", "call", "contact"},
+            "creator": {"subscribe", "contact"},
+        }
+        return mapping.get(str(business_type or "general"), {"buy", "order", "reserve", "book", "call", "quote", "trial", "demo", "subscribe", "contact"})
+
+    def _competitor_commercial_score(self, signals: Dict[str, Any], business_type: str) -> Optional[float]:
+        if not isinstance(signals, dict) or not (signals.get("static_html_verified") or signals.get("browser_loaded")):
+            return None
+        actions = set(str(x) for x in (signals.get("mobile_cta_types") or []) if x)
+        expected = self._expected_competitor_actions(business_type)
+        score = 0.0
+        if actions & expected:
+            score += 35.0
+        elif actions:
+            score += 18.0
+
+        lead_business = business_type not in {"ecommerce", "restaurant"}
+        if lead_business and signals.get("forms_present"):
+            score += 10.0
+        elif not lead_business and signals.get("forms_present"):
+            score += 4.0
+
+        if business_type in {"restaurant", "local_service", "professional_service", "medspa", "legal", "agency", "b2b"} and signals.get("click_to_call_present"):
+            score += 8.0
+        if business_type in {"saas", "agency", "b2b", "professional_service", "legal"} and signals.get("pricing_linked"):
+            score += 10.0
+        if signals.get("reviews_visible") or signals.get("social_proof_present"):
+            score += 14.0
+        if signals.get("privacy_terms_linked") or (signals.get("privacy_policy_linked") and signals.get("terms_linked")):
+            score += 8.0
+        if business_type == "ecommerce" and (signals.get("shipping_info_linked") or signals.get("return_policy_linked")):
+            score += 8.0
+        if signals.get("mobile_viewport_configured"):
+            score += 7.0
+        if signals.get("schema_present"):
+            score += 4.0
+        if signals.get("faq_present") or signals.get("case_studies_portfolio_present") or signals.get("about_team_linked"):
+            score += 4.0
+        return round(min(100.0, score), 1)
+
+    def _probe_competitor_website(self, website_uri: str, business_type: str) -> Dict[str, Any]:
+        url = str(website_uri or "").strip()
+        if not url:
+            return {"website_probed": False, "commercial_score": None, "probe_reason": "No website URL"}
+        try:
+            response = requests.get(
+                self._normalize_url(url),
+                timeout=(3, 7),
+                allow_redirects=True,
+                headers={"User-Agent": "TrillokaBot/2.0 Local Benchmark Probe"},
+            )
+            if not (200 <= response.status_code < 400):
+                return {"website_probed": False, "commercial_score": None, "probe_reason": f"HTTP {response.status_code}"}
+            html_text = (response.text or "")[:750_000]
+            signals = self._extract_static_html_evidence(html_text, response.url, verified=True)
+            return {
+                "website_probed": bool(signals.get("static_html_verified")),
+                "commercial_score": self._competitor_commercial_score(signals, business_type),
+                "commercial_features": {
+                    "actions": list(signals.get("mobile_cta_types") or []),
+                    "forms": bool(signals.get("forms_present")),
+                    "click_to_call": bool(signals.get("click_to_call_present")),
+                    "pricing": bool(signals.get("pricing_linked")),
+                    "social_proof": bool(signals.get("reviews_visible") or signals.get("social_proof_present")),
+                    "mobile_viewport": bool(signals.get("mobile_viewport_configured")),
+                },
+            }
+        except Exception as exc:
+            return {"website_probed": False, "commercial_score": None, "probe_reason": str(exc)}
+
+    @staticmethod
+    def _local_index(rating: Optional[float], review_count: Optional[int], commercial_score: Optional[float], max_reviews: int) -> Optional[float]:
+        components = []
+        if commercial_score is not None:
+            components.append((float(commercial_score), 0.50))
+        if rating is not None:
+            components.append((max(0.0, min(100.0, float(rating) * 20.0)), 0.30))
+        if review_count is not None and max_reviews > 0:
+            review_component = 100.0 * math.log1p(max(0, int(review_count))) / math.log1p(max_reviews)
+            components.append((max(0.0, min(100.0, review_component)), 0.20))
+        if not components:
+            return None
+        total_weight = sum(weight for _, weight in components)
+        return round(sum(value * weight for value, weight in components) / total_weight, 1)
+
+    def _fetch_local_competitors(self, target_place: Dict[str, Any], business_type: str, target_scan: Dict[str, Any]) -> Dict[str, Any]:
+        base = {
+            "available": False,
+            "status": "unavailable",
+            "business_type": business_type,
+            "sample_count": 0,
+            "benchmark_basis": "GOOGLE_PLACES_LOCATION_TYPE_PLUS_PUBLIC_HOMEPAGE_STRUCTURE",
+            "source_label": "Google Places + public website structure",
+            "does_not_directly_change_readiness_score": True,
+        }
+        if not self.places_api_key:
+            return {**base, "reason": "Google API key unavailable"}
+        if not (target_place or {}).get("places_found"):
+            return {**base, "reason": "Target business could not be confidently located in Google Places"}
+
+        location = (target_place or {}).get("place_location") or {}
+        lat = self._to_float(location.get("latitude"))
+        lng = self._to_float(location.get("longitude"))
+        if lat is None or lng is None:
+            return {**base, "reason": "Target Place has no usable latitude/longitude"}
+
+        radius = self._to_float(os.environ.get("TRILLOKA_COMPETITOR_RADIUS_METERS")) or 8000.0
+        radius = max(1000.0, min(25000.0, radius))
+        max_results = self._to_int(os.environ.get("TRILLOKA_COMPETITOR_MAX_RESULTS"), 8) or 8
+        max_results = max(4, min(12, max_results))
+        field_mask = (
+            "places.id,places.displayName,places.rating,places.userRatingCount,places.formattedAddress,"
+            "places.location,places.primaryType,places.types,places.websiteUri"
+        )
+        headers = {"Content-Type": "application/json", "X-Goog-Api-Key": self.places_api_key, "X-Goog-FieldMask": field_mask}
+        endpoint = "https://places.googleapis.com/v1/places:searchNearby"
+        primary_type = str((target_place or {}).get("place_primary_type") or "").strip()
+        body: Dict[str, Any] = {
+            "maxResultCount": max_results,
+            "rankPreference": "POPULARITY",
+            "locationRestriction": {"circle": {"center": {"latitude": lat, "longitude": lng}, "radius": radius}},
+        }
+        if primary_type and primary_type not in {"establishment", "point_of_interest"}:
+            body["includedTypes"] = [primary_type]
+
+        places: List[Dict[str, Any]] = []
+        try:
+            response = self.session.post(endpoint, json=body, headers=headers, timeout=(4, 12))
+            if response.status_code == 200:
+                places = response.json().get("places") or []
+            else:
+                print(f"[Hybrid Scanner] Nearby competitor search HTTP {response.status_code}; trying text fallback")
+        except Exception as exc:
+            print(f"[Hybrid Scanner] Nearby competitor search error: {exc}")
+
+        if not places:
+            try:
+                text_endpoint = "https://places.googleapis.com/v1/places:searchText"
+                text_body = {
+                    "textQuery": self._competitor_search_text(business_type),
+                    "pageSize": max_results,
+                    "locationBias": {"circle": {"center": {"latitude": lat, "longitude": lng}, "radius": radius}},
+                }
+                response = self.session.post(text_endpoint, json=text_body, headers=headers, timeout=(4, 12))
+                if response.status_code == 200:
+                    places = response.json().get("places") or []
+            except Exception as exc:
+                print(f"[Hybrid Scanner] Text competitor search error: {exc}")
+
+        target_id = str((target_place or {}).get("place_id") or "")
+        target_host = self._host_from_url((target_place or {}).get("place_website_uri") or target_scan.get("domain") or "")
+        competitors: List[Dict[str, Any]] = []
+        for place in places:
+            place_id = str(place.get("id") or "")
+            website = str(place.get("websiteUri") or "")
+            website_host = self._host_from_url(website)
+            if target_id and place_id == target_id:
+                continue
+            if target_host and website_host and (website_host == target_host or website_host.endswith("." + target_host) or target_host.endswith("." + website_host)):
+                continue
+            competitors.append({
+                "place_id": place_id,
+                "name": str((place.get("displayName") or {}).get("text") or "").strip(),
+                "rating": self._to_float(place.get("rating")),
+                "review_count": self._to_int(place.get("userRatingCount"), 0),
+                "website": website,
+                "address": str(place.get("formattedAddress") or ""),
+                "primary_type": str(place.get("primaryType") or ""),
+                "website_probed": False,
+                "commercial_score": None,
+            })
+            if len(competitors) >= max_results - 1:
+                break
+
+        if not competitors:
+            return {**base, "reason": "No comparable nearby businesses remained after excluding the target", "radius_meters": int(radius)}
+
+        # Probe only a bounded number of public homepages, concurrently, to avoid turning the main
+        # scan into multiple full Playwright/PageSpeed scans.
+        probe_indices = [i for i, comp in enumerate(competitors) if comp.get("website")][:5]
+        if probe_indices:
+            with ThreadPoolExecutor(max_workers=min(4, len(probe_indices))) as pool:
+                futures = {pool.submit(self._probe_competitor_website, competitors[i]["website"], business_type): i for i in probe_indices}
+                for future in as_completed(futures):
+                    i = futures[future]
+                    try:
+                        competitors[i].update(future.result() or {})
+                    except Exception as exc:
+                        competitors[i]["probe_reason"] = str(exc)
+
+        target_commercial = self._competitor_commercial_score(target_scan, business_type)
+        all_reviews = [self._to_int(target_place.get("google_review_count"), 0) or 0] + [int(c.get("review_count") or 0) for c in competitors]
+        max_reviews = max(1, max(all_reviews))
+        target_index = self._local_index(
+            self._to_float(target_place.get("google_rating")),
+            self._to_int(target_place.get("google_review_count"), 0),
+            target_commercial,
+            max_reviews,
+        )
+        for comp in competitors:
+            comp["local_index"] = self._local_index(comp.get("rating"), comp.get("review_count"), comp.get("commercial_score"), max_reviews)
+
+        scored = [c for c in competitors if c.get("local_index") is not None]
+        ratings = [float(c["rating"]) for c in competitors if c.get("rating") is not None]
+        reviews = [int(c.get("review_count") or 0) for c in competitors]
+        commercial = [float(c["commercial_score"]) for c in competitors if c.get("commercial_score") is not None]
+        website_count = sum(bool(c.get("website")) for c in competitors)
+        avg_index = round(sum(float(c["local_index"]) for c in scored) / len(scored), 1) if scored else None
+        top = max(scored, key=lambda c: float(c["local_index"])) if scored else None
+        top_index = self._to_float((top or {}).get("local_index"))
+        available = bool(target_index is not None and avg_index is not None and len(scored) >= 3)
+        address = str(target_place.get("place_formatted_address") or "")
+
+        result = {
+            **base,
+            "available": available,
+            "status": "measured" if available else "partial",
+            "reason": "" if available else "Fewer than 3 comparable businesses had enough public evidence for a stable benchmark",
+            "radius_meters": int(radius),
+            "target_place_name": target_place.get("place_display_name") or "",
+            "target_address": address,
+            "target_google_rating": self._to_float(target_place.get("google_rating")),
+            "target_google_review_count": self._to_int(target_place.get("google_review_count"), 0),
+            "target_commercial_score": target_commercial,
+            "target_local_index": target_index,
+            "sample_count": len(scored),
+            "discovered_count": len(competitors),
+            "website_coverage_pct": round(100.0 * website_count / len(competitors), 1) if competitors else None,
+            "local_avg_index": avg_index,
+            "local_top_index": top_index,
+            "gap_to_local_avg": round(max(0.0, float(avg_index) - float(target_index)), 1) if available else None,
+            "gap_to_local_leader": round(max(0.0, float(top_index) - float(target_index)), 1) if available and top_index is not None else None,
+            "target_vs_local_avg_delta": round(float(target_index) - float(avg_index), 1) if available else None,
+            "local_avg_rating": round(sum(ratings) / len(ratings), 2) if ratings else None,
+            "local_top_rating": max(ratings) if ratings else None,
+            "local_avg_review_count": round(sum(reviews) / len(reviews)) if reviews else None,
+            "local_top_review_count": max(reviews) if reviews else None,
+            "local_avg_commercial_score": round(sum(commercial) / len(commercial), 1) if commercial else None,
+            "local_top_commercial_score": max(commercial) if commercial else None,
+            "local_leader_name": (top or {}).get("name") or "",
+            "competitors": competitors,
+            "method_note": (
+                "Nearby businesses are discovered from the target Google Place location and primary type (with a business-type text fallback). "
+                "The Local Benchmark Index compares public Google rating/review signals with a bounded passive inspection of public homepage commercial structure. "
+                "It is contextual benchmark evidence and does not directly change Revenue Readiness."
+            ),
+        }
+        return result
 
     def _extract_static_html_evidence(self, html_text: str, url: str, verified: bool) -> Dict[str, Any]:
         """Extract evidence from the HTTP HTML so a browser-side error does not blank the audit."""
@@ -2428,8 +2813,8 @@ class HybridScanner:
         }
 
 
-def collect_scan_data(domain: str) -> Dict[str, Any]:
+def collect_scan_data(domain: str, business_type: str = "auto") -> Dict[str, Any]:
     """Backward-compatible synchronous helper."""
     import asyncio
 
-    return asyncio.run(HybridScanner().execute_hybrid_scan(domain))
+    return asyncio.run(HybridScanner().execute_hybrid_scan(domain, business_type=business_type))

@@ -575,18 +575,33 @@ class RevenueScorer:
 
         # Preserve the public keys, but do not represent unavailable telemetry as a
         # real score of zero. Availability flags remain explicit for the frontend.
+        competitor_benchmark_raw = scan_data.get("competitor_benchmark")
+        competitor_benchmark = competitor_benchmark_raw if isinstance(competitor_benchmark_raw, dict) else {}
+        measured_competitor = bool(competitor_benchmark.get("available"))
+        if measured_competitor:
+            competitor_gap = self._safe_float(competitor_benchmark.get("gap_to_local_leader"))
+            if competitor_gap is None:
+                competitor_gap = self._safe_float(competitor_benchmark.get("gap_to_local_avg"))
+            competitor_gap = round(max(0.0, competitor_gap or 0.0), 1)
+            competitor_gap_kind = "MEASURED_LOCAL_COMPETITOR_GAP"
+        else:
+            competitor_gap = max(0, round(MAX_REVENUE_READINESS_SCORE - overall))
+            competitor_gap_kind = "MODELED_READINESS_GAP_PROXY"
+
         surface_metrics = {
             "mobile_performance_score": round(perf) if perf is not None else None,
             "seo_health_index": round(seo) if seo is not None else None,
             "ai_spectrum_pct": round(ai_pct, 1) if ai_pct is not None else None,
             "online_presence_index": round(overall, 1),
             "conversion_efficiency": round(overall, 1),
-            # Kept for frontend compatibility. With the current request schema the
-            # engine receives only a competitor-feature boolean, not competitor telemetry,
-            # so this remains a modeled readiness-gap proxy rather than a measured rival score.
-            "competitor_gap_score": max(0, round(MAX_REVENUE_READINESS_SCORE - overall)),
-            "competitor_gap_kind": "MODELED_READINESS_GAP_PROXY",
-            "competitor_data_available": bool(competitor_data_present),
+            "competitor_gap_score": competitor_gap,
+            "competitor_gap_kind": competitor_gap_kind,
+            "competitor_data_available": measured_competitor or bool(competitor_data_present),
+            "competitor_sample_count": int(competitor_benchmark.get("sample_count") or 0),
+            "competitor_target_index": competitor_benchmark.get("target_local_index"),
+            "competitor_local_avg_index": competitor_benchmark.get("local_avg_index"),
+            "competitor_local_top_index": competitor_benchmark.get("local_top_index"),
+            "competitor_benchmark": competitor_benchmark,
             "classification": self._classify_template_spectrum(ai_pct, str(scan_data.get("cms_platform") or "Not confidently identified")),
             "mobile_performance_available": perf is not None,
             "seo_health_available": seo is not None,
@@ -614,6 +629,7 @@ class RevenueScorer:
             "score_status": "available",
             "score_rating": self._get_score_rating(overall),
             "surface_metrics": surface_metrics,
+            "competitor_benchmark": competitor_benchmark,
             "key_friction_insight": key_friction,
             "revenue_leak": {
                 # Legacy key retained; the customer again receives a dollar range, explicitly model-based.

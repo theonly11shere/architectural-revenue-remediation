@@ -81,8 +81,8 @@ _ALLOWED_ORIGINS = [
 
 app = FastAPI(
     title="Trilloka Architect Engine API",
-    description="Evidence-weighted Revenue Readiness Diagnostic & Tiered Report Gateway",
-    version="6.4.0",
+    description="Evidence-weighted Revenue Readiness Diagnostic, local competitor benchmark & tiered report gateway",
+    version="6.5.0",
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -302,8 +302,9 @@ def handle_trilloka_guardrail(target_domain: str) -> Optional[Dict[str, Any]]:
 def health_check() -> Dict[str, Any]:
     return {
         "status": "online",
-        "system": "Trilloka Architect Engine v6.4",
+        "system": "Trilloka Architect Engine v6.5",
         "google_api_configured": bool(os.environ.get("PAGESPEED_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
+        "places_api_configured": bool(os.environ.get("GOOGLE_PLACES_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("PAGESPEED_API_KEY")),
         "report_engine": REPORT_ENGINE_AVAILABLE,
         "owner_otp_auth": {
             "enabled": admin_auth.configured,
@@ -731,6 +732,7 @@ def _base_success_payload(
         "target_domain": requested_domain,
         "overall_score": overall_score,
         "surface_metrics": audit_results.get("surface_metrics", {}),
+        "competitor_benchmark": audit_results.get("competitor_benchmark", {}),
         "key_friction_insight": audit_results.get("key_friction_insight", {}),
         "revenue_leak": audit_results.get("revenue_leak", {}),
         "cms_platform": audit_results.get("cms_platform", "Not confidently identified"),
@@ -985,7 +987,7 @@ async def _run_audit_impl(
             )
 
     try:
-        scan_data = await _run_scan_async(payload.domain, payload.business_name or "")
+        scan_data = await _run_scan_async(payload.domain, payload.business_name or "", payload.business_type)
         if not scan_data.get("is_reachable"):
             raise HTTPException(
                 status_code=400,
