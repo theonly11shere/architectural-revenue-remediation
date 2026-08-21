@@ -709,9 +709,15 @@ def admin_record_guidance_call(
     return {"success": True, "guidance_usage_updated": True, **result}
 
 
-async def _run_scan_async(domain: str, business_name: str = "") -> Dict[str, Any]:
+async def _run_scan_async(
+    domain: str,
+    business_name: str = "",
+    business_type: str = "auto",
+) -> Dict[str, Any]:
     # HybridScanner is already async; keep Playwright on the active event loop.
-    return await scanner.execute_hybrid_scan(domain, business_name)
+    # V6.5 competitor benchmarking needs business_type so local comparisons use
+    # the same vertical/context selected for the target business.
+    return await scanner.execute_hybrid_scan(domain, business_name, business_type)
 
 
 def _base_success_payload(
