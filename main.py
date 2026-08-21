@@ -27,6 +27,8 @@ from __future__ import annotations
 import copy
 import json
 import os
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -79,10 +81,29 @@ _ALLOWED_ORIGINS = [
     ).split(",") if item.strip()
 ]
 
+
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    try:
+        return max(minimum, int(os.environ.get(name, str(default))))
+    except Exception:
+        return default
+
+
+_SELF_SCAN_URL = os.environ.get("TRILLOKA_SELF_SCAN_URL", "https://trilloka.com/").strip() or "https://trilloka.com/"
+_SELF_SNAPSHOT_FILE = os.environ.get("TRILLOKA_SELF_SNAPSHOT_FILE", "trilloka_30day_audit_snapshot.json").strip() or "trilloka_30day_audit_snapshot.json"
+_SELF_SNAPSHOT_MAX_AGE_DAYS = _env_int("TRILLOKA_SELF_SNAPSHOT_MAX_AGE_DAYS", 30)
+_PROTECTED_DOMAIN_ROOTS = tuple(
+    sorted({
+        item.strip().lower().rstrip(".")
+        for item in os.environ.get("TRILLOKA_PROTECTED_DOMAINS", "trilloka.com").split(",")
+        if item.strip()
+    })
+) or ("trilloka.com",)
+
 app = FastAPI(
     title="Trilloka Architect Engine API",
     description="Evidence-weighted Revenue Readiness Diagnostic, local competitor benchmark & tiered report gateway",
-    version="7.0.0",
+    version="7.0.1",
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -174,6 +195,11 @@ class AdminOtpVerifyRequest(BaseModel):
     code: str
 
 
+class SelfSnapshotRefreshRequest(BaseModel):
+    # Owner-only. False reuses a still-fresh stored snapshot; True forces a real controlled self-scan.
+    force: bool = False
+
+
 def _legacy_admin_key_valid(value: Optional[str]) -> bool:
     """Emergency compatibility only. Disabled by default so human admin access requires emailed OTP."""
     enabled = os.environ.get("TRILLOKA_ALLOW_LEGACY_ADMIN_KEY", "false").strip().lower() in {"1", "true", "yes", "on"}
@@ -249,22 +275,201 @@ def _access_error(exc: AccessDenied) -> HTTPException:
     return HTTPException(status_code=status_code, detail=str(exc), headers=headers)
 
 
-def handle_trilloka_guardrail(target_domain: str) -> Optional[Dict[str, Any]]:
-    clean_url = target_domain if target_domain.startswith(("http://", "https://")) else f"https://{target_domain}"
-    domain = urlparse(clean_url).netloc.lower() or target_domain.lower()
-    if "trilloka" not in domain:
+def _normalized_host(target_domain: str) -> str:
+    raw = str(target_domain or "").strip()
+    if not raw:
+        return ""
+    clean_url = raw if raw.startswith(("http://", "https://")) else f"https://{raw}"
+    try:
+        host = (urlparse(clean_url).hostname or "").lower().rstrip(".")
+    except Exception:
+        host = ""
+    return host
+
+
+def _is_protected_trilloka_domain(target_domain: str) -> bool:
+    host = _normalized_host(target_domain)
+    if not host:
+        return False
+    return any(host == root or host.endswith("." + root) for root in _PROTECTED_DOMAIN_ROOTS)
+
+
+def _parse_snapshot_time(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except Exception:
         return None
 
-    snapshot_file = "trilloka_30day_audit_snapshot.json"
-    snapshot_data: Dict[str, Any] = {}
-    if os.path.exists(snapshot_file):
-        try:
-            with open(snapshot_file, "r", encoding="utf-8") as handle:
-                snapshot_data = json.load(handle)
-        except Exception as exc:
-            print(f"[Guardrail] Error reading snapshot JSON: {exc}")
 
-    score = float(snapshot_data.get("overall_score", 75.0))
+def _load_self_snapshot() -> Dict[str, Any]:
+    path = Path(_SELF_SNAPSHOT_FILE)
+    if not path.exists() or not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        print(f"[Guardrail] Error reading snapshot JSON: {exc}")
+        return {}
+
+
+def _snapshot_freshness(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    generated = _parse_snapshot_time(
+        snapshot.get("generated_at")
+        or snapshot.get("scan_timestamp")
+        or snapshot.get("timestamp")
+        or snapshot.get("scanned_at")
+    )
+    if generated is None:
+        try:
+            generated = datetime.fromtimestamp(Path(_SELF_SNAPSHOT_FILE).stat().st_mtime, tz=timezone.utc)
+        except Exception:
+            generated = None
+    if generated is None:
+        return {"generated_at": None, "age_days": None, "stale": True}
+    age_days = max(0.0, (datetime.now(timezone.utc) - generated).total_seconds() / 86400.0)
+    return {
+        "generated_at": generated.isoformat(),
+        "age_days": round(age_days, 2),
+        "stale": age_days > float(_SELF_SNAPSHOT_MAX_AGE_DAYS),
+    }
+
+
+def _atomic_write_self_snapshot(snapshot: Dict[str, Any]) -> None:
+    path = Path(_SELF_SNAPSHOT_FILE)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(path.name + ".tmp")
+    temp_path.write_text(json.dumps(snapshot, indent=2, sort_keys=True), encoding="utf-8")
+    os.replace(str(temp_path), str(path))
+
+
+def _public_self_snapshot(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(snapshot, dict) or not snapshot:
+        return {}
+    allowed = {
+        "snapshot_version", "snapshot_source", "generated_at", "target_domain",
+        "scanner_engine_version", "overall_score", "score_rating", "score_scope",
+        "journey_model", "journey_label", "journey_confidence", "context_tags",
+        "mobile_performance_score", "seo_health_index", "ai_spectrum_pct",
+        "online_presence_index", "conversion_efficiency", "common_foundation_index",
+        "adaptive_architecture_index", "evidence_confidence_level", "evidence_confidence_score",
+        "verified_checkpoints", "applicable_checkpoints", "passed_count", "failed_count",
+        "unknown_count", "not_applicable_count", "cms_detected", "load_time_seconds",
+        "confirmed_major_leak_count", "corroborated_major_leak_count", "revenue_leak",
+        "previous_snapshot_score", "score_delta_since_previous", "comparison_confidence",
+    }
+    return {key: copy.deepcopy(value) for key, value in snapshot.items() if key in allowed}
+
+
+def _build_self_snapshot(
+    *,
+    target_domain: str,
+    scan_data: Dict[str, Any],
+    audit_results: Dict[str, Any],
+    previous_snapshot: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    surface = audit_results.get("surface_metrics") if isinstance(audit_results.get("surface_metrics"), dict) else {}
+    architecture = audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}
+    evidence = audit_results.get("evidence_confidence") if isinstance(audit_results.get("evidence_confidence"), dict) else {}
+    checkpoints = [x for x in (audit_results.get("full_50_checkpoint_basis") or []) if isinstance(x, dict)]
+    counts = {"PASS": 0, "FAIL": 0, "UNKNOWN": 0, "NOT_APPLICABLE": 0}
+    for item in checkpoints:
+        status = str(item.get("status") or "").upper()
+        if status in counts:
+            counts[status] += 1
+
+    high = audit_results.get("high_impact_confirmation") if isinstance(audit_results.get("high_impact_confirmation"), dict) else {}
+    high_results = high.get("results") if isinstance(high.get("results"), dict) else {}
+    confirmed = sum(1 for item in high_results.values() if isinstance(item, dict) and str(item.get("status") or "").upper() == "CONFIRMED")
+    corroborated = sum(1 for item in high_results.values() if isinstance(item, dict) and str(item.get("status") or "").upper() == "CORROBORATED")
+
+    score = audit_results.get("overall_score")
+    if score is None:
+        score = audit_results.get("overall_health_score")
+    prev_score = previous_snapshot.get("overall_score") if isinstance(previous_snapshot, dict) else None
+    delta = None
+    try:
+        if score is not None and prev_score is not None:
+            delta = round(float(score) - float(prev_score), 1)
+    except Exception:
+        delta = None
+
+    scan_quality = scan_data.get("scan_quality") if isinstance(scan_data.get("scan_quality"), dict) else {}
+    load_time = scan_data.get("load_time_seconds")
+    if load_time is None:
+        load_time = scan_quality.get("load_time_seconds")
+
+    return {
+        "snapshot_version": 2,
+        "snapshot_source": "owner_controlled_v7_self_scan",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "target_domain": target_domain,
+        "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.0"),
+        "overall_score": score,
+        "score_rating": audit_results.get("score_rating", ""),
+        "score_scope": audit_results.get("score_scope", "Observable website Revenue Readiness only."),
+        "journey_model": architecture.get("journey_model", "general"),
+        "journey_label": architecture.get("journey_label", "General / Unresolved Journey"),
+        "journey_confidence": architecture.get("confidence"),
+        "context_tags": list(architecture.get("context_tags") or []),
+        "mobile_performance_score": surface.get("mobile_performance_score"),
+        "seo_health_index": surface.get("seo_health_index"),
+        "ai_spectrum_pct": surface.get("ai_spectrum_pct"),
+        "online_presence_index": surface.get("online_presence_index"),
+        "conversion_efficiency": surface.get("conversion_efficiency"),
+        "common_foundation_index": surface.get("common_foundation_index"),
+        "adaptive_architecture_index": surface.get("adaptive_architecture_index"),
+        "evidence_confidence_level": evidence.get("level"),
+        "evidence_confidence_score": evidence.get("score"),
+        "verified_checkpoints": evidence.get("verified_checkpoints"),
+        "applicable_checkpoints": evidence.get("applicable_checkpoints"),
+        "passed_count": counts["PASS"],
+        "failed_count": counts["FAIL"],
+        "unknown_count": counts["UNKNOWN"],
+        "not_applicable_count": counts["NOT_APPLICABLE"],
+        "cms_detected": audit_results.get("cms_platform", scan_data.get("cms_platform", "Trilloka Engine")),
+        "load_time_seconds": load_time,
+        "confirmed_major_leak_count": confirmed,
+        "corroborated_major_leak_count": corroborated,
+        "revenue_leak": copy.deepcopy(audit_results.get("revenue_leak") or {}),
+        "previous_snapshot_score": prev_score,
+        "score_delta_since_previous": delta,
+        "comparison_confidence": (
+            "same_engine_comparison"
+            if previous_snapshot and previous_snapshot.get("scanner_engine_version") == scan_data.get("scanner_engine_version")
+            else ("directional_only" if previous_snapshot else "baseline_created")
+        ),
+        # Minimal internal state for future owner-only before/after snapshot comparisons.
+        "finding_rule_keys": sorted({
+            str(x.get("rule_key"))
+            for x in (audit_results.get("scoring_ledger") or [])
+            if isinstance(x, dict) and x.get("rule_key")
+        }),
+        "checkpoint_statuses": {
+            str(x.get("id")): str(x.get("status"))
+            for x in checkpoints if x.get("id") is not None
+        },
+    }
+
+
+def handle_trilloka_guardrail(target_domain: str) -> Optional[Dict[str, Any]]:
+    if not _is_protected_trilloka_domain(target_domain):
+        return None
+
+    snapshot_data = _load_self_snapshot()
+    public_snapshot = _public_self_snapshot(snapshot_data)
+    freshness = _snapshot_freshness(snapshot_data) if snapshot_data else {"generated_at": None, "age_days": None, "stale": True}
+    has_snapshot = bool(public_snapshot)
+    score = public_snapshot.get("overall_score") if has_snapshot else None
+
     return {
         "success": True,
         "is_guarded": True,
@@ -273,29 +478,47 @@ def handle_trilloka_guardrail(target_domain: str) -> Optional[Dict[str, Any]]:
         "guardrail": {
             "heading": "Nice try!!!",
             "message": "Did you really think we didn't know some of you wouldn't be able to resist yourselves. Well, The Architect has commanded us to scan his own website every 30 days and check its ongoing state of strength...",
-            "note": "While external public scans are barred on core infrastructure, below are the latest stored Trilloka self-diagnostic results.",
+            "note": "External public scans are blocked on protected Trilloka domains. Only a stored owner-controlled self-diagnostic snapshot may be displayed.",
+            "snapshot_available": has_snapshot,
+            "snapshot_generated_at": freshness.get("generated_at"),
+            "snapshot_age_days": freshness.get("age_days"),
+            "snapshot_stale": freshness.get("stale"),
+            "snapshot_max_age_days": _SELF_SNAPSHOT_MAX_AGE_DAYS,
         },
+        # Never fabricate self-scan values when the snapshot file is absent.
         "overall_score": score,
         "surface_metrics": {
-            "mobile_performance_score": snapshot_data.get("mobile_performance_score", score),
-            "seo_health_index": snapshot_data.get("seo_health_index", score),
-            "ai_spectrum_pct": snapshot_data.get("ai_spectrum_pct", 0.0),
-            "online_presence_index": snapshot_data.get("online_presence_index", score),
-            "conversion_efficiency": snapshot_data.get("conversion_efficiency", score),
-            "competitor_gap_score": 0,
+            "mobile_performance_score": public_snapshot.get("mobile_performance_score") if has_snapshot else None,
+            "seo_health_index": public_snapshot.get("seo_health_index") if has_snapshot else None,
+            "ai_spectrum_pct": public_snapshot.get("ai_spectrum_pct") if has_snapshot else None,
+            "online_presence_index": public_snapshot.get("online_presence_index") if has_snapshot else None,
+            "conversion_efficiency": public_snapshot.get("conversion_efficiency") if has_snapshot else None,
+            "common_foundation_index": public_snapshot.get("common_foundation_index") if has_snapshot else None,
+            "adaptive_architecture_index": public_snapshot.get("adaptive_architecture_index") if has_snapshot else None,
+            "competitor_gap_score": None,
+            "competitor_data_available": False,
             "classification": "Architect Core Platform",
         },
-        "key_friction_insight": {
-            "passed_count": snapshot_data.get("passed_count", 3),
-            "failed_count": snapshot_data.get("failed_count", 1),
-            "load_time_seconds": snapshot_data.get("load_time_seconds", 0.97),
+        "competitor_benchmark": {
+            "available": False,
+            "status": "protected_self_scan",
+            "sample_count": 0,
+            "reason": "Local competitor benchmarking is intentionally disabled for the protected Trilloka self-diagnostic.",
+            "does_not_directly_change_readiness_score": True,
         },
-        "revenue_leak": snapshot_data.get(
-            "revenue_leak", {"est_annual_revenue_leak": "Self-scan exposure stored in latest snapshot"}
+        "key_friction_insight": {
+            "passed_count": public_snapshot.get("passed_count") if has_snapshot else None,
+            "failed_count": public_snapshot.get("failed_count") if has_snapshot else None,
+            "load_time_seconds": public_snapshot.get("load_time_seconds") if has_snapshot else None,
+        },
+        "revenue_leak": public_snapshot.get("revenue_leak", {}) if has_snapshot else {},
+        "cms_platform": public_snapshot.get("cms_detected", "Trilloka Engine") if has_snapshot else "Trilloka Engine",
+        "audit_snapshot": public_snapshot,
+        "message": (
+            "Trilloka infrastructure self-scan intercepted. Displaying the latest stored owner-controlled diagnostic snapshot."
+            if has_snapshot
+            else "Trilloka infrastructure self-scan intercepted. No stored self-diagnostic snapshot is currently available; no fallback score was fabricated."
         ),
-        "cms_platform": snapshot_data.get("cms_detected", "Trilloka Engine"),
-        "audit_snapshot": snapshot_data,
-        "message": "Trilloka infrastructure self-scan intercepted. Displaying stored diagnostic snapshot.",
     }
 
 
@@ -303,7 +526,7 @@ def handle_trilloka_guardrail(target_domain: str) -> Optional[Dict[str, Any]]:
 def health_check() -> Dict[str, Any]:
     return {
         "status": "online",
-        "system": "Trilloka Architect Engine v7.0",
+        "system": "Trilloka Architect Engine v7.0.1",
         "google_api_configured": bool(os.environ.get("PAGESPEED_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
         "places_api_configured": bool(os.environ.get("GOOGLE_PLACES_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("PAGESPEED_API_KEY")),
         "report_engine": REPORT_ENGINE_AVAILABLE,
@@ -385,6 +608,13 @@ def _admin_console_html() -> str:
     <pre id="ownerScanOutput">Enter a domain to run an owner-only fresh analysis.</pre>
   </div>
 
+  <div class="card">
+    <h2>Protected Trilloka Snapshot</h2>
+    <p class="muted">Runs the real V7 engine directly against the configured Trilloka public site, bypassing only the public self-scan intercept, then atomically replaces the stored 30-day snapshot. The stored public guardrail snapshot intentionally excludes local competitor benchmarking.</p>
+    <div class="actions"><button id="selfSnapshot">Update Trilloka Snapshot Now</button></div>
+    <pre id="selfSnapshotOutput">No update requested in this owner session.</pre>
+  </div>
+
   <div class="card"><h2>Activate / complimentary plan</h2><div class="grid"><input id="aEmail" placeholder="customer@email.com"><input id="aDomain" placeholder="example.com"><select id="aPlan"><option value="essential_350">$350 Essential</option><option value="advanced_550">$550 Advanced</option><option value="architect_850">$850 Architect</option></select><input id="aRef" placeholder="purchase reference"></div><button id="activate">Activate plan</button></div>
   <div class="card"><h2>Manage customer</h2><div class="grid"><input id="mEmail" placeholder="customer@email.com"><input id="mDomain" placeholder="example.com"><select id="mPlan"><option value="">Keep current plan</option><option value="essential_350">$350 Essential</option><option value="advanced_550">$550 Advanced</option><option value="architect_850">$850 Architect</option></select><input id="extendDays" type="number" placeholder="extend days (+/-)"><input id="newDomain" placeholder="new domain if changing"></div><div class="actions"><button data-act="status">Status</button><button data-act="update">Update plan/expiry</button><button data-act="reset">Reset daily scans</button><button data-act="callplus">Call +1</button><button data-act="callminus">Call -1</button><button data-act="rotate">Rotate pass</button><button data-act="domain">Change domain</button><button data-act="restore">Restore</button><button data-act="revoke" class="danger">Revoke</button></div></div>
 </div>
@@ -419,6 +649,19 @@ $('ownerScan').onclick=async()=>{
     scanOut.textContent=e.message;
   }finally{
     $('ownerScan').disabled=false;
+  }
+};
+$('selfSnapshot').onclick=async()=>{
+  const scanOut=$('selfSnapshotOutput');
+  $('selfSnapshot').disabled=true;
+  scanOut.textContent='Running controlled Trilloka self-diagnostic and updating snapshot...';
+  try{
+    const result=await api('/api/admin/self-scan-snapshot',{method:'POST',body:JSON.stringify({force:true})});
+    scanOut.textContent=JSON.stringify(result,null,2);
+  }catch(e){
+    scanOut.textContent=e.message;
+  }finally{
+    $('selfSnapshot').disabled=false;
   }
 };
 $('activate').onclick=async()=>{try{print(await api('/api/admin/activate-plan',{method:'POST',body:JSON.stringify({email:$('aEmail').value,domain:$('aDomain').value,plan_id:$('aPlan').value,purchase_ref:$('aRef').value})}))}catch(e){out.textContent=e.message}};
@@ -507,6 +750,109 @@ def admin_logout(
     response.delete_cookie(admin_auth.cookie_name, path="/", samesite="strict")
     response.delete_cookie(admin_auth.challenge_cookie_name, path="/", samesite="strict")
     return {"success": True, "authenticated": False}
+
+
+@app.post("/api/admin/self-scan-snapshot", include_in_schema=False)
+async def admin_refresh_self_scan_snapshot(
+    payload: SelfSnapshotRefreshRequest,
+    http_request: FastAPIRequest,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
+    x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
+) -> Dict[str, Any]:
+    """Owner-only controlled self-scan that updates the public guardrail snapshot.
+
+    The public /api/scan guardrail remains intact. This route calls the scanner directly only
+    after fresh owner authentication, so the protected site can maintain a real snapshot
+    without exposing a public bypass.
+    """
+    _require_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
+
+    previous_snapshot = _load_self_snapshot()
+    freshness = _snapshot_freshness(previous_snapshot) if previous_snapshot else {"stale": True}
+    if previous_snapshot and not payload.force and not freshness.get("stale", True):
+        return {
+            "success": True,
+            "updated": False,
+            "reason": "STORED_SNAPSHOT_STILL_FRESH",
+            "snapshot": _public_self_snapshot(previous_snapshot),
+            "freshness": freshness,
+        }
+
+    target = _SELF_SCAN_URL
+    scan_data = await _run_scan_async(target, "Trilloka", "auto")
+    if not scan_data.get("is_reachable"):
+        raise HTTPException(status_code=502, detail="Configured Trilloka self-scan target is unreachable or blocking inspection")
+
+    try:
+        preliminary = scorer.audit_and_score(
+            scan_data=scan_data,
+            business_type="auto",
+            competitor_data_present=None,
+        )
+        try:
+            threshold = float(os.environ.get("TRILLOKA_CONFIRMATION_THRESHOLD_POINTS", "3.5"))
+        except Exception:
+            threshold = 3.5
+        if hasattr(scanner, "confirm_high_impact_findings"):
+            try:
+                confirmation = await scanner.confirm_high_impact_findings(
+                    scan_data, preliminary, "auto", threshold
+                )
+            except Exception as confirm_exc:
+                print(f"[Self Snapshot] High-impact confirmation failed closed — {confirm_exc}")
+                confirmation = {
+                    "completed": True,
+                    "threshold_points": threshold,
+                    "candidate_count": None,
+                    "results": {},
+                    "error": str(confirm_exc),
+                    "policy": "Confirmation failed during protected self-scan; severe first-pass candidates remain unscored.",
+                }
+        else:
+            confirmation = {
+                "completed": True,
+                "threshold_points": threshold,
+                "candidate_count": None,
+                "results": {},
+                "policy": "Confirmation method unavailable during protected self-scan; severe first-pass candidates remain unscored.",
+            }
+        scan_data["high_impact_confirmation"] = confirmation
+
+        audit_results = scorer.audit_and_score(
+            scan_data=scan_data,
+            business_type="auto",
+            competitor_data_present=None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        import traceback
+        print(f"[Self Snapshot] Scoring failed — {exc}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Protected self-scan scoring failed; previous snapshot was left unchanged") from exc
+
+    snapshot = _build_self_snapshot(
+        target_domain=target,
+        scan_data=scan_data,
+        audit_results=audit_results,
+        previous_snapshot=previous_snapshot,
+    )
+    try:
+        _atomic_write_self_snapshot(snapshot)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Self-scan completed but snapshot storage failed: {str(exc)[:160]}") from exc
+
+    return {
+        "success": True,
+        "updated": True,
+        "target_domain": target,
+        "snapshot": _public_self_snapshot(snapshot),
+        "freshness": _snapshot_freshness(snapshot),
+        "storage": {
+            "configured_path": _SELF_SNAPSHOT_FILE,
+            "note": "For 30-day persistence across Render restarts/deploys, point TRILLOKA_SELF_SNAPSHOT_FILE at a persistent-disk path when one is configured.",
+        },
+    }
 
 
 @app.get("/diagnostic")
