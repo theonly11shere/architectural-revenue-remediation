@@ -377,7 +377,7 @@ class _StaticHTMLProbe(HTMLParser):
 
 
 class HybridScanner:
-    ENGINE_VERSION = "v6.9"
+    ENGINE_VERSION = "v6.9.1"
     """Three-phase scanner with evidence confidence and business context."""
 
     def __init__(self, google_api_key: Optional[str] = None):
@@ -1190,14 +1190,28 @@ class HybridScanner:
             target_commercial,
             max_reviews,
         )
+        # Keep reputation-only evidence separate from the combined commercial benchmark.
+        # A competitor with an HTTP-blocked/unprobed website must not be compared with the target
+        # using a differently re-normalized formula. Combined local_index is therefore calculated
+        # only when the competitor homepage was actually probed and produced a commercial score.
         for comp in competitors:
-            comp["local_index"] = self._local_index(comp.get("rating"), comp.get("review_count"), comp.get("commercial_score"), max_reviews)
+            comp["presence_index"] = self._local_index(comp.get("rating"), comp.get("review_count"), None, max_reviews)
+            if comp.get("website_probed") and comp.get("commercial_score") is not None:
+                comp["local_index"] = self._local_index(
+                    comp.get("rating"), comp.get("review_count"), comp.get("commercial_score"), max_reviews
+                )
+            else:
+                comp["local_index"] = None
 
-        scored = [c for c in competitors if c.get("local_index") is not None]
+        scored = [
+            c for c in competitors
+            if c.get("website_probed") and c.get("commercial_score") is not None and c.get("local_index") is not None
+        ]
         ratings = [float(c["rating"]) for c in competitors if c.get("rating") is not None]
         reviews = [int(c.get("review_count") or 0) for c in competitors]
-        commercial = [float(c["commercial_score"]) for c in competitors if c.get("commercial_score") is not None]
-        website_count = sum(bool(c.get("website")) for c in competitors)
+        commercial = [float(c["commercial_score"]) for c in scored if c.get("commercial_score") is not None]
+        website_url_count = sum(bool(c.get("website")) for c in competitors)
+        website_probe_success_count = sum(bool(c.get("website_probed")) for c in competitors)
         avg_index = round(sum(float(c["local_index"]) for c in scored) / len(scored), 1) if scored else None
         top = max(scored, key=lambda c: float(c["local_index"])) if scored else None
         top_index = self._to_float((top or {}).get("local_index"))
@@ -1218,7 +1232,11 @@ class HybridScanner:
             "target_local_index": target_index,
             "sample_count": len(scored),
             "discovered_count": len(competitors),
-            "website_coverage_pct": round(100.0 * website_count / len(competitors), 1) if competitors else None,
+            "places_sample_count": len(competitors),
+            "commercial_benchmark_sample_count": len(scored),
+            "website_url_coverage_pct": round(100.0 * website_url_count / len(competitors), 1) if competitors else None,
+            "website_probe_success_count": website_probe_success_count,
+            "website_coverage_pct": round(100.0 * website_probe_success_count / len(competitors), 1) if competitors else None,
             "local_avg_index": avg_index,
             "local_top_index": top_index,
             "gap_to_local_avg": round(max(0.0, float(avg_index) - float(target_index)), 1) if available else None,
@@ -1234,7 +1252,8 @@ class HybridScanner:
             "competitors": competitors,
             "method_note": (
                 "Nearby businesses are discovered from the target Google Place location and primary type (with a business-type text fallback). "
-                "The Local Benchmark Index compares public Google rating/review signals with a bounded passive inspection of public homepage commercial structure. "
+                "The combined Local Benchmark Index uses only competitors whose public website was successfully probed, so every combined index uses the same commercial + rating + review components. "
+                "Businesses whose websites block the probe remain visible as reputation context but are excluded from the combined local average/leader calculation. "
                 "It is contextual benchmark evidence and does not directly change Revenue Readiness."
             ),
         }
@@ -2081,9 +2100,41 @@ class HybridScanner:
                 second_error_probe = {"external_provider_health": health}
             elif error_url:
                 try:
-                    second_error_probe = await self._run_targeted_playwright(error_url, {}, mode="mobile", capture_evidence=True)
+                    second_error_probe = await self._run_targeted_playwright(
+                        error_url, {}, mode="mobile", capture_evidence=True, post_load_wait_ms=1200
+                    )
                 except Exception as exc:
                     second_error_probe = {"browser_loaded": False, "browser_error": str(exc)}
+
+        # A fresh static-visible-text pass gives an independent second collection method for
+        # deterministic customer-facing errors. It is used only as corroboration of an error
+        # already observed in a rendered customer journey; raw script/source strings alone never confirm it.
+        second_error_static: Dict[str, Any] = {}
+        first_rendered_error_keys: set[str] = set()
+        expected_error_keys: set[str] = set()
+        if error_candidate and error_url:
+            expected_error_keys = {
+                str(x.get("key") or "")
+                for x in (((error_candidate.get("evidence") or {}).get("error_signals") or []))
+                if isinstance(x, dict) and x.get("key")
+            }
+            first_browser = scan_data.get("browser_journey_probe") if isinstance(scan_data, dict) else {}
+            if isinstance(first_browser, dict) and str(first_browser.get("url") or "").rstrip("/") == error_url.rstrip("/"):
+                first_rendered_error_keys = {
+                    str(x.get("key") or "")
+                    for x in (first_browser.get("conversion_error_signals") or [])
+                    if isinstance(x, dict) and x.get("key")
+                }
+            try:
+                r = await asyncio.to_thread(self.session.get, error_url, timeout=(4, 10), allow_redirects=True)
+                if 200 <= int(r.status_code) < 400:
+                    second_error_static = self._extract_static_html_evidence((r.text or "")[:750000], r.url, verified=True)
+                    second_error_static["status_code"] = int(r.status_code)
+                    second_error_static["url"] = r.url
+                else:
+                    second_error_static = {"status_code": int(r.status_code), "url": r.url}
+            except Exception as exc:
+                second_error_static = {"error": str(exc)[:220], "url": error_url}
 
         second_http = None
         if any(str(x.get("rule_key")) == "unsecured_ssl" for x in candidates):
@@ -2138,10 +2189,40 @@ class HybridScanner:
                     confirmed = bool((health or {}).get("broken_count"))
                     observed = health
                     method = "second external booking-provider health check"
-                elif second_error_probe:
-                    confirmed = bool(second_error_probe.get("conversion_error_signals")) if second_error_probe.get("browser_loaded") else None
-                    observed = {"url": error_url, "error_signals": second_error_probe.get("conversion_error_signals") or [], "browser_loaded": second_error_probe.get("browser_loaded")}
-                    method = "second rendered customer-journey pass"
+                elif second_error_probe or second_error_static:
+                    rendered_signals = [x for x in (second_error_probe.get("conversion_error_signals") or []) if isinstance(x, dict)]
+                    static_signals = [x for x in (second_error_static.get("conversion_error_signals") or []) if isinstance(x, dict)]
+                    rendered_keys = {str(x.get("key") or "") for x in rendered_signals if x.get("key")}
+                    static_keys = {str(x.get("key") or "") for x in static_signals if x.get("key")}
+                    expected = expected_error_keys or rendered_keys or static_keys
+                    rendered_match = bool(rendered_keys & expected) if expected else bool(rendered_signals)
+                    static_match = bool(static_keys & expected) if expected else bool(static_signals)
+                    first_rendered_match = bool(first_rendered_error_keys & expected) if expected else bool(first_rendered_error_keys)
+
+                    # Preferred confirmation is a fresh rendered reproduction. If a dynamic widget is
+                    # intermittent, a fresh static-visible reproduction can corroborate the first rendered
+                    # observation. This prevents one clean race-condition render from erasing a real error.
+                    if second_error_probe.get("browser_loaded") and rendered_match:
+                        confirmed = True
+                        method = "second rendered customer-journey pass"
+                    elif first_rendered_match and static_match:
+                        confirmed = True
+                        method = "first rendered observation + fresh static-visible corroboration"
+                    elif second_error_probe.get("browser_loaded") and not rendered_match and not static_match:
+                        confirmed = False
+                        method = "second rendered + fresh static corroboration pass"
+                    else:
+                        confirmed = None
+                        method = "bounded rendered/static customer-journey confirmation"
+                    observed = {
+                        "url": error_url,
+                        "expected_error_keys": sorted(expected),
+                        "first_rendered_error_keys": sorted(first_rendered_error_keys),
+                        "second_rendered_error_keys": sorted(rendered_keys),
+                        "fresh_static_error_keys": sorted(static_keys),
+                        "browser_loaded": second_error_probe.get("browser_loaded"),
+                        "static_status_code": second_error_static.get("status_code"),
+                    }
             elif rule == "form_architecture" and second_home:
                 if second_home.get("browser_loaded"):
                     confirmed = bool(second_home.get("forms_present") and second_home.get("form_action_valid") is False)
@@ -2996,7 +3077,8 @@ class HybridScanner:
             return
 
     async def _run_targeted_playwright(
-        self, url: str, psi_data: Dict[str, Any], mode: str = "mobile", capture_evidence: bool = False
+        self, url: str, psi_data: Dict[str, Any], mode: str = "mobile", capture_evidence: bool = False,
+        post_load_wait_ms: int = 0,
     ) -> Dict[str, Any]:
         results = self._empty_dom_meta()
         audits = (psi_data.get("lighthouseResult") or {}).get("audits") or {}
@@ -3048,6 +3130,8 @@ class HybridScanner:
                 # especially important for reviews, address, phone and policy links that may not be
                 # rendered until the visitor moves down the page.
                 await self._hydrate_lazy_content(page)
+                if post_load_wait_ms and int(post_load_wait_ms) > 0:
+                    await page.wait_for_timeout(max(0, min(5000, int(post_load_wait_ms))))
 
                 ready_state = await page.evaluate("document.readyState")
                 results["dom_complete"] = ready_state == "complete"
