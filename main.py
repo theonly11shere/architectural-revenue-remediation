@@ -94,6 +94,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "X-Trilloka-System-Key", "X-Trilloka-Admin-Session"],
+    expose_headers=["X-Trilloka-Access-Reason", "Retry-After"],
 )
 
 scanner = HybridScanner()
@@ -310,6 +311,7 @@ def health_check() -> Dict[str, Any]:
             "enabled": admin_auth.configured,
             "locked_owner_email": True,
             "session_minutes": round(admin_auth.session_ttl_seconds / 60, 1),
+            "authenticated_scan_bypass": True,
         },
         "scan_access_control": {
             "enabled": access_manager.enabled,
@@ -362,6 +364,30 @@ def _admin_console_html() -> str:
 </div>
 <div id="console" class="hidden">
   <div class="card"><div class="actions"><button id="refresh">Refresh usage</button><button id="listEnt" class="secondary">List entitlements</button><button id="logout" class="danger">Log out</button></div><pre id="output">Authenticated.</pre></div>
+
+  <div class="card">
+    <h2>Owner Internal Scanner</h2>
+    <p class="muted">Authenticated owner scans bypass the public free-scan quota. Public visitors remain limited by the normal access rules.</p>
+    <div class="grid">
+      <input id="ownerScanDomain" placeholder="example.com" autocomplete="off">
+      <select id="ownerScanType">
+        <option value="general">General / Other Business</option>
+        <option value="local_service">Local Services &amp; Trades</option>
+        <option value="professional_service">Professional Services</option>
+        <option value="medspa">MedSpa &amp; Aesthetics</option>
+        <option value="legal">Legal Services</option>
+        <option value="restaurant">Restaurant &amp; Hospitality</option>
+        <option value="ecommerce">E-commerce / Online Store</option>
+        <option value="saas">SaaS &amp; Software</option>
+        <option value="agency">Agency &amp; Creative Services</option>
+        <option value="b2b">B2B Products &amp; Services</option>
+        <option value="creator">Creator &amp; Membership</option>
+      </select>
+    </div>
+    <button id="ownerScan">Your Architectural Analysis</button>
+    <pre id="ownerScanOutput">Enter a domain to run an owner-only fresh analysis.</pre>
+  </div>
+
   <div class="card"><h2>Activate / complimentary plan</h2><div class="grid"><input id="aEmail" placeholder="customer@email.com"><input id="aDomain" placeholder="example.com"><select id="aPlan"><option value="essential_350">$350 Essential</option><option value="advanced_550">$550 Advanced</option><option value="architect_850">$850 Architect</option></select><input id="aRef" placeholder="purchase reference"></div><button id="activate">Activate plan</button></div>
   <div class="card"><h2>Manage customer</h2><div class="grid"><input id="mEmail" placeholder="customer@email.com"><input id="mDomain" placeholder="example.com"><select id="mPlan"><option value="">Keep current plan</option><option value="essential_350">$350 Essential</option><option value="advanced_550">$550 Advanced</option><option value="architect_850">$850 Architect</option></select><input id="extendDays" type="number" placeholder="extend days (+/-)"><input id="newDomain" placeholder="new domain if changing"></div><div class="actions"><button data-act="status">Status</button><button data-act="update">Update plan/expiry</button><button data-act="reset">Reset daily scans</button><button data-act="callplus">Call +1</button><button data-act="callminus">Call -1</button><button data-act="rotate">Rotate pass</button><button data-act="domain">Change domain</button><button data-act="restore">Restore</button><button data-act="revoke" class="danger">Revoke</button></div></div>
 </div>
@@ -376,6 +402,28 @@ $('logout').onclick=async()=>{await api('/api/admin/auth/logout',{method:'POST'}
 function print(j){out.textContent=JSON.stringify(j,null,2)}
 $('refresh').onclick=async()=>{try{print(await api('/api/admin/scan-usage'))}catch(e){out.textContent=e.message}};
 $('listEnt').onclick=async()=>{try{print(await api('/api/admin/entitlements?limit=100'))}catch(e){out.textContent=e.message}};
+$('ownerScan').onclick=async()=>{
+  const domain=$('ownerScanDomain').value.trim();
+  const scanOut=$('ownerScanOutput');
+  if(!domain){scanOut.textContent='Enter a domain first.';return}
+  $('ownerScan').disabled=true;
+  scanOut.textContent='Running your Architectural Analysis...';
+  try{
+    const result=await api('/api/scan',{
+      method:'POST',
+      body:JSON.stringify({
+        domain:domain,
+        business_type:$('ownerScanType').value,
+        force_refresh:true
+      })
+    });
+    scanOut.textContent=JSON.stringify(result,null,2);
+  }catch(e){
+    scanOut.textContent=e.message;
+  }finally{
+    $('ownerScan').disabled=false;
+  }
+};
 $('activate').onclick=async()=>{try{print(await api('/api/admin/activate-plan',{method:'POST',body:JSON.stringify({email:$('aEmail').value,domain:$('aDomain').value,plan_id:$('aPlan').value,purchase_ref:$('aRef').value})}))}catch(e){out.textContent=e.message}};
 document.querySelectorAll('[data-act]').forEach(b=>b.onclick=async()=>{const email=$('mEmail').value,domain=$('mDomain').value,ref={email,domain};let path='',body=ref;switch(b.dataset.act){case'status':path='/api/admin/entitlement/status';break;case'update':path='/api/admin/entitlement/update';body={...ref,plan_id:$('mPlan').value||null,extend_days:$('extendDays').value?Number($('extendDays').value):null};break;case'reset':path='/api/admin/entitlement/reset-daily-usage';break;case'callplus':path='/api/admin/entitlement/guidance-call';body={...ref,delta:1};break;case'callminus':path='/api/admin/entitlement/guidance-call';body={...ref,delta:-1};break;case'rotate':path='/api/admin/entitlement/rotate-pass';break;case'domain':path='/api/admin/entitlement/change-domain';body={...ref,new_domain:$('newDomain').value};break;case'restore':path='/api/admin/entitlement/restore';break;case'revoke':path='/api/admin/entitlement/revoke';break}try{print(await api(path,{method:'POST',body:JSON.stringify(body)}))}catch(e){out.textContent=e.message}});
 status();
