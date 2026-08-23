@@ -1132,6 +1132,11 @@ def _base_success_payload(
         "score_scope": audit_results.get("score_scope", ""),
         "evidence_confidence": audit_results.get("evidence_confidence", {}),
         "maturity_gate": audit_results.get("maturity_gate", {}),
+        # Public modal receives only the existence/count/priority signal, never the omission identities.
+        "foundation_omission_signal": {
+            key: (audit_results.get("foundation_omission_signal") or {}).get(key)
+            for key in ("triggered", "count", "highest_level", "density", "modal_title", "modal_message", "report_section_available")
+        },
         "surface_metrics": audit_results.get("surface_metrics", {}),
         "competitor_benchmark": audit_results.get("competitor_benchmark", {}),
         "key_friction_insight": audit_results.get("key_friction_insight", {}),

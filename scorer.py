@@ -12,15 +12,14 @@ Proof guardrails preserved from v6.8/v6.9:
 - Every scored finding receives an evidence receipt with URL, signal, method, timestamp and confidence.
 
 Scoring philosophy:
-- A functioning site begins from a 50-point operating baseline, not 100.
-- Verified strengths must be earned from real telemetry.
-- Verified leaks subtract weighted points.
-- Unknown evidence is neutral: it earns no strength and creates no penalty.
-- Ordinary good sites should typically land around 60-69 unless core commercial maturity is independently verified.
-- Scores above 70 enter a soft-ceiling zone so very strong sites remain distinguishable without implying near-perfect commercial readiness.
-- The public Revenue Readiness score can never exceed 78/100.
+- Revenue Readiness is earned across three unequal layers rather than starting every functioning site at 50.
+- Foundation is deliberately low-value (22 points), Revenue/User Architecture carries the majority (60), and Elite Architecture is hard-earned (18).
+- Unknown evidence is neutral: it is never a failure, but unverified evidence cannot manufacture earned readiness points.
+- Score impact, intrinsic severity, evidence confidence and financial exposure are distinct outputs.
+- Business/journey relevance changes checkpoint importance; basic SEO hygiene cannot outweigh a verified conversion-path failure.
+- No target distribution or forced average is used. Sites earn whatever score their verified architecture supports.
 
-This score is a Revenue Readiness INDEX, NOT a literal visitor conversion percentage or a claim that 78% of visitors convert.
+This score is a Revenue Readiness INDEX, NOT a literal visitor conversion percentage or revenue forecast.
 """
 
 from __future__ import annotations
@@ -34,7 +33,7 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
 from behavioural_engine import BehaviouralEngine
-from checkpoint_engine import FAIL, PASS, UNKNOWN, NA, build_50_checkpoints, checkpoint_summary
+from checkpoint_engine import FAIL, PASS, UNKNOWN, NA, build_50_checkpoints, checkpoint_summary, build_foundation_omission_signal
 from architecture_model import COMMON_FOUNDATION_IDS, ARCHITECTURAL_CHECKPOINT_IDS, context_has, infer_architecture_profile
 
 
@@ -275,35 +274,33 @@ TIER_PREFIXES = {
 }
 
 
-# Revenue Readiness calibration.
-# Standard strengths represent strong but attainable website fundamentals.
-# Elite bonus points are deliberately gated so 80+ cannot be reached merely by
-# having SSL, a clean H1 and decent PageSpeed.
-OPERATING_BASELINE_SCORE = 50.0
-STANDARD_STRENGTH_CAP = 30.0
-COMMON_FOUNDATION_STRENGTH_CAP = 9.0
-ADAPTIVE_ARCHITECTURE_STRENGTH_CAP = 21.0
-COMMON_FOUNDATION_PENALTY_CAP = 8.0
+# Revenue Readiness three-layer calibration.
+# The point banks deliberately reflect commercial importance rather than giving every
+# checkpoint equal value.  A polished template can earn the basics, but cannot reach
+# a high readiness score without strong journey/user architecture.
+FOUNDATION_LAYER_MAX = 22.0
+REVENUE_ARCHITECTURE_LAYER_MAX = 60.0
 ELITE_BONUS_CAP = 18.0
-REFERENCE_COMPLETENESS_BONUS = 2.0
+MAX_REVENUE_READINESS_SCORE = 100.0
 
-# Public score ceiling.
-# A 78/100 Revenue Readiness score means "exceptionally mature relative readiness",
-# NOT 78% visitor conversion and NOT only 22% of visitors leaking.
-#
-# We use a soft saturation above 70 instead of a blunt hard clamp so an
-# exceptionally strong site can still outrank a merely strong site while no
-# site can ever present an unrealistic 80/90/100-style readiness number.
-MAX_REVENUE_READINESS_SCORE = 78.0
-SOFT_CEILING_START_SCORE = 70.0
+# Legacy constants remain exported for compatibility with older report/integration code,
+# but the operating baseline is no longer used to calculate the score.
+OPERATING_BASELINE_SCORE = 0.0
+STANDARD_STRENGTH_CAP = FOUNDATION_LAYER_MAX + REVENUE_ARCHITECTURE_LAYER_MAX
+COMMON_FOUNDATION_STRENGTH_CAP = FOUNDATION_LAYER_MAX
+ADAPTIVE_ARCHITECTURE_STRENGTH_CAP = REVENUE_ARCHITECTURE_LAYER_MAX
+COMMON_FOUNDATION_PENALTY_CAP = 8.0
+REFERENCE_COMPLETENESS_BONUS = 0.0
+SOFT_CEILING_START_SCORE = 100.0
 SOFT_CEILING_SCALE = 10.0
 
-# Maturity-band caps are eligibility guardrails, not extra deductions.
+# Maturity caps prevent weak evidence from claiming elite readiness, but they no longer
+# compress ordinary sites into a narrow 60-70 band.
 PROVISIONAL_JOURNEY_CAP = 64.0
-FOUNDATIONAL_MATURITY_CAP = 69.0
-STRONG_MATURITY_CAP = 74.0
-EXCEPTIONAL_MATURITY_CAP = 76.0
-REFERENCE_MATURITY_CAP = 78.0
+FOUNDATIONAL_MATURITY_CAP = 78.0
+STRONG_MATURITY_CAP = 90.0
+EXCEPTIONAL_MATURITY_CAP = 96.0
+REFERENCE_MATURITY_CAP = 100.0
 
 LEAK_FAMILY = {
     "click_to_call": "mobile_direct_action",
@@ -488,20 +485,28 @@ class RevenueScorer:
         overlap_adjustments.extend(layer_penalty_adjustments)
         self._attach_evidence_receipts(leaks, scan_data)
 
-        # Harsh-but-defensible calibration:
-        # 50 operating baseline + earned verified strengths + gated elite maturity - verified leaks.
-        # Common SEO/technical hygiene is deliberately capped; adaptive architecture carries most of the score.
+        # Three unequal point banks: Foundation 22, Revenue/User Architecture 60, Elite 18.
+        # The existing strength ledger is retained for diagnostics/maturity evidence, but the
+        # public score is now earned from weighted checkpoint outcomes rather than a 50-point baseline.
         strength_ledger = self._evaluate_strengths(scan_data, biz_type, profile)
         raw_common_strength = round(sum(float(item.get("points") or 0.0) for item in strength_ledger if item.get("analysis_layer") == "common_foundation"), 2)
         raw_adaptive_strength = round(sum(float(item.get("points") or 0.0) for item in strength_ledger if item.get("analysis_layer") != "common_foundation"), 2)
-        common_strength = round(min(COMMON_FOUNDATION_STRENGTH_CAP, raw_common_strength), 2)
-        adaptive_strength = round(min(ADAPTIVE_ARCHITECTURE_STRENGTH_CAP, raw_adaptive_strength), 2)
-        raw_standard_strength = round(raw_common_strength + raw_adaptive_strength, 2)
-        standard_strength = round(min(STANDARD_STRENGTH_CAP, common_strength + adaptive_strength), 2)
 
         common_loss = round(sum(float(leak.get("final_score_loss") or 0.0) for leak in leaks if leak.get("analysis_layer") == "common_foundation"), 2)
         adaptive_loss = round(sum(float(leak.get("final_score_loss") or 0.0) for leak in leaks if leak.get("analysis_layer") != "common_foundation"), 2)
         total_loss = round(common_loss + adaptive_loss, 2)
+
+        foundation_score, foundation_detail = self._score_checkpoint_layer(
+            checkpoints, set(COMMON_FOUNDATION_IDS), FOUNDATION_LAYER_MAX, biz_type, leaks
+        )
+        revenue_architecture_score, revenue_detail = self._score_checkpoint_layer(
+            checkpoints, set(ARCHITECTURAL_CHECKPOINT_IDS), REVENUE_ARCHITECTURE_LAYER_MAX, biz_type, leaks
+        )
+        standard_strength = round(foundation_score + revenue_architecture_score, 2)
+        common_strength = foundation_score
+        adaptive_strength = revenue_architecture_score
+        raw_standard_strength = standard_strength
+
         elite_ledger, elite_bonus = self._evaluate_elite_bonus(
             scan_data=scan_data,
             biz_type=biz_type,
@@ -509,23 +514,12 @@ class RevenueScorer:
             leaks=leaks,
             standard_strength=standard_strength,
         )
+        elite_bonus = round(min(ELITE_BONUS_CAP, elite_bonus), 2)
+        reference_bonus = 0.0
 
-        reference_bonus = self._reference_completeness_bonus(
-            scan_data=scan_data,
-            standard_strength=standard_strength,
-            elite_bonus=elite_bonus,
-            total_loss=total_loss,
-        )
-
-        pre_clamp = (
-            OPERATING_BASELINE_SCORE
-            + standard_strength
-            + elite_bonus
-            + reference_bonus
-            - total_loss
-        )
-        raw_readiness = max(0.0, min(100.0, pre_clamp))
-        preliminary_public_score = round(self._apply_readiness_ceiling(raw_readiness), 3)
+        pre_clamp = foundation_score + revenue_architecture_score + elite_bonus
+        raw_readiness = max(0.0, min(MAX_REVENUE_READINESS_SCORE, pre_clamp))
+        preliminary_public_score = round(raw_readiness, 3)
 
         evidence_confidence = self._build_evidence_confidence(
             cp_summary=cp_summary,
@@ -570,7 +564,8 @@ class RevenueScorer:
         perf = self._safe_float(scan_data.get("performance_score"))
         seo = self._safe_float(scan_data.get("google_seo_score"))
         # Maturity caps express unverified readiness; they must not create extra modeled dollar exposure.
-        exposure = self._revenue_exposure(biz_type, total_loss)
+        exposure = self._revenue_exposure(biz_type, report_leaks, evidence_confidence)
+        foundation_omission_signal = build_foundation_omission_signal(checkpoints, scan_data)
 
         # Preserve the public keys, but do not represent unavailable telemetry as a
         # real score of zero. Availability flags remain explicit for the frontend.
@@ -646,13 +641,16 @@ class RevenueScorer:
             "evidence_confidence": evidence_confidence,
             "maturity_gate": maturity_gate,
             "analysis_layers": {
-                "model": "common_foundation_plus_adaptive_architecture",
+                "model": "three_layer_revenue_readiness",
                 "common_foundation": {
                     "checkpoint_ids": sorted(COMMON_FOUNDATION_IDS),
                     "checkpoint_count": len(COMMON_FOUNDATION_IDS),
                     "strength_raw": raw_common_strength,
-                    "strength_awarded": common_strength,
-                    "strength_cap": COMMON_FOUNDATION_STRENGTH_CAP,
+                    "strength_awarded": foundation_score,
+                    "strength_cap": FOUNDATION_LAYER_MAX,
+                    "layer_score": foundation_score,
+                    "layer_max": FOUNDATION_LAYER_MAX,
+                    "weighted_checkpoint_detail": foundation_detail,
                     "verified_penalty": common_loss,
                     "checkpoint_summary": ((cp_summary.get("layers") or {}).get("common_foundation") or {}),
                     "note": "Universal SEO, HTTPS, performance, mobile and accessibility foundations remain visible but intentionally carry less Revenue Readiness weight than the customer journey.",
@@ -661,8 +659,11 @@ class RevenueScorer:
                     "checkpoint_ids": sorted(ARCHITECTURAL_CHECKPOINT_IDS),
                     "checkpoint_count": len(ARCHITECTURAL_CHECKPOINT_IDS),
                     "strength_raw": raw_adaptive_strength,
-                    "strength_awarded": adaptive_strength,
-                    "strength_cap": ADAPTIVE_ARCHITECTURE_STRENGTH_CAP,
+                    "strength_awarded": revenue_architecture_score,
+                    "strength_cap": REVENUE_ARCHITECTURE_LAYER_MAX,
+                    "layer_score": revenue_architecture_score,
+                    "layer_max": REVENUE_ARCHITECTURE_LAYER_MAX,
+                    "weighted_checkpoint_detail": revenue_detail,
                     "verified_penalty": adaptive_loss,
                     "checkpoint_summary": ((cp_summary.get("layers") or {}).get("adaptive_architecture") or {}),
                     "journey_model": biz_type,
@@ -671,7 +672,14 @@ class RevenueScorer:
                     "provisional": bool(profile.get("provisional")),
                     "note": "High-value scoring adapts to the observed customer journey and context tags rather than an expanding industry taxonomy.",
                 },
+                "elite_architecture": {
+                    "layer_score": elite_bonus,
+                    "layer_max": ELITE_BONUS_CAP,
+                    "verified_elite_signals": elite_ledger,
+                    "note": "Elite points are intentionally difficult to earn and require advanced verified commercial/measurement maturity."
+                },
             },
+            "foundation_omission_signal": foundation_omission_signal,
             "surface_metrics": surface_metrics,
             "competitor_benchmark": competitor_benchmark,
             "key_friction_insight": key_friction,
@@ -685,6 +693,9 @@ class RevenueScorer:
                 "method_note": exposure["method_note"],
                 "model_based": True,
                 "verified_penalty_basis": exposure.get("verified_penalty_basis"),
+                "economic_severity_basis": exposure.get("economic_severity_basis"),
+                "exposure_confidence": exposure.get("confidence"),
+                "exposure_confidence_score": exposure.get("confidence_score"),
                 "measured_revenue_loss": False,
             },
             "ai_spectrum_pct": ai_pct,
@@ -710,7 +721,7 @@ class RevenueScorer:
             "score_semantics": "Revenue Readiness index for observable website architecture; not a literal visitor conversion percentage, sales forecast or business-quality score.",
             "score_scope_exclusions": ["product-market fit", "market demand", "traffic quality", "pricing", "sales-team execution", "offline operations", "actual revenue"],
             "score_ceiling": MAX_REVENUE_READINESS_SCORE,
-            "score_ceiling_note": "78/100 is the maximum public readiness index. It does not mean 78% of visitors convert.",
+            "score_ceiling_note": "100/100 is theoretically available only by earning all three layers; the score is not a visitor conversion percentage.",
             "research_calibration": {
                 "model": "mixed-evidence commercial-priority calibration",
                 "baymard_basis": "Ecommerce checkout only: relative weights are normalized against the mean of Baymard's current avoidable abandonment reasons; survey percentages are never copied directly into deductions.",
@@ -720,18 +731,18 @@ class RevenueScorer:
                 "guardrail": "Research changes relative priority only after the scanner verifies a site-specific condition. Unknown evidence remains neutral.",
             },
             "score_formula": {
-                "operating_baseline": OPERATING_BASELINE_SCORE,
-                "raw_verified_strength_points": raw_standard_strength,
-                "standard_strength_cap": STANDARD_STRENGTH_CAP,
-                "common_foundation_strength_raw": raw_common_strength,
-                "common_foundation_strength_cap": COMMON_FOUNDATION_STRENGTH_CAP,
-                "common_foundation_strength_awarded": common_strength,
-                "adaptive_architecture_strength_raw": raw_adaptive_strength,
-                "adaptive_architecture_strength_cap": ADAPTIVE_ARCHITECTURE_STRENGTH_CAP,
-                "adaptive_architecture_strength_awarded": adaptive_strength,
-                "verified_strength_points_awarded": standard_strength,
+                "method": "three_unequal_earned_layers",
+                "operating_baseline": 0.0,
+                "foundation_layer_score": foundation_score,
+                "foundation_layer_max": FOUNDATION_LAYER_MAX,
+                "revenue_user_architecture_score": revenue_architecture_score,
+                "revenue_user_architecture_max": REVENUE_ARCHITECTURE_LAYER_MAX,
+                "elite_architecture_score": elite_bonus,
+                "elite_architecture_max": ELITE_BONUS_CAP,
                 "elite_bonus_points": elite_bonus,
-                "reference_completeness_bonus": reference_bonus,
+                "raw_verified_strength_points": raw_standard_strength,
+                "verified_strength_points_awarded": standard_strength,
+                "reference_completeness_bonus": 0.0,
                 "total_final_penalty": total_loss,
                 "common_foundation_penalty": common_loss,
                 "adaptive_architecture_penalty": adaptive_loss,
@@ -743,9 +754,70 @@ class RevenueScorer:
                 "maturity_cap_applied": maturity_gate.get("cap_applied"),
                 "public_score_ceiling": MAX_REVENUE_READINESS_SCORE,
                 "soft_ceiling_starts_at": SOFT_CEILING_START_SCORE,
-                "ceiling_method": "soft saturation above 70 plus evidence-backed maturity-band caps; no public score can exceed 78",
+                "ceiling_method": "three earned point banks plus evidence-backed maturity caps; no forced mean or target distribution",
                 "final_score": overall,
             },
+        }
+
+    def _score_checkpoint_layer(
+        self,
+        checkpoints: List[Dict[str, Any]],
+        checkpoint_ids: set[int],
+        layer_max: float,
+        biz_type: str,
+        leaks: List[Dict[str, Any]],
+    ) -> Tuple[float, Dict[str, Any]]:
+        """Earn a layer score from weighted PASS/FAIL evidence without treating UNKNOWN as failure.
+
+        PASS vs FAIL determines verified quality. Evidence coverage controls how much of the
+        layer can be *earned*; UNKNOWN therefore creates no deduction but cannot manufacture
+        readiness. Journey-specific rule weights make revenue-path checks worth more than
+        generic hygiene. Extra verified rules not represented by a checkpoint can reduce the
+        relevant layer without changing their intrinsic severity.
+        """
+        applicable_weight = known_weight = pass_weight = 0.0
+        layer_rules = set()
+        for cp in checkpoints or []:
+            if not isinstance(cp, dict) or int(cp.get("id") or 0) not in checkpoint_ids:
+                continue
+            status = str(cp.get("status") or UNKNOWN).upper()
+            if status == NA:
+                continue
+            rule = str(cp.get("rule_key") or "")
+            layer_rules.add(rule)
+            generic = max(0.25, float(cp.get("report_weight") or 0.0))
+            journey_weight = self._get_base_weight(rule, biz_type) if rule in RULE_BASE_WEIGHTS else generic
+            weight = max(generic, min(12.0, journey_weight))
+            applicable_weight += weight
+            if status in {PASS, FAIL}:
+                known_weight += weight
+                if status == PASS:
+                    pass_weight += weight
+        if known_weight <= 0 or applicable_weight <= 0:
+            return 0.0, {"pass_quality": 0.0, "evidence_coverage": 0.0, "extra_verified_penalty": 0.0}
+        pass_quality = pass_weight / known_weight
+        coverage = known_weight / applicable_weight
+        earned = float(layer_max) * pass_quality * math.sqrt(max(0.0, min(1.0, coverage)))
+        extra_penalty = 0.0
+        for leak in leaks or []:
+            if not isinstance(leak, dict):
+                continue
+            rule = str(leak.get("rule_key") or "")
+            is_common = str(leak.get("analysis_layer") or "") == "common_foundation"
+            target_common = checkpoint_ids == set(COMMON_FOUNDATION_IDS)
+            if is_common != target_common or rule in layer_rules:
+                continue
+            extra_penalty += float(leak.get("final_score_loss") or 0.0) * 0.55
+        extra_penalty = min(float(layer_max) * 0.20, extra_penalty)
+        final = max(0.0, min(float(layer_max), earned - extra_penalty))
+        return round(final, 2), {
+            "pass_quality": round(pass_quality, 4),
+            "evidence_coverage": round(coverage, 4),
+            "applicable_weight": round(applicable_weight, 2),
+            "verified_weight": round(known_weight, 2),
+            "passed_weight": round(pass_weight, 2),
+            "extra_verified_penalty": round(extra_penalty, 2),
+            "method": "weighted pass quality × sqrt(public evidence coverage), minus verified non-checkpoint rule impact",
         }
 
     def _resolve_business_profile(self, scan_data: Dict[str, Any], requested: str) -> Tuple[Dict[str, Any], str]:
@@ -1229,7 +1301,7 @@ class RevenueScorer:
             "verified_penalty_burden_at_most_1_5": total_loss <= 1.5,
             "strongest_customer_conversion_path": conversion_points >= 3.5,
             "at_least_two_trust_proof_signals": int(trust_state["signal_count"]) >= 2,
-            "substantial_standard_strength": standard_strength >= 22.0,
+            "substantial_standard_strength": standard_strength >= 70.0,
             "meaningful_elite_strength": elite_bonus >= 4.0,
         }
         reference_pass = all(reference_gates.values())
@@ -1499,8 +1571,9 @@ class RevenueScorer:
                 "business_multiplier": round(business_multiplier, 3), "research_multiplier": round(research_multiplier, 3),
                 "research_basis": _research_basis(rule_key), "severity_factor": round(severity, 2),
                 "confidence": "high", "confidence_multiplier": 1.0, "substitution_factor": 1.0,
-                "competitor_advantage_bonus": 0.0, "pre_dedupe_penalty": round(pre_dedupe, 2),
-                "family_adjustment": 1.0, "final_score_loss": round(pre_dedupe, 2), "final_severity_score": round(pre_dedupe, 2),
+                "competitor_advantage_bonus": 0.0, "intrinsic_severity_score": round(pre_dedupe, 2), "economic_severity": round(pre_dedupe, 2),
+                "pre_dedupe_penalty": round(pre_dedupe, 2),
+                "family_adjustment": 1.0, "final_score_loss": round(pre_dedupe, 2), "score_impact_points": round(pre_dedupe, 2), "final_severity_score": round(pre_dedupe, 2),
                 "evidence": {"checkpoint_id": checkpoint.get("id"), "checkpoint": checkpoint.get("check"), "evidence": checkpoint.get("evidence")},
                 "source": "Verified 50-point checkpoint evidence",
             })
@@ -1585,7 +1658,8 @@ class RevenueScorer:
         research_multiplier = _research_multiplier(rule_key, biz_type)
         weighted = base_weight * category_multiplier * business_multiplier * research_multiplier
         competitor_bonus = 1.0 if competitor_verified and rule_key in {"click_to_call", "mobile_sticky_cta", "core_web_vitals", "form_architecture", "primary_conversion_path"} else 0.0
-        pre_dedupe = (weighted * severity * conf_mult * substitution) + (competitor_bonus * severity * conf_mult)
+        intrinsic_impact = (weighted * severity * substitution) + (competitor_bonus * severity)
+        pre_dedupe = intrinsic_impact * conf_mult
         common_rule_keys = {"unsecured_ssl", "core_web_vitals", "diluted_h1", "missing_alt_images", "favicon_present", "html_lang_attribute"}
         return {
             "rule_key": rule_key, "family": LEAK_FAMILY.get(rule_key, rule_key),
@@ -1595,8 +1669,11 @@ class RevenueScorer:
             "business_multiplier": round(business_multiplier, 3), "research_multiplier": round(research_multiplier, 3),
             "research_basis": _research_basis(rule_key), "severity_factor": round(severity, 2),
             "confidence": confidence_key, "confidence_multiplier": conf_mult, "substitution_factor": round(substitution, 3),
-            "competitor_advantage_bonus": round(competitor_bonus, 2), "pre_dedupe_penalty": round(pre_dedupe, 2),
-            "family_adjustment": 1.0, "final_score_loss": round(pre_dedupe, 2), "final_severity_score": round(pre_dedupe, 2),
+            "competitor_advantage_bonus": round(competitor_bonus, 2),
+            "intrinsic_severity_score": round(intrinsic_impact, 2), "economic_severity": round(intrinsic_impact, 2),
+            "pre_dedupe_penalty": round(pre_dedupe, 2),
+            "family_adjustment": 1.0, "final_score_loss": round(pre_dedupe, 2), "score_impact_points": round(pre_dedupe, 2),
+            "final_severity_score": round(intrinsic_impact, 2),
             "evidence": evidence, "source": source,
         }
 
@@ -1635,7 +1712,7 @@ class RevenueScorer:
                 leak["confirmation_score_factor"] = factor
                 leak["pre_dedupe_penalty"] = round(float(potential) * factor, 2)
                 leak["final_score_loss"] = round(float(leak.get("final_score_loss") or potential) * factor, 2)
-                leak["final_severity_score"] = leak["final_score_loss"]
+                leak["score_impact_points"] = leak["final_score_loss"]
                 leak["confidence"] = "medium"
                 leak["confidence_multiplier"] = CONFIDENCE_MULTIPLIERS["medium"]
                 leak["description"] = str(leak.get("description") or "") + " The exact public signal was independently corroborated, but not fully reproduced in the rendered confirmation pass; the score effect is intentionally reduced."
@@ -1818,7 +1895,7 @@ class RevenueScorer:
         # The evidence-weighted score loss is the primary ranking signal.
         # Commercial family priority is a tie-breaker, not an override that can
         # place a tiny cosmetic issue above a much larger verified revenue risk.
-        return (loss, priority, severity)
+        return (priority, loss, severity)
 
     def _consolidate_report_families(self, leaks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Collapse related scoring signals into one customer-facing commercial finding.
@@ -1838,9 +1915,13 @@ class RevenueScorer:
             ordered = sorted(items, key=lambda x: float(x.get("final_score_loss") or 0.0), reverse=True)
             primary = dict(ordered[0])
             family_total = round(sum(float(x.get("final_score_loss") or 0.0) for x in ordered), 2)
+            intrinsic_total = round(sum(float(x.get("economic_severity") or x.get("intrinsic_severity_score") or 0.0) for x in ordered), 2)
             primary["final_score_loss"] = family_total
-            primary["final_severity_score"] = family_total
-            primary["severity_score"] = family_total
+            primary["score_impact_points"] = family_total
+            primary["economic_severity"] = intrinsic_total
+            primary["intrinsic_severity_score"] = intrinsic_total
+            primary["final_severity_score"] = intrinsic_total
+            primary["severity_score"] = intrinsic_total
             # Keep the public/report family stable (e.g. "performance") while separately
             # recording the broader deduplication superfamily used to collapse supporting signals.
             original_family = str(ordered[0].get("family") or superfamily)
@@ -1911,7 +1992,10 @@ class RevenueScorer:
             "rule_key": leak.get("rule_key"),
             "family": leak.get("family"),
             "analysis_layer": leak.get("analysis_layer") or "adaptive_architecture",
-            "severity_score": float(leak.get("final_score_loss") or 0.0),
+            "severity_score": float(leak.get("intrinsic_severity_score") or leak.get("final_severity_score") or 0.0),
+            "intrinsic_severity_score": leak.get("intrinsic_severity_score"),
+            "economic_severity": leak.get("economic_severity"),
+            "score_impact_points": leak.get("final_score_loss"),
             "severity_factor": leak.get("severity_factor"),
             "leak_name": str(leak.get("title") or ""),
             "impact_summary": str(leak.get("description") or ""),
@@ -1965,21 +2049,8 @@ class RevenueScorer:
 
     @staticmethod
     def _apply_readiness_ceiling(raw_score: float) -> float:
-        """Map an internally calculated 0-100 readiness value onto the public 0-78 index.
-
-        Values at or below 70 are preserved. Above 70, the curve saturates toward
-        78 so strong sites remain rankable without presenting near-perfect 80/90/100
-        readiness scores.
-        """
-        raw = max(0.0, min(100.0, float(raw_score)))
-        if raw <= SOFT_CEILING_START_SCORE:
-            return raw
-
-        headroom = MAX_REVENUE_READINESS_SCORE - SOFT_CEILING_START_SCORE
-        compressed = SOFT_CEILING_START_SCORE + headroom * (
-            1.0 - math.exp(-(raw - SOFT_CEILING_START_SCORE) / SOFT_CEILING_SCALE)
-        )
-        return min(MAX_REVENUE_READINESS_SCORE, compressed)
+        """Compatibility helper: the three-layer model already has a natural 0-100 ceiling."""
+        return max(0.0, min(MAX_REVENUE_READINESS_SCORE, float(raw_score)))
 
     @staticmethod
     def _get_score_rating(
@@ -1989,32 +2060,22 @@ class RevenueScorer:
         cp_summary: Dict[str, Any] | None = None,
         maturity_gate: Dict[str, Any] | None = None,
     ) -> str:
-        evidence_confidence = evidence_confidence or {}
-        cp_summary = cp_summary or {}
         maturity_gate = maturity_gate or {}
-        evidence_score = float(evidence_confidence.get("score") or 0.0)
-        verified_ratio = float(cp_summary.get("verified_applicable_ratio") or 0.0)
-        provisional = bool(maturity_gate.get("journey_provisional"))
-
-        if provisional:
+        if bool(maturity_gate.get("journey_provisional")):
             return "PROVISIONAL READINESS — CUSTOMER JOURNEY NOT YET RESOLVED"
-        if score >= 77:
-            return "REFERENCE-LEVEL WEBSITE READINESS — HEADROOM STILL EXISTS"
-        if score >= 75:
+        if score >= 90:
+            return "ELITE VERIFIED REVENUE ARCHITECTURE"
+        if score >= 80:
             return "EXCEPTIONAL VERIFIED WEBSITE READINESS"
         if score >= 70:
-            return "STRONG VERIFIED COMMERCIAL MATURITY"
-        if score >= 65:
-            return "STRONG FUNDAMENTALS — ELITE MATURITY NOT FULLY VERIFIED"
-        if score >= 50:
-            if (evidence_score < 82 or verified_ratio < 0.78) and float(total_loss or 0.0) < 4.0:
-                return "MODERATE READINESS — MATERIAL EVIDENCE GAPS"
-            return "MATERIAL REMEDIATION OPPORTUNITY"
-        if score >= 35:
-            if evidence_score < 70 and float(total_loss or 0.0) < 6.0:
-                return "LOW VERIFIED READINESS — EVIDENCE ALSO INCOMPLETE"
-            return "HIGH STRUCTURAL / CONVERSION RISK"
-        return "SEVERE STRUCTURAL / CONVERSION RISK"
+            return "STRONG REVENUE ARCHITECTURE"
+        if score >= 55:
+            return "FUNCTIONAL FOUNDATION — MATERIAL COMMERCIAL HEADROOM"
+        if score >= 40:
+            return "MATERIAL REVENUE / EXPERIENCE WEAKNESSES"
+        if score >= 25:
+            return "SIGNIFICANT STRUCTURAL / CONVERSION RISK"
+        return "CRITICAL REVENUE ARCHITECTURE WEAKNESS"
 
     def _get_vault_id(self, score: float) -> str:
         if score >= 77:
@@ -2036,51 +2097,78 @@ class RevenueScorer:
         return f"Low Template Pattern — {cms}"
 
     @staticmethod
-    def _revenue_exposure(biz_type: str, total_loss: float) -> Dict[str, Any]:
-        """Return a conservative *diagnostic* exposure proxy from verified leak burden only.
+    def _revenue_exposure(
+        biz_type: str,
+        leaks: List[Dict[str, Any]],
+        evidence_confidence: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        """Model plausible financial exposure independently from score deductions.
 
-        Missing evidence, maturity-band caps and an unverified distance from a theoretical score ceiling
-        must never create dollar exposure.  The absolute range is still only a model-based prioritization
-        aid because Trilloka does not know the customer's traffic, close rate, average order value or
-        accounting revenue.  Confidence weighting has already been applied to ``total_loss`` upstream.
+        Economic magnitude uses intrinsic verified issue severity + journey economics.
+        Evidence confidence changes the confidence label/range width, not the website's
+        intrinsic issue severity.  No claim of measured loss is made without business data.
         """
-        verified_loss = max(0.0, min(18.0, float(total_loss or 0.0)))
-        if verified_loss <= 0.05:
+        items = [x for x in (leaks or []) if isinstance(x, dict)]
+        economic_units = 0.0
+        confidence_weighted = 0.0
+        conf_map = {"high": 1.0, "medium": 0.65, "low": 0.35, "unknown": 0.0}
+        for leak in items:
+            intrinsic = float(leak.get("economic_severity") or leak.get("intrinsic_severity_score") or 0.0)
+            if intrinsic <= 0:
+                sev = max(0.0, min(1.0, float(leak.get("severity_factor") or 0.0)))
+                base = max(0.0, float(leak.get("base_impact_weight") or 0.0))
+                intrinsic = sev * base
+            # Bound one issue so a single heuristic cannot dominate the whole model.
+            intrinsic = min(12.0, max(0.0, intrinsic))
+            economic_units += intrinsic
+            confidence_weighted += intrinsic * conf_map.get(str(leak.get("confidence") or "unknown").lower(), 0.0)
+        economic_units = min(28.0, economic_units)
+        issue_conf = (confidence_weighted / economic_units) if economic_units > 0 else 0.0
+        scan_conf = float((evidence_confidence or {}).get("score") or 0.0) / 100.0
+        combined_conf = max(0.0, min(1.0, issue_conf * 0.75 + scan_conf * 0.25)) if economic_units else 0.0
+
+        # Journey-specific economics represent relative customer-value/transaction stakes,
+        # not claimed client revenue.  High-ticket lead/demo journeys therefore produce
+        # materially different ranges from low-value/general sites for the same architecture issue.
+        unit_ranges = {
+            "general": (700.0, 2200.0),
+            "lead_quote": (1800.0, 6000.0),
+            "appointment_consultation": (1300.0, 4200.0),
+            "reservation_event": (900.0, 3000.0),
+            "direct_purchase": (1400.0, 4500.0),
+            "demo_sales": (2200.0, 7500.0),
+            "membership_subscription": (800.0, 2600.0),
+        }
+        low_unit, high_unit = unit_ranges.get(biz_type, unit_ranges["general"])
+        # Confidence narrows/lowers the floor but does not erase the plausible upper economic
+        # magnitude simply because public telemetry is incomplete.
+        lower_factor = 0.30 + 0.70 * combined_conf
+        upper_factor = 0.70 + 0.30 * combined_conf
+        annual_min = int(round((economic_units * low_unit * lower_factor) / 100.0) * 100)
+        annual_max = int(round((economic_units * high_unit * upper_factor) / 100.0) * 100)
+        annual_max = max(annual_max, annual_min)
+        if economic_units <= 0.10:
             level = "VERY LOW"
-        elif verified_loss <= 1.5:
+        elif economic_units <= 2.0:
             level = "LOW"
-        elif verified_loss <= 4.0:
+        elif economic_units <= 5.0:
             level = "MODERATE"
-        elif verified_loss <= 8.0:
+        elif economic_units <= 10.0:
             level = "HIGH"
         else:
             level = "VERY HIGH"
-
-        # Broad journey economics proxy. These are deliberately conservative and are never presented
-        # as measured lost revenue. A future upgrade can replace them with customer-supplied economics.
-        multipliers = {
-            "general": (250.0, 600.0),
-            "lead_quote": (450.0, 1050.0),
-            "appointment_consultation": (500.0, 1200.0),
-            "reservation_event": (400.0, 1050.0),
-            "direct_purchase": (450.0, 1100.0),
-            "demo_sales": (650.0, 1500.0),
-            "membership_subscription": (300.0, 800.0),
-        }
-        low_mult, high_mult = multipliers.get(biz_type, multipliers["general"])
-        annual_min = int(round((verified_loss * low_mult) / 100.0) * 100)
-        annual_max = int(round((verified_loss * high_mult) / 100.0) * 100)
-        annual_max = max(annual_max, annual_min)
+        confidence_label = "HIGH" if combined_conf >= 0.80 else ("MODERATE" if combined_conf >= 0.55 else ("LOW" if combined_conf > 0 else "NONE"))
         range_text = f"${annual_min:,} – ${annual_max:,} / year"
         return {
             "level": level, "min": annual_min, "max": annual_max, "range": range_text,
-            "verified_penalty_basis": round(verified_loss, 2),
+            "economic_severity_basis": round(economic_units, 2),
+            "verified_penalty_basis": round(sum(float(x.get("final_score_loss") or 0.0) for x in items), 2),
+            "confidence": confidence_label, "confidence_score": round(combined_conf * 100.0, 1),
             "display": f"{range_text} — {level} model-based exposure",
             "method_note": (
-                "Conservative model-based exposure proxy derived only from verified, confidence-weighted "
-                "architectural leak severity and the inferred customer journey. Missing evidence, UNKNOWN "
-                "checkpoints and maturity score caps do not create dollar exposure. This is not measured "
-                "accounting loss, a revenue forecast or proof that remediation will produce this amount."
+                "Model-based potential exposure derived from intrinsic verified issue severity and journey-specific economic stakes, "
+                "not from the final score deduction. Evidence confidence controls the confidence/range calibration separately. "
+                "This is not measured accounting loss, a traffic forecast, or proof that remediation will produce this amount."
             ),
         }
 

@@ -99,6 +99,139 @@ DEDICATED_CHECKPOINT_RULES = {
 }
 
 
+# A deliberately small whitelist of verified omissions that represent elementary
+# website architecture, not advanced optimization.  These signals are reported
+# separately from score severity and revenue exposure so a low-point hygiene item
+# can still be surfaced as a basic implementation oversight without being inflated
+# into a major financial claim.
+FOUNDATION_OMISSION_META: Dict[int, Dict[str, str]] = {
+    1: {
+        "level": "CRITICAL",
+        "title": "Secure HTTPS Foundation Missing",
+        "why": "A modern public website should serve customers over HTTPS before advanced optimization is considered.",
+        "solution": "Install/repair the TLS certificate, serve the public site on HTTPS, and recheck all primary URLs and assets.",
+    },
+    2: {
+        "level": "IMPORTANT",
+        "title": "HTTPS Redirect Enforcement Missing",
+        "why": "A secure site should consistently send HTTP visitors to the canonical HTTPS version.",
+        "solution": "Configure a permanent HTTP-to-HTTPS redirect at the CDN/server layer and verify there are no loops or mixed destinations.",
+    },
+    16: {
+        "level": "BASIC",
+        "title": "Meta Description Missing",
+        "why": "A primary page should provide a basic search-result description even though search engines may rewrite it.",
+        "solution": "Add a concise page-specific meta description that accurately describes the page and its customer purpose.",
+    },
+    18: {
+        "level": "BASIC",
+        "title": "Primary H1 Hierarchy Missing",
+        "why": "A primary page should expose one clear main heading that communicates its topic to visitors and document structure.",
+        "solution": "Add or correct one clear primary H1 that accurately represents the page's main purpose; keep supporting headings subordinate.",
+    },
+    22: {
+        "level": "BASIC",
+        "title": "Canonical URL Signal Missing",
+        "why": "A canonical declaration is a basic indexing-control signal on modern production pages.",
+        "solution": "Add a self-referencing or otherwise correct canonical URL in the document head and verify it resolves to the intended public page.",
+    },
+    24: {
+        "level": "IMPORTANT",
+        "title": "Robots.txt Foundation Invalid or Missing",
+        "why": "Robots controls are basic crawl-management infrastructure and should not be accidentally absent or malformed.",
+        "solution": "Publish a valid robots.txt at the site root, confirm intended crawl rules, and make sure important public sections are not blocked by mistake.",
+    },
+    31: {
+        "level": "CRITICAL",
+        "title": "Mobile Viewport Foundation Missing",
+        "why": "A responsive mobile viewport is a basic requirement for modern mobile browsing, not an elite optimization.",
+        "solution": "Add a valid viewport meta declaration and verify the primary pages render at device width without forced desktop scaling.",
+    },
+}
+
+_FOUNDATION_LEVEL_ORDER = {"BASIC": 1, "IMPORTANT": 2, "CRITICAL": 3}
+
+def build_foundation_omission_signal(
+    checkpoints: List[Dict[str, Any]],
+    scan_data: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """Return a separate basic-omission alert from *verified* foundation failures only.
+
+    UNKNOWN and NOT_APPLICABLE never trigger the signal.  The result intentionally
+    does not change checkpoint severity, score impact, or modeled revenue exposure.
+    It exists to distinguish an elementary implementation omission from a large
+    commercial leak.
+    """
+    scan = scan_data if isinstance(scan_data, dict) else {}
+    omissions: List[Dict[str, Any]] = []
+    by_id = {int(item.get("id") or 0): item for item in (checkpoints or []) if isinstance(item, dict)}
+    observed_url = str(scan.get("final_url") or scan.get("url") or scan.get("domain") or "")
+
+    for cp_id, meta in FOUNDATION_OMISSION_META.items():
+        cp = by_id.get(cp_id)
+        if not cp or str(cp.get("status") or "").upper() != FAIL:
+            continue
+        omissions.append({
+            "checkpoint_id": cp_id,
+            "rule_key": cp.get("rule_key"),
+            "check": cp.get("check"),
+            "classification": "FOUNDATIONAL_OMISSION",
+            "level": meta["level"],
+            "title": meta["title"],
+            "why_it_matters": meta["why"],
+            "recommended_change": meta["solution"],
+            "observed_url": observed_url,
+            "evidence": cp.get("evidence"),
+            "source_note": cp.get("customer_note") or cp.get("reason") or "Verified public checkpoint failure.",
+        })
+
+    # Missing <title> is too basic to ignore, but checkpoint 20 intentionally treats
+    # an absent title as UNKNOWN because it is a length heuristic.  Raise this
+    # separate omission only when document/metadata evidence was actually verified.
+    metadata_verified = bool(scan.get("metadata_evidence_status") == "verified" or scan.get("browser_loaded") or scan.get("static_html_verified"))
+    if metadata_verified and not str(scan.get("title") or "").strip():
+        omissions.append({
+            "checkpoint_id": None,
+            "rule_key": "title_missing_basic_omission",
+            "check": "Primary Page Title Present",
+            "classification": "FOUNDATIONAL_OMISSION",
+            "level": "BASIC",
+            "title": "Primary Page Title Missing",
+            "why_it_matters": "A production page should have a meaningful document title before advanced search or conversion optimization.",
+            "recommended_change": "Add a concise, page-specific <title> that identifies the business/page purpose and verify it in the rendered document head.",
+            "observed_url": observed_url,
+            "evidence": {"title": scan.get("title"), "metadata_evidence_status": scan.get("metadata_evidence_status")},
+            "source_note": "The inspected document exposed no usable page title.",
+        })
+
+    omissions.sort(key=lambda item: (_FOUNDATION_LEVEL_ORDER.get(str(item.get("level") or "BASIC"), 0), -(int(item.get("checkpoint_id") or 999))), reverse=True)
+    count = len(omissions)
+    highest = max((str(item.get("level") or "BASIC") for item in omissions), key=lambda x: _FOUNDATION_LEVEL_ORDER.get(x, 0), default="NONE")
+    if count == 0:
+        density = "CLEAN"
+    elif count == 1:
+        density = "ISOLATED_OVERSIGHT"
+    elif count <= 3:
+        density = "FOUNDATION_ATTENTION_REQUIRED"
+    else:
+        density = "FOUNDATION_CONTROL_FAILURE"
+    return {
+        "triggered": bool(omissions),
+        "count": count,
+        "highest_level": highest,
+        "density": density,
+        "modal_title": "Critical Foundation Notice" if highest == "CRITICAL" else "Foundation Notice",
+        "modal_message": (
+            f"{count} verified basic website omission{'s' if count != 1 else ''} detected. Review these foundational items before advanced optimization."
+            if count else "No verified basic foundation omissions detected."
+        ),
+        "public_modal_disclose_items": False,
+        "report_section_available": bool(omissions),
+        "omissions": omissions,
+        "note": "This signal is separate from revenue severity and score impact. UNKNOWN and NOT_APPLICABLE checkpoints never trigger it.",
+    }
+
+
 def _safe_float(value: Any) -> float | None:
     try:
         parsed = float(value) if value is not None else None
