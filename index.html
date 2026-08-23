@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="theme-color" content="#090B12">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>Trilloka | Architectural Revenue Remediation</title>
-<meta name="description" content="Most websites look fine but hemorrhage conversions. We audit your architecture, identify the exact holes where money escapes, and hand you the blueprint to patch them.">
+<title>Trilloka | Architectural Revenue Remediator</title>
+<meta name="description" content="Trilloka is a website revenue remediator and conversion audit scanner that checks commercial paths, conversion friction, performance, trust and content sameness using research-calibrated evidence.">
 <link rel="canonical" href="https://trilloka.com/">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -75,6 +75,7 @@ nav {
   background: rgba(9,11,18,0.92);
   backdrop-filter: blur(20px);
   border-bottom: 1px solid rgba(216,182,106,0.15);
+  padding-top: env(safe-area-inset-top);
 }
 .nav-inner {
   display: flex;
@@ -120,7 +121,11 @@ nav {
   background: none;
   border: none;
   cursor: pointer;
-  padding: 8px;
+  padding: 12px;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
   z-index: 1001;
 }
 .hamburger span {
@@ -147,6 +152,7 @@ nav {
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.3s ease;
+  padding-bottom: env(safe-area-inset-bottom);
 }
 .mobile-menu.open {
   opacity: 1;
@@ -212,7 +218,7 @@ section { padding: 4rem 0; }
 footer {
   background: var(--charcoal);
   border-top: 1px solid #2A3040;
-  padding: 3rem 0 1.5rem;
+  padding: 3rem 0 calc(1.5rem + env(safe-area-inset-bottom));
 }
 .footer-grid {
   display: grid;
@@ -265,6 +271,7 @@ footer {
   z-index: 2000;
   padding: 0.75rem;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .modal-overlay.active { display: flex; }
 .modal {
@@ -294,6 +301,7 @@ footer {
   overflow-y: auto;
   min-height: 0;
   padding: 1.5rem;
+  -webkit-overflow-scrolling: touch;
 }
 @keyframes modalSlide {
   from { opacity: 0; transform: translateY(20px) scale(0.96); }
@@ -307,13 +315,14 @@ footer {
   color: var(--mist);
   font-size: 1.5rem;
   cursor: pointer;
-  width: 40px; height: 40px;
+  width: 44px; height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 8px;
   transition: all 0.2s;
   z-index: 10;
+  touch-action: manipulation;
 }
 .modal-close:hover {
   background: rgba(242,240,232,0.08);
@@ -355,23 +364,28 @@ footer {
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
+
+/* Scanner box styling */
 .scanner-box {
   background: #121621;
   border: 1px solid #2A3040;
   border-radius: 16px;
-  padding: 1.5rem;
-  margin: 1.5rem 0;
+  padding: 2rem;
+  margin: 1.5rem auto;
+  width: 100%;
 }
 .scan-input-wrap {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 1rem;
+  width: 100%;
 }
-.scan-input-wrap input {
+.scan-input-wrap input,
+.scan-input-wrap select {
   width: 100%;
   padding: 1rem 1.25rem;
-  font-size: 1.05rem;
-  background: #121621;
+  font-size: 16px;
+  background: #090B12;
   border: 1px solid #40546A;
   border-radius: 8px;
   color: var(--white);
@@ -380,7 +394,8 @@ footer {
   min-height: 52px;
   letter-spacing: 0.01em;
 }
-.scan-input-wrap input:focus {
+.scan-input-wrap input:focus,
+.scan-input-wrap select:focus {
   border-color: var(--copper);
   box-shadow: 0 0 0 3px rgba(216,182,106,0.12);
 }
@@ -528,6 +543,7 @@ footer {
   text-decoration: none;
   color: inherit;
   transition: border-color 0.2s;
+  min-height: 48px;
 }
 .contact-item:hover { border-color: rgba(216,182,106,0.3); }
 .contact-item .label {
@@ -658,15 +674,15 @@ footer {
 }
 .page-hero {
   position: relative;
-  padding-top: 10rem;
-  padding-bottom: 5rem;
+  padding-top: calc(7rem + env(safe-area-inset-top));
+  padding-bottom: 4rem;
   text-align: center;
   background-image: url('satirwaytojoy.jpg');
   background-size: cover;
   background-position: center 40%;
   background-repeat: no-repeat;
   overflow: hidden;
-  min-height: 70vh;
+  min-height: 65vh;
   display: flex;
   align-items: center;
 }
@@ -709,16 +725,20 @@ footer {
 .problem-boxes {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 1rem;
-  max-width: 640px;
-  margin: 0 auto 3rem;
+  gap: 1.5rem;
+  max-width: 900px;
+  margin: 0 auto 2rem;
+  align-items: stretch;
 }
 .problem-box {
   background: #121621;
   border: 1px solid #2A3040;
   border-radius: 12px;
-  padding: 1.25rem 1.5rem;
+  padding: 2rem;
   text-align: left;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 .problem-box h4 {
   font-family: 'Playfair Display', serif;
@@ -764,18 +784,6 @@ footer {
 .scanner-heading p {
   font-size: 0.9rem;
   color: var(--mist);
-}
-
-/* Bottom tag */
-.bottom-tag {
-  text-align: center;
-  padding: 2rem 0 0;
-}
-.bottom-tag p {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--sand);
 }
 
 /* Digital Twin UI */
@@ -891,7 +899,7 @@ footer {
   z-index: 40;
   background: linear-gradient(180deg, rgba(18,22,33,0.98) 0%, rgba(9,11,18,0.99) 100%);
   border-top: 1px solid rgba(216,182,106,0.25);
-  padding: 24px 28px 28px;
+  padding: 20px 24px calc(24px + env(safe-area-inset-bottom));
   border-radius: 16px 16px 0 0;
   box-shadow: 0 -12px 40px rgba(0,0,0,0.6);
   backdrop-filter: blur(12px);
@@ -937,12 +945,13 @@ footer {
   background: rgba(242,240,232,0.06);
   border: 1px solid rgba(242,240,232,0.1);
   color: var(--mist);
-  width: 28px; height: 28px;
+  width: 36px; height: 36px;
   border-radius: 50%;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  font-size: 16px;
+  font-size: 18px;
   transition: all 0.2s;
+  touch-action: manipulation;
 }
 .focus-close:hover {
   background: rgba(242,240,232,0.15);
@@ -1026,18 +1035,112 @@ footer {
   .footer-grid { grid-template-columns: repeat(3, 1fr); }
   .pricing-grid { grid-template-columns: repeat(2, 1fr); }
   .contact-grid { grid-template-columns: repeat(3, 1fr); }
-  .scan-input-wrap { flex-direction: row; }
-  .scan-input-wrap input { flex: 1; }
+  .scan-input-wrap { flex-direction: row; align-items: center; }
+  .scan-input-wrap input { flex: 2; }
+  .scan-input-wrap select { flex: 1.2; }
+  .scan-input-wrap button { flex: 1; white-space: nowrap; }
   .problem-boxes { grid-template-columns: repeat(2, 1fr); }
 }
+@media (max-width: 768px) {
+  .desktop-only { display: none !important; }
+}
 @media (max-width: 639px) {
-  .focus-panel { padding: 16px 20px 24px; border-radius: 12px 12px 0 0; }
+  .page-hero {
+    padding-top: calc(5.5rem + env(safe-area-inset-top));
+    padding-bottom: 2.5rem;
+    min-height: auto;
+  }
+  .focus-panel { padding: 16px 20px calc(20px + env(safe-area-inset-bottom)); border-radius: 12px 12px 0 0; }
   .focus-value { font-size: 26px; }
   .focus-bar-lbl { width: 70px; font-size: 10px; }
   .score-hero .big-score { font-size: clamp(3rem, 12vw, 4rem); }
-  .modal { max-width: 100%; border-radius: 12px; }
-  .modal-body { padding: 1.25rem; }
+  .modal { max-width: 100%; border-radius: 16px 16px 0 0; margin-top: auto; }
+  .modal-body { padding: 1.25rem 1rem; }
+  .scanner-box { padding: 1.25rem; }
 }
+
+/* Revenue Remediator content sections */
+.hero-kicker{max-width:760px;margin:0 auto 1rem;font-size:clamp(.95rem,2vw,1.08rem);color:var(--mist)}
+.hero-action-row{display:flex;justify-content:center;gap:.75rem;flex-wrap:wrap;margin-top:1.25rem}
+.research-section{padding:3.5rem 0}.research-shell{max-width:900px;margin:0 auto}
+.fact-rotator{position:relative;min-height:245px;background:radial-gradient(circle at 15% 20%,rgba(216,182,106,.08),transparent 35%),#121621;border:1px solid #2A3040;border-radius:16px;padding:clamp(1.4rem,4vw,2.4rem);overflow:hidden}
+.fact-topline{display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:1.25rem}.fact-badge{display:inline-flex;align-items:center;gap:.45rem;color:var(--copper);font-size:.72rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase}.fact-counter{font-size:.72rem;color:var(--sand);letter-spacing:.08em}
+.fact-stage{min-height:120px;display:flex;align-items:center}.fact-item{display:none;animation:factFade .45s ease}.fact-item.active{display:block}.fact-stat{font-family:'Playfair Display',Georgia,serif;font-size:clamp(2.2rem,8vw,4.6rem);line-height:.95;color:var(--white);margin-bottom:.7rem}.fact-text{color:var(--mist);font-size:clamp(.95rem,2.2vw,1.08rem);max-width:720px;line-height:1.55}.fact-source{margin-top:.9rem;font-size:.75rem;color:var(--sand)}.fact-source a{color:#8FA7B3;text-decoration:none;border-bottom:1px solid rgba(143,167,179,.35)}
+.fact-controls{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-top:1.25rem}.fact-dots{display:flex;gap:.35rem;flex-wrap:wrap}.fact-dot{width:6px;height:6px;border-radius:999px;border:0;background:#40546A;padding:0;min-width:6px;min-height:6px;cursor:pointer}.fact-dot.active{width:20px;background:var(--copper)}.fact-nav{display:flex;gap:.5rem}.fact-nav button{width:38px;height:38px;border-radius:999px;border:1px solid #40546A;background:#090B12;color:var(--white);cursor:pointer;font-size:1rem}.fact-progress{position:absolute;left:0;bottom:0;height:2px;width:0;background:var(--copper)}.fact-progress.running{animation:factProgress 8s linear forwards}
+@keyframes factFade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}@keyframes factProgress{from{width:0}to{width:100%}}
+.method-grid{display:grid;grid-template-columns:1fr;gap:1rem;margin-top:1.5rem}.method-card{background:#121621;border:1px solid #2A3040;border-radius:12px;padding:1.25rem}.method-card .mini-label{color:var(--copper);font-size:.7rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.45rem}.method-card h3{font-size:1.05rem;margin-bottom:.45rem}.method-card p{font-size:.86rem;line-height:1.55}.score-formula{max-width:860px;margin:1.5rem auto 0;border:1px solid rgba(216,182,106,.25);background:rgba(216,182,106,.05);border-radius:12px;padding:1.1rem 1.25rem;text-align:center;color:var(--sand);font-size:.85rem}.score-formula strong{color:var(--white)}.quick-note{max-width:860px;margin:1rem auto 0;text-align:center;color:var(--sand);font-size:.78rem;line-height:1.55}
+@media(min-width:768px){.method-grid{grid-template-columns:repeat(4,1fr)}.pricing-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:639px){.fact-rotator{min-height:280px}.fact-topline{align-items:flex-start}.fact-controls{align-items:flex-end}}
+
+
+.hero-kicker-stack {
+  display: grid;
+  gap: 0.55rem;
+  text-align: center;
+}
+.hero-but {
+  width: fit-content;
+  margin: 0 auto;
+  color: var(--copper);
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(1.15rem, 2.6vw, 1.55rem);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+#scanner {
+  padding: 4.5rem 0 4rem !important;
+}
+#scanner .container {
+  max-width: 1120px !important;
+}
+#scanner .scanner-heading h3 {
+  font-size: clamp(1.65rem, 4vw, 2.35rem);
+}
+#scanner .scanner-heading p {
+  font-size: clamp(0.95rem, 2vw, 1.05rem);
+}
+#scanner .scanner-box {
+  padding: clamp(1.75rem, 5vw, 3rem);
+  min-height: 175px;
+  border-color: rgba(216,182,106,0.22);
+  box-shadow: 0 18px 60px rgba(0,0,0,0.22);
+}
+#why-it-matters .research-shell {
+  max-width: 820px;
+}
+#why-it-matters .fact-rotator {
+  min-height: 220px;
+}
+@media (max-width: 639px) {
+  #scanner {
+    padding: 3.25rem 0 3rem !important;
+  }
+  #scanner .scanner-box {
+    min-height: 0;
+  }
+}
+
+
+/* Sharper hero hierarchy */
+.page-hero h1 {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(1.85rem, 4.2vw, 2.75rem);
+  font-weight: 800;
+  line-height: 1.04;
+  letter-spacing: -0.025em;
+  text-transform: none;
+  max-width: 960px;
+}
+.page-hero .subtitle {
+  letter-spacing: 0.16em;
+}
+@media (max-width: 639px) {
+  .page-hero h1 {
+    font-size: clamp(1.55rem, 7.4vw, 2.05rem);
+    line-height: 1.06;
+  }
+}
+
 </style>
 </head>
 <body>
@@ -1048,12 +1151,11 @@ footer {
       <span>TRILLOKA</span>
     </a>
     <ul class="nav-links">
-      <li><a href="#" class="active">Home</a></li>
-      <li><a href="#scanner">Diagnostic Scanner</a></li>
-      <li><a href="#about">Philosophy</a></li>
-      <li><a href="disclaimer.html">Disclaimer & Legal</a></li>
+      <li><a href="solutions.html">Solutions</a></li>
+      <li><a href="why-us.html">Why Us</a></li>
+      <li><a href="chilloka.html">Chilloka</a></li>
     </ul>
-    <button class="btn btn-outline" onclick="showPhonePopup()">Contact Architect</button>
+    <button class="btn btn-outline desktop-only" onclick="showPhonePopup()">Contact Architect</button>
     <button class="hamburger" id="hamburger" onclick="toggleMenu()" aria-label="Toggle Navigation">
       <span></span>
       <span></span>
@@ -1063,64 +1165,55 @@ footer {
 </nav>
 
 <div class="mobile-menu" id="mobileMenu">
-  <a href="#" onclick="closeMenu()">Home</a>
-  <a href="#scanner" onclick="closeMenu()">Diagnostic Scanner</a>
-  <a href="#about" onclick="closeMenu()">Philosophy</a>
-  <a href="disclaimer.html" onclick="closeMenu()">Disclaimer & Legal</a>
+  <a href="solutions.html" onclick="closeMenu()">Solutions</a>
+  <a href="why-us.html" onclick="closeMenu()">Why Us</a>
+  <a href="chilloka.html" onclick="closeMenu()">Chilloka</a>
   <button class="btn btn-primary" onclick="closeMenu(); showPhonePopup();">Contact Architect</button>
 </div>
 
 <main>
   <section class="page-hero">
     <div class="container">
-      <div class="subtitle">Architectural Revenue Remediation</div>
-      <h1>Stop Hemorrhaging Revenue.</h1>
-      <p>Most sites look polished but quietly bleed high-value conversions. We audit the underlying infrastructure, expose exact leakage points, and hand you the architectural blueprint to remediate them.</p>
-      
-      <div class="problem-boxes">
-        <div class="problem-box">
-          <h4>The Surface Fallacy</h4>
-          <p>Slick animations and high-resolution templates can easily mask severe underlying flaws:</p>
-          <ul>
-            <li>Missing conversion triggers and dead CTA paths</li>
-            <li>Fragile mobile rendering and viewport bugs</li>
-            <li>Zero behavioral tracking or analytic evidence</li>
-          </ul>
-        </div>
-        <div class="problem-box">
-          <h4>Invisible Conversion Friction</h4>
-          <p>When potential clients run into micro-friction, they leave without notifying you:</p>
-          <ul>
-            <li>Over 70% of digital funnel drop-offs happen unmonitored</li>
-            <li>Page speed dips directly penalize paid campaign ROI</li>
-            <li>Generic templates erode trust before your pitch starts</li>
-          </ul>
-        </div>
+      <div class="subtitle">Architectural Revenue Remediator</div>
+      <h1>Your business doesn't need just another 'AI built website',<br>But a structured weapon to win the 'Anyone can use AI' fight.</h1>
+
+      <div class="hero-kicker hero-kicker-stack">
+        <div>AI can make a site look polished fast.</div>
+        <div class="hero-but">BUT</div>
+        <div>Revenue still depends on what happens after the clicks: trust, speed, clarity, forms, checkout and the path to action.</div>
+      </div>
+
+      <div class="hero-action-row">
+        <a class="btn btn-primary" href="#scanner">Get Instant Revenue Remediation</a>
+        <a class="btn btn-outline" href="#why-it-matters">See What It Measures</a>
       </div>
     </div>
   </section>
 
   <section id="scanner" style="padding-top:0;">
-    <div class="container" style="max-width:640px;">
+    <div class="container" style="max-width:900px;">
       <div class="scanner-heading">
-        <h3>Instant Architectural Scan</h3>
-        <p>Enter your domain below to run a real-time revenue readiness diagnostic.</p>
+        <h3>Instant Revenue Remediation</h3>
+        <p>Enter your domain below to get your real-time Revenue Readiness diagnostic.</p>
       </div>
 
       <div class="scanner-box">
         <div class="scan-input-wrap">
           <input type="text" id="domainInput" placeholder="example.com" autocomplete="off" spellcheck="false">
-          <select id="businessTypeSelect" style="padding: 1rem; background: #121621; border: 1px solid #40546A; color: var(--white); border-radius: 8px; outline: none;">
-            <option value="general">General Business</option>
-            <option value="local_service">Local Service</option>
-            <option value="professional_service">Professional Service</option>
-            <option value="medspa">MedSpa / Aesthetics</option>
-            <option value="legal">Legal Practice</option>
-            <option value="restaurant">Restaurant / Hospitality</option>
-            <option value="ecommerce">E-Commerce</option>
-            <option value="saas">SaaS / Software</option>
+          <select id="businessTypeSelect">
+            <option value="general">General / Other Business</option>
+            <option value="local_service">Local Services &amp; Trades</option>
+            <option value="professional_service">Professional Services</option>
+            <option value="medspa">MedSpa &amp; Aesthetics</option>
+            <option value="legal">Legal Services</option>
+            <option value="restaurant">Restaurant &amp; Hospitality</option>
+            <option value="ecommerce">E-commerce / Online Store</option>
+            <option value="saas">SaaS &amp; Software</option>
+            <option value="agency">Agency &amp; Creative Services</option>
+            <option value="b2b">B2B Products &amp; Services</option>
+            <option value="creator">Creator &amp; Membership</option>
           </select>
-          <button class="btn btn-primary scan-btn" onclick="runScan()">Run Audit</button>
+          <button type="button" class="btn btn-primary scan-btn" onclick="runScan()">THE REVENUE LEAKS</button>
         </div>
 
         <div class="analysis-panel" id="analysisPanel">
@@ -1130,7 +1223,54 @@ footer {
           <div class="analysis-step" id="step-3"><div class="step-icon">4</div> Measuring telemetry &amp; analytics setup...</div>
           <div class="analysis-step" id="step-4"><div class="step-icon">5</div> Calculating Revenue Readiness Index...</div>
         </div>
+
+        <div style="margin-top:1.15rem; padding-top:1rem; border-top:1px solid #2A3040; text-align:center;">
+          <div style="font-size:0.74rem; font-weight:700; letter-spacing:0.11em; text-transform:uppercase; color:var(--copper); margin-bottom:0.35rem;">
+            WHY EVERY SCAN COUNTS:
+          </div>
+          <p style="font-size:0.82rem; line-height:1.5; color:var(--sand); max-width:760px; margin:0 auto;">
+            Why not contribute using just a URL? Every completed scan adds another real-world pattern that can help refine how the Remediator weighs website signals across different business types.
+          </p>
+          <p style="font-size:0.68rem; line-height:1.45; color:rgba(169,167,160,0.62); max-width:760px; margin:0.55rem auto 0;">
+            Only publicly visible website structure, page-content signals and technical metadata are analyzed. No private, account-only or internal business data is accessed.
+          </p>
+        </div>
       </div>
+    </div>
+  </section>
+
+  <section class="research-section" id="why-it-matters">
+    <div class="container research-shell">
+      <div class="section-header" style="margin-bottom:1.5rem;">
+        <div class="subtitle">THE POLISHED-WEBSITE PARADOX</div>
+        <h2>Your website may look like a MNC, BUT DOES IT CONVERT LIKE ONE?</h2>
+        <p>A quick peek under the hood of the Remediator.</p>
+      </div>
+      <div class="fact-rotator" id="factRotator" aria-live="polite">
+        <div class="fact-topline"><div class="fact-badge">⚠ RESEARCH SIGNAL</div><div class="fact-counter"><span id="factCurrent">1</span> / 24</div></div>
+        <div class="fact-stage"><article class="fact-item active" data-fact-index="0"><div class="fact-stat">70.22%</div><div class="fact-text">Average documented online shopping-cart abandonment across 50 studies.</div><div class="fact-source">🛒 Source: <a href="https://baymard.com/lists/cart-abandonment-rate" target="_blank" rel="noopener">Baymard Institute</a></div></article><article class="fact-item" data-fact-index="1"><div class="fact-stat">42%</div><div class="fact-text">Of US online shoppers in Baymard's study had abandoned a cart because they were only browsing or not ready to buy.</div><div class="fact-source">👀 Source: <a href="https://baymard.com/lists/cart-abandonment-rate" target="_blank" rel="noopener">Baymard Institute</a></div></article><article class="fact-item" data-fact-index="2"><div class="fact-stat">40%</div><div class="fact-text">Extra costs — shipping, tax or fees — were the biggest actionable cart-abandonment reason in Baymard's current data.</div><div class="fact-source">💸 Source: <a href="https://baymard.com/lists/cart-abandonment-rate" target="_blank" rel="noopener">Baymard Institute</a></div></article><article class="fact-item" data-fact-index="3"><div class="fact-stat">20%</div><div class="fact-text">Said delivery was too slow.</div><div class="fact-source">🚚 Source: <a href="https://baymard.com/lists/cart-abandonment-rate" target="_blank" rel="noopener">Baymard Institute</a></div></article><article class="fact-item" data-fact-index="4"><div class="fact-stat">19%</div><div class="fact-text">Abandoned because they did not trust the site with credit-card information.</div><div class="fact-source">🔐 Source: <a href="https://baymard.com/lists/cart-abandonment-rate" target="_blank" rel="noopener">Baymard Institute</a></div></article><article class="fact-item" data-fact-index="5"><div class="fact-stat">18%</div><div class="fact-text">Left because the site required account creation.</div><div class="fact-source">👤 Source: <a href="https://baymard.com/lists/cart-abandonment-rate" target="_blank" rel="noopener">Baymard Institute</a></div></article><article class="fact-item" data-fact-index="6"><div class="fact-stat">17%</div><div class="fact-text">Abandoned because checkout felt too long or complicated.</div><div class="fact-source">🧩 Source: <a href="https://baymard.com/lists/cart-abandonment-rate" target="_blank" rel="noopener">Baymard Institute</a></div></article><article class="fact-item" data-fact-index="7"><div class="fact-stat">17%</div><div class="fact-text">Said the website had errors or crashed.</div><div class="fact-source">💥 Source: <a href="https://baymard.com/lists/cart-abandonment-rate" target="_blank" rel="noopener">Baymard Institute</a></div></article><article class="fact-item" data-fact-index="8"><div class="fact-stat">13%</div><div class="fact-text">Said the returns policy was not satisfactory.</div><div class="fact-source">↩️ Source: <a href="https://baymard.com/lists/cart-abandonment-rate" target="_blank" rel="noopener">Baymard Institute</a></div></article><article class="fact-item" data-fact-index="9"><div class="fact-stat">12%</div><div class="fact-text">Could not see or calculate the total order cost up front.</div><div class="fact-source">🧾 Source: <a href="https://baymard.com/lists/cart-abandonment-rate" target="_blank" rel="noopener">Baymard Institute</a></div></article><article class="fact-item" data-fact-index="10"><div class="fact-stat">9%</div><div class="fact-text">Said there were not enough payment methods.</div><div class="fact-source">💳 Source: <a href="https://baymard.com/lists/cart-abandonment-rate" target="_blank" rel="noopener">Baymard Institute</a></div></article><article class="fact-item" data-fact-index="11"><div class="fact-stat">7–8</div><div class="fact-text">Form fields can be enough for an ideal checkout flow; Baymard's benchmark cited an average of 14.88.</div><div class="fact-source">✍️ Source: <a href="https://baymard.com/lists/cart-abandonment-rate" target="_blank" rel="noopener">Baymard Institute</a></div></article><article class="fact-item" data-fact-index="12"><div class="fact-stat">20–60%</div><div class="fact-text">Baymard says many checkout flows can reduce the number of default form elements by this range.</div><div class="fact-source">✂️ Source: <a href="https://baymard.com/lists/cart-abandonment-rate" target="_blank" rel="noopener">Baymard Institute</a></div></article><article class="fact-item" data-fact-index="13"><div class="fact-stat">35.26%</div><div class="fact-text">Baymard estimates the average large ecommerce site could potentially increase conversion through better checkout design by this amount.</div><div class="fact-source">📈 Source: <a href="https://baymard.com/lists/cart-abandonment-rate" target="_blank" rel="noopener">Baymard Institute</a></div></article><article class="fact-item" data-fact-index="14"><div class="fact-stat">39</div><div class="fact-text">Potential checkout-improvement areas were found on the average site in Baymard's benchmark of 60 leading ecommerce sites.</div><div class="fact-source">🧱 Source: <a href="https://baymard.com/lists/cart-abandonment-rate" target="_blank" rel="noopener">Baymard Institute</a></div></article><article class="fact-item" data-fact-index="15"><div class="fact-stat">#1</div><div class="fact-text">Pricing ranked highest among 28 types of B2B website information in NN/g research.</div><div class="fact-source">🏷️ Source: <a href="https://www.nngroup.com/articles/b2b-usability/" target="_blank" rel="noopener">Nielsen Norman Group</a></div></article><article class="fact-item" data-fact-index="16"><div class="fact-stat">+29%</div><div class="fact-text">B2B users ranked pricing 29% higher than product availability, which came second.</div><div class="fact-source">📊 Source: <a href="https://www.nngroup.com/articles/b2b-usability/" target="_blank" rel="noopener">Nielsen Norman Group</a></div></article><article class="fact-item" data-fact-index="17"><div class="fact-stat">Macro ≠ Micro</div><div class="fact-text">NN/g separates real business outcomes — purchases and submitted lead forms — from smaller steps such as adding to cart or visiting a form page.</div><div class="fact-source">🎯 Source: <a href="https://www.nngroup.com/articles/micro-conversions/" target="_blank" rel="noopener">Nielsen Norman Group</a></div></article><article class="fact-item" data-fact-index="18"><div class="fact-stat">+8%</div><div class="fact-text">Vodafone saw 8% more sales after a 31% LCP improvement in an A/B test with no visual or functional differences between versions.</div><div class="fact-source">⚡ Source: <a href="https://web.dev/case-studies/vodafone" target="_blank" rel="noopener">Google / web.dev</a></div></article><article class="fact-item" data-fact-index="19"><div class="fact-stat">+15%</div><div class="fact-text">Vodafone's optimized version improved its lead-to-visit rate by 15%.</div><div class="fact-source">📞 Source: <a href="https://web.dev/case-studies/vodafone" target="_blank" rel="noopener">Google / web.dev</a></div></article><article class="fact-item" data-fact-index="20"><div class="fact-stat">+11%</div><div class="fact-text">The same Vodafone test improved cart-to-visit rate by 11%.</div><div class="fact-source">🛍️ Source: <a href="https://web.dev/case-studies/vodafone" target="_blank" rel="noopener">Google / web.dev</a></div></article><article class="fact-item" data-fact-index="21"><div class="fact-stat">NON-COMMODITY</div><div class="fact-text">Google says unique, compelling and useful non-commodity content is likely to influence long-term presence in generative AI Search more than the other suggestions in its guide.</div><div class="fact-source">🤖 Source: <a href="https://developers.google.com/search/docs/fundamentals/ai-optimization-guide" target="_blank" rel="noopener">Google Search Central</a></div></article><article class="fact-item" data-fact-index="22"><div class="fact-stat">DON'T RECYCLE</div><div class="fact-text">Google specifically advises against simply repeating what others already said — or what a generative AI model could easily produce.</div><div class="fact-source">🦜 Source: <a href="https://developers.google.com/search/docs/fundamentals/ai-optimization-guide" target="_blank" rel="noopener">Google Search Central</a></div></article><article class="fact-item" data-fact-index="23"><div class="fact-stat">2.5s · 200ms · 0.1</div><div class="fact-text">Google's good Core Web Vitals targets: LCP within 2.5s, INP at 200ms or less, and CLS at 0.1 or less.</div><div class="fact-source">⏱️ Source: <a href="https://web.dev/articles/vitals" target="_blank" rel="noopener">Google / web.dev</a></div></article></div>
+        <div class="fact-controls"><div class="fact-dots"><button class="fact-dot active" type="button" aria-label="Show fact 1" data-fact-dot="0"></button><button class="fact-dot" type="button" aria-label="Show fact 2" data-fact-dot="1"></button><button class="fact-dot" type="button" aria-label="Show fact 3" data-fact-dot="2"></button><button class="fact-dot" type="button" aria-label="Show fact 4" data-fact-dot="3"></button><button class="fact-dot" type="button" aria-label="Show fact 5" data-fact-dot="4"></button><button class="fact-dot" type="button" aria-label="Show fact 6" data-fact-dot="5"></button><button class="fact-dot" type="button" aria-label="Show fact 7" data-fact-dot="6"></button><button class="fact-dot" type="button" aria-label="Show fact 8" data-fact-dot="7"></button><button class="fact-dot" type="button" aria-label="Show fact 9" data-fact-dot="8"></button><button class="fact-dot" type="button" aria-label="Show fact 10" data-fact-dot="9"></button><button class="fact-dot" type="button" aria-label="Show fact 11" data-fact-dot="10"></button><button class="fact-dot" type="button" aria-label="Show fact 12" data-fact-dot="11"></button><button class="fact-dot" type="button" aria-label="Show fact 13" data-fact-dot="12"></button><button class="fact-dot" type="button" aria-label="Show fact 14" data-fact-dot="13"></button><button class="fact-dot" type="button" aria-label="Show fact 15" data-fact-dot="14"></button><button class="fact-dot" type="button" aria-label="Show fact 16" data-fact-dot="15"></button><button class="fact-dot" type="button" aria-label="Show fact 17" data-fact-dot="16"></button><button class="fact-dot" type="button" aria-label="Show fact 18" data-fact-dot="17"></button><button class="fact-dot" type="button" aria-label="Show fact 19" data-fact-dot="18"></button><button class="fact-dot" type="button" aria-label="Show fact 20" data-fact-dot="19"></button><button class="fact-dot" type="button" aria-label="Show fact 21" data-fact-dot="20"></button><button class="fact-dot" type="button" aria-label="Show fact 22" data-fact-dot="21"></button><button class="fact-dot" type="button" aria-label="Show fact 23" data-fact-dot="22"></button><button class="fact-dot" type="button" aria-label="Show fact 24" data-fact-dot="23"></button></div><div class="fact-nav"><button type="button" id="factPrev" aria-label="Previous fact">←</button><button type="button" id="factNext" aria-label="Next fact">→</button></div></div>
+        <div class="fact-progress running" id="factProgress"></div>
+      </div>
+      <p class="quick-note">Research percentages describe study populations — they are never treated as your site's measured revenue loss. Your score changes only when the scanner finds relevant evidence on your site.</p>
+    </div>
+  </section>
+
+  <section class="research-section" id="method">
+    <div class="container">
+      <div class="section-header">
+        <div class="subtitle">WHY OUR REMEDIATOR SHOULD BE YOUR CHOICE</div>
+        <h2>Research sets priority, your website supplies the evidence:</h2>
+        <p>Traffic is not the finish line. Trilloka checks the commercial path between attention and the outcome your business actually needs.</p>
+      </div>
+      <div class="method-grid">
+        <div class="method-card"><div class="mini-label">01 · COMMERCIAL PATH</div><h3>Can they actually convert?</h3><p>Buy, book, call, request a quote, start a trial, subscribe or submit a lead — based on your business type.</p></div>
+        <div class="method-card"><div class="mini-label">02 · FRICTION + TRUST</div><h3>What gets in the way?</h3><p>Forms, checkout, pricing visibility, trust cues, mobile actions and unnecessary effort.</p></div>
+        <div class="method-card"><div class="mini-label">03 · MEASURED PERFORMANCE</div><h3>What does telemetry show?</h3><p>PageSpeed, Core Web Vitals and technical evidence where available — never a fake zero when data is unavailable.</p></div>
+        <div class="method-card"><div class="mini-label">04 · AI / TEMPLATE PATTERN</div><h3>Does it sound interchangeable?</h3><p>A conservative sameness heuristic looks for generic language and template patterns. It does not claim to prove AI authorship.</p></div>
+      </div>
+      <div class="score-formula"><strong>Verified Evidence</strong> × Commercial Importance × Business Context × Severity × Confidence</div>
+      <p class="quick-note">Baymard informs ecommerce/checkout priority · Nielsen Norman Group informs usability, forms and B2B behavior · Google/web.dev/CrUX/Lighthouse informs performance and technical evidence · SEO remains visible, but a minor SEO issue does not outrank a broken commercial path.</p>
     </div>
   </section>
 </main>
@@ -1139,24 +1279,25 @@ footer {
   <div class="container">
     <div class="footer-grid">
       <div class="footer-col">
-        <h4>Trilloka Architecture</h4>
-        <p style="font-size:0.85rem; color:var(--mist);">Precision revenue remediation, technical auditing, and high-converting web infrastructure.</p>
+        <h4>Trilloka Revenue Remediator</h4>
+        <p style="font-size:0.85rem; color:var(--mist);">Research-calibrated revenue diagnostics, conversion auditing and commercial web architecture.</p>
       </div>
       <div class="footer-col">
         <h4>Navigation</h4>
-        <a href="#">Home</a>
-        <a href="#scanner">Diagnostic Tool</a>
+        <a href="solutions.html">Solutions</a>
+        <a href="why-us.html">Why Us</a>
+        <a href="chilloka.html">Chilloka</a>
         <a href="disclaimer.html">Disclaimer & Legal</a>
       </div>
       <div class="footer-col">
         <h4>Direct Line</h4>
         <a href="tel:+17787659232">+1 778-765-9232</a>
         <a href="mailto:arpitt22@trilloka.com">arpitt22@trilloka.com</a>
-        <a href="https://instagram.com/theonlyone.arpit" target="_blank">@THEONLYONE.ARPIT</a>
+        <a href="https://www.instagram.com/trilloka2026?igsh=Zjd1YzJodGZrdjY=" target="_blank">@trilloka2026</a>
       </div>
     </div>
     <div class="footer-bottom">
-      <div class="architect-handle">@THEONLYONE.ARPIT &middot; Arpit Sharma</div>
+      <div class="architect-handle">@trilloka2026 &middot; Arpit Thapliyal</div>
       <p style="font-size:0.75rem; color:var(--mist);">&copy; 2026 Trilloka. All rights reserved.</p>
       <a href="disclaimer.html">Terms, Privacy &amp; Legal Disclaimers</a>
     </div>
@@ -1165,7 +1306,7 @@ footer {
 
 <div class="modal-overlay" id="resultsModal">
   <div class="modal">
-    <button class="modal-close" onclick="closeResultsModal()">&times;</button>
+    <button class="modal-close" onclick="closeResultsModal()" aria-label="Close modal">&times;</button>
     <div class="modal-inner">
       <div class="modal-body" id="modalBody"></div>
       
@@ -1177,7 +1318,7 @@ footer {
             <div class="focus-value" id="focusValue">0</div>
             <div class="focus-sub" id="focusSub">Label</div>
           </div>
-          <button class="focus-close" onclick="closeFocusMode()">&times;</button>
+          <button class="focus-close" onclick="closeFocusMode()" aria-label="Close focus panel">&times;</button>
         </div>
         <div class="focus-bars" id="focusBars"></div>
         <p class="focus-insight" id="focusInsight"></p>
@@ -1191,7 +1332,7 @@ footer {
 
 <div class="modal-overlay" id="phoneModal">
   <div class="modal" style="max-width: 440px;">
-    <button class="modal-close" onclick="closePhoneModal()">&times;</button>
+    <button class="modal-close" onclick="closePhoneModal()" aria-label="Close modal">&times;</button>
     <div class="phone-popup">
       <div class="architect-handle">@THEONLYONE.ARPIT</div>
       <h3>Hire the Architect</h3>
@@ -1205,9 +1346,9 @@ footer {
           <div class="label">Email</div>
           <div class="value">arpitt22@trilloka.com</div>
         </a>
-        <a href="https://instagram.com/theonlyone.arpit" target="_blank" class="contact-item">
+        <a href="https://www.instagram.com/trilloka2026?igsh=Zjd1YzJodGZrdjY=" target="_blank" class="contact-item">
           <div class="label">Instagram</div>
-          <div class="value">@THEONLYONE.ARPIT</div>
+          <div class="value">@trilloka2026</div>
         </a>
       </div>
       <p style="font-size:0.8rem; color:var(--mist); margin-top:1.25rem;">Available 10 AM — 7 PM EST</p>
@@ -1309,13 +1450,13 @@ async function runScan() {
   }, 700);
 
   try {
-    const API_URL = "http://127.0.0.1:8000/api/scan";
+    const API_URL = "https://architectural-revenue-remediation.onrender.com/api/scan";
     const controller = new AbortController();
-    const timeoutId = setTimeout(function() { controller.abort(); }, 35000);
+    
+    const timeoutId = setTimeout(function() { controller.abort(); }, 90000);
 
-    const bizTypeSelect = document.getElementById('businessTypeSelect');
-    const bizType = bizTypeSelect ? bizTypeSelect.value : "general";
-
+    const bizType = document.getElementById('businessTypeSelect').value;
+    
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1338,8 +1479,9 @@ async function runScan() {
       }
     });
 
+    if (panel) panel.classList.remove('active');
+    
     setTimeout(function() {
-      if (panel) panel.classList.remove('active');
       displayResults(data);
     }, 400);
 
@@ -1347,6 +1489,7 @@ async function runScan() {
     clearInterval(stepInterval);
     if (panel) panel.classList.remove('active');
     alert('Audit failed or timed out. Please check the domain and try again.');
+    console.error("Fetch Error:", err);
   }
 }
 
@@ -1355,72 +1498,147 @@ function displayResults(data) {
   const resultsModal = document.getElementById('resultsModal');
   if (!modalBody || !resultsModal) return;
 
-  const score = data.score || 0;
-  const speed = data.speed_score || 50;
-  const gap = data.gap_score || 50;
-  const conversion = data.conversion_score || 50;
-  const overall = data.revenue_readiness || score;
-  const cms = data.cms_detected || null;
-  const devKit = data.dev_handoff || null;
+  const metrics = (data && data.surface_metrics && typeof data.surface_metrics === 'object')
+    ? data.surface_metrics : {};
+
+  function finiteNumber(value, fallback) {
+    if (value === null || value === undefined || value === '') return fallback;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  function firstNumber(values, fallback) {
+    for (const value of values) {
+      const n = finiteNumber(value, null);
+      if (n !== null) return n;
+    }
+    return fallback;
+  }
+
+  const overall = firstNumber([
+    data.overall_score,
+    data.overall_health_score,
+    data.revenue_readiness,
+    data.score
+  ], 0);
+
+  const speed = firstNumber([
+    metrics.mobile_performance_score,
+    data.speed_score
+  ], null);
+
+  const seo = firstNumber([
+    metrics.seo_health_index,
+    data.seo_score
+  ], null);
+
+  const gap = firstNumber([
+    metrics.competitor_gap_score,
+    data.gap_score
+  ], null);
+
+  const conversion = firstNumber([
+    metrics.conversion_efficiency,
+    data.conversion_score
+  ], overall);
+
+  const cms = data.cms_platform || data.cms_detected || null;
+  const devKit = data.dev_handoff_kit || data.dev_handoff || null;
+  const summary = data.message || data.summary || 'Diagnostic complete.';
+  const leaks = Array.isArray(data.top_10_financial_leaks)
+    ? data.top_10_financial_leaks
+    : (Array.isArray(data.leaks) ? data.leaks : []);
+
   currentDevKit = devKit;
 
-  // Build Focus metrics cache
-  const speedGood = speed >= 70;
-  const gapGood = gap >= 70;
+  const speedAvailable = speed !== null;
+  const seoAvailable = seo !== null;
+  const gapAvailable = gap !== null;
+
+  const speedGood = speedAvailable && speed >= 70;
+  const seoGood = seoAvailable && seo >= 80;
   const convGood = conversion >= 70;
-  const avgSpeed = 62, topSpeed = 92;
-  const avgGap = 55, topGap = 88;
-  const avgConv = 48, topConv = 85;
 
   currentFocusData = {
     'speed': {
-      title: 'SPEED SCORE', value: Math.round(speed) + '', sub: 'Mobile Performance',
-      color: speedGood ? 'green' : 'red',
-      bars: [
-        { label: 'Your Site', val: Math.min(speed, 100), color: speedGood ? 'green' : 'red' },
-        { label: 'Industry Avg', val: avgSpeed, color: 'gray' },
-        { label: 'Top 10%', val: topSpeed, color: speedGood ? 'green' : 'red' }
-      ],
-      insight: speedGood ? 'Mobile page load is within healthy thresholds.' : 'Optimize heavy scripts and compressed images to prevent visitor drop-off.'
+      title: 'SPEED SCORE',
+      value: speedAvailable ? Math.round(speed) + ' / 100' : 'N/A',
+      sub: 'Mobile Performance',
+      color: !speedAvailable ? 'copper' : (speedGood ? 'green' : 'red'),
+      bars: speedAvailable ? [
+        { label: 'Your Site', val: Math.min(speed, 100), text: Math.round(speed) + ' / 100', color: speedGood ? 'green' : 'red' }
+      ] : [],
+      insight: !speedAvailable
+        ? 'Google performance telemetry was unavailable, so no fake score was substituted.'
+        : (speedGood
+            ? 'Measured mobile performance is within the scanner’s healthy range.'
+            : 'Measured mobile performance indicates meaningful optimization headroom.')
     },
+
+    'seo': {
+      title: 'SEO HEALTH',
+      value: seoAvailable ? Math.round(seo) + ' / 100' : 'N/A',
+      sub: 'Google Lighthouse SEO',
+      color: !seoAvailable ? 'copper' : (seoGood ? 'green' : 'red'),
+      bars: seoAvailable ? [
+        { label: 'Your Site', val: Math.min(seo, 100), text: Math.round(seo) + ' / 100', color: seoGood ? 'green' : 'red' }
+      ] : [],
+      insight: !seoAvailable
+        ? 'SEO telemetry was unavailable for this scan.'
+        : 'SEO is shown as a supporting technical surface; commercial revenue-readiness issues are prioritized separately.'
+    },
+
     'gap': {
-      title: 'VISUAL GAP', value: Math.round(gap) + '', sub: 'Brand Differentiation',
-      color: gapGood ? 'green' : 'red',
-      bars: [
-        { label: 'Your Site', val: Math.min(gap, 100), color: gapGood ? 'green' : 'red' },
-        { label: 'Industry Avg', val: avgGap, color: 'gray' },
-        { label: 'Top 10%', val: topGap, color: gapGood ? 'green' : 'red' }
-      ],
-      insight: gapGood ? 'Strong visual hierarchy.' : 'Align page architecture and CTA structures with top performers in your market.'
+      title: 'MODELED READINESS GAP',
+      value: gapAvailable ? Math.round(gap) + ' pts' : 'N/A',
+      sub: 'Not a measured competitor audit',
+      color: !gapAvailable ? 'copper' : (gap <= 8 ? 'green' : 'red'),
+      bars: gapAvailable ? [
+        {
+          label: 'Gap',
+          val: Math.min((Math.max(gap, 0) / 78) * 100, 100),
+          text: Math.round(gap) + ' pts',
+          color: gap <= 8 ? 'green' : 'red'
+        }
+      ] : [],
+      insight: 'This is the backend’s modeled readiness-gap proxy. It should not be presented as telemetry collected from a competitor unless competitor data was actually scanned.'
     },
+
     'funnel': {
-      title: 'FUNNEL SCORE', value: Math.round(conversion) + '', sub: 'Conversion Readiness',
-      color: convGood ? 'green' : 'red',
+      title: 'CONVERSION READINESS',
+      value: Math.round(conversion) + ' / 100',
+      sub: 'Commercial Path Readiness',
+      color: convGood ? 'green' : (conversion >= 50 ? 'copper' : 'red'),
       bars: [
-        { label: 'Your Site', val: Math.min(conversion, 100), color: convGood ? 'green' : 'red' },
-        { label: 'Industry Avg', val: avgConv, color: 'gray' },
-        { label: 'Top 10%', val: topConv, color: convGood ? 'green' : 'red' }
+        { label: 'Your Site', val: Math.min(conversion, 100), text: Math.round(conversion) + ' / 100', color: convGood ? 'green' : 'red' }
       ],
-      insight: convGood ? 'Strong conversion path execution.' : 'Refine CTA hierarchy and form friction to increase conversion throughput.'
+      insight: convGood
+        ? 'The commercial path is comparatively strong, while remaining verified leaks are still reflected in the overall score.'
+        : 'Verified commercial-path friction is reducing readiness.'
     },
+
     'revenue': {
-      title: 'REVENUE READINESS', value: Math.round(overall) + '', sub: 'Overall Index',
+      title: 'REVENUE READINESS',
+      value: Math.round(overall) + ' / 100',
+      sub: 'Overall Index · Public ceiling 78',
       color: overall >= 70 ? 'green' : (overall >= 50 ? 'copper' : 'red'),
       bars: [
-        { label: 'Your Site', val: Math.min(overall, 100), color: overall >= 70 ? 'green' : 'red' },
-        { label: 'Industry Avg', val: 58, color: 'gray' },
-        { label: 'Top 10%', val: 90, color: 'green' }
+        { label: 'Your Site', val: Math.min(overall, 100), text: Math.round(overall) + ' / 100', color: overall >= 70 ? 'green' : 'red' },
+        { label: 'Max Index', val: 78, text: '78 / 100', color: 'copper' }
       ],
-      insight: overall >= 70 ? 'Site infrastructure is operating above average.' : 'Identified architectural leaks are reducing visitor retention.'
+      insight: overall >= 70
+        ? 'Strong Revenue Readiness. The index deliberately retains optimization headroom and never implies a visitor conversion percentage.'
+        : 'Verified architectural and commercial leaks are reducing Revenue Readiness.'
     }
   };
 
   let htmlContent = `
     <div class="score-hero">
-      <div style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.12em; color:var(--sand); margin-bottom:0.5rem;">Score assessed by Architectural Remediation Engine</div>
-      <div class="big-score">` + Math.round(overall) + `</div>
-      <div class="score-label">Revenue Readiness Score</div>
-      <p style="margin-top:0.75rem; color:var(--mist); font-size:0.9rem;">` + (data.summary || 'Diagnostic complete.') + `</p>
+      <div style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.12em; color:var(--sand); margin-bottom:0.5rem;">Score assessed by Architectural Revenue Remediator</div>
+      <div class="big-score">` + Math.round(overall) + `<span style="font-family:Inter,sans-serif;font-size:0.22em;color:var(--sand);margin-left:0.35rem;font-weight:500;">/ 100</span></div>
+      <div class="score-label">Revenue Readiness Index</div>
+      <p style="margin-top:0.5rem; color:var(--sand); font-size:0.78rem;">Public index ceiling: 78 · This is not a visitor conversion percentage.</p>
+      <p style="margin-top:0.75rem; color:var(--mist); font-size:0.9rem;">` + summary + `</p>
     </div>
   `;
 
@@ -1428,13 +1646,15 @@ function displayResults(data) {
     htmlContent += `<div style="text-align:center; margin:1rem 0;"><span class="cms-badge">Detected Tech Stack: ` + cms + `</span></div>`;
   }
 
-  if (data.leaks && data.leaks.length > 0) {
+  if (leaks.length > 0) {
     htmlContent += `<h3 style="margin: 2rem 0 1rem;">Detected Revenue Leaks</h3>`;
-    data.leaks.forEach(function(leak) {
+    leaks.forEach(function(leak) {
+      const title = leak.leak_name || leak.title || leak.rule_key || 'Verified finding';
+      const description = leak.impact_summary || leak.description || '';
       htmlContent += `
         <div class="leak-item">
-          <h4>` + leak.title + `</h4>
-          <p>` + leak.description + `</p>
+          <h4>` + title + `</h4>
+          <p>` + description + `</p>
         </div>
       `;
     });
@@ -1450,31 +1670,22 @@ function displayResults(data) {
   }
 
   htmlContent += `
-    <h3 style="margin: 2rem 0 1rem;">Unlock Remediation Roadmap</h3>
+    <h3 style="margin: 2rem 0 1rem;">Unlock Revenue Repair Roadmap</h3>
     <div class="pricing-grid">
       <div class="pricing-card">
-        <div class="tier-name">The Recovery Report</div>
-        <div class="tier-price">$350</div>
-        <div class="tier-desc">Top 4 major leaks remediation plan</div>
-        <ul>
-          <li>Standard Solutions</li>
-          <li>5 Scans / month</li>
-          <li>Full 50-Point Audit</li>
-          <li>Frontend SEO Data Access</li>
-        </ul>
-        <a href="https://paypal.me/arpitsavyauk/350" target="_blank" class="btn btn-primary" style="width:100%;">Get Report</a>
+        <div class="tier-name">Essential Revenue Audit</div><div class="tier-price">$350</div><div class="tier-desc">4 highest-value verified revenue leaks</div>
+        <ul><li>4 priority findings</li><li>Technical / UX / measurement fixes</li><li>Full 50-point audit access</li><li>2 scans / day for 30 days</li></ul>
+        <a href="https://paypal.me/arpitsavyauk/350" target="_blank" class="btn btn-primary" style="width:100%;">Get Essential Report</a>
       </div>
       <div class="pricing-card featured">
-        <div class="tier-name">The First Mark Report</div>
-        <div class="tier-price">$550</div>
-        <div class="tier-desc">Complete end-to-end architectural patch</div>
-        <ul>
-          <li>Priority Engineering Access</li>
-          <li>Unlimited Scans</li>
-          <li>Custom Code Patches</li>
-          <li>Direct Architect Consultation</li>
-        </ul>
-        <a href="https://paypal.me/arpitsavyauk/550" target="_blank" class="btn btn-primary" style="width:100%;">Get Complete Patch</a>
+        <div class="tier-name">Advanced Revenue Audit</div><div class="tier-price">$550</div><div class="tier-desc">8 highest-value leaks + 14-day roadmap</div>
+        <ul><li>8 priority findings</li><li>3-angle fixes for each</li><li>14-day implementation roadmap</li><li>1 × 15-minute guidance call</li></ul>
+        <a href="https://paypal.me/arpitsavyauk/550" target="_blank" class="btn btn-primary" style="width:100%;">Get Advanced Report</a>
+      </div>
+      <div class="pricing-card">
+        <div class="tier-name">Architect Revenue Audit</div><div class="tier-price">$850</div><div class="tier-desc">10 highest-value leaks + 30-day roadmap</div>
+        <ul><li>10 priority findings</li><li>3-angle fixes for each</li><li>30-day implementation roadmap</li><li>2 × 15-minute guidance calls</li></ul>
+        <button type="button" class="btn btn-outline" style="width:100%;" onclick="showPhonePopup()">Request Architect Report</button>
       </div>
     </div>
   `;
@@ -1527,7 +1738,7 @@ function openFocusMode(id) {
         <div class="focus-bar-track">
           <div class="focus-bar-fill ` + b.color + `" id="focus-bar-` + id + `-` + i + `"></div>
         </div>
-        <span class="focus-bar-num">` + b.val + `%</span>
+        <span class="focus-bar-num">` + (b.text || b.val) + `</span>
       `;
       barsContainer.appendChild(row);
     });
@@ -1554,6 +1765,25 @@ function closeFocusMode() {
   document.querySelectorAll('.metric-orb').forEach(function(el) { el.classList.remove('focus-active'); });
   document.querySelectorAll('.focus-bar-fill').forEach(function(b) { b.style.width = '0%'; });
 }
+
+
+/* Research Fact Rotator */
+(function(){
+  const items=Array.from(document.querySelectorAll('.fact-item'));
+  const dots=Array.from(document.querySelectorAll('.fact-dot'));
+  const currentEl=document.getElementById('factCurrent');
+  const progress=document.getElementById('factProgress');
+  const prev=document.getElementById('factPrev');
+  const next=document.getElementById('factNext');
+  if(!items.length)return;
+  let index=0;let timer=null;const ROTATE_MS=8000;
+  function restartProgress(){if(!progress)return;progress.classList.remove('running');void progress.offsetWidth;progress.classList.add('running');}
+  function showFact(nextIndex,restartTimer){index=(nextIndex+items.length)%items.length;items.forEach((item,i)=>item.classList.toggle('active',i===index));dots.forEach((dot,i)=>dot.classList.toggle('active',i===index));if(currentEl)currentEl.textContent=String(index+1);restartProgress();if(restartTimer!==false){clearInterval(timer);timer=setInterval(()=>showFact(index+1,false),ROTATE_MS);}}
+  dots.forEach((dot,i)=>dot.addEventListener('click',()=>showFact(i,true)));
+  if(prev)prev.addEventListener('click',()=>showFact(index-1,true));
+  if(next)next.addEventListener('click',()=>showFact(index+1,true));
+  showFact(0,true);
+})();
 
 /* Event Listeners */
 document.addEventListener('click', function(e) {
