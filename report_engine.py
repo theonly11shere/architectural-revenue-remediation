@@ -124,6 +124,8 @@ class ReportGenerator:
             "score_formula": audit.get("score_formula") or {},
             "evidence_receipts": audit.get("evidence_receipts") or [],
             "high_impact_confirmation": audit.get("high_impact_confirmation") or scan.get("high_impact_confirmation") or {},
+            "foundation_omission_signal": audit.get("foundation_omission_signal") or {},
+            "foundation_omission_report_filename": "",
             "unconfirmed_high_impact_observations": audit.get("unconfirmed_high_impact_observations") or [],
             "rescan_comparison": audit.get("rescan_comparison") or {},
             "browser_journey_probe": scan.get("browser_journey_probe") or {},
@@ -330,11 +332,11 @@ class ReportGenerator:
         journey = str(profile.get("journey_label") or profile.get("journey_model") or audit_data.get("business_type") or "General")
         contexts = ", ".join(str(x) for x in (profile.get("context_labels") or [])) or "No special context tags verified"
         return {
-            "core_philosophy": "Trilloka measures observable website Revenue Readiness, not literal conversion percentage, product-market fit, demand, sales-team performance or actual revenue. A functioning site begins from an operating baseline and must earn higher scores through verified strengths while verified leaks subtract weighted points.",
+            "core_philosophy": "Trilloka measures observable website Revenue Readiness, not literal conversion percentage, product-market fit, demand, sales-team performance or actual revenue. Readiness is earned across three unequal layers—Foundation, Revenue/User Architecture and Elite Architecture—while verified leaks retain separate score impact, severity and evidence confidence.",
             "graded_continuum": "Every deduction is scaled by implementation severity, evidence confidence and journey/context relevance. Unknown telemetry earns no strength and creates no penalty. Severe deductions require independent confirmation or corroboration.",
             "architecture_model": f"Primary customer journey: {journey}. Context tags: {contexts}. Legacy industry selections are only weak hints; the score is driven by observed customer actions and context evidence.",
             "two_layer_model": "Common Foundation checks cover universal HTTPS, SEO/search structure, performance, mobile and accessibility basics at deliberately low Revenue Readiness weight. Adaptive Architecture checks carry more weight and change applicability based on the observed customer journey and context tags.",
-            "hygiene_gatekeeping": "Verified customer-path blockers are prioritized ahead of ordinary SEO hygiene. Ecommerce checkout weights use Baymard only when purchase-context evidence exists; primary journeys/forms use usability research; measured performance uses Google/web.dev evidence. Research percentages are never copied directly into site-specific deductions.",
+            "hygiene_gatekeeping": "Verified conversion friction and customer-path blockers are prioritized ahead of ordinary SEO hygiene. Ecommerce checkout weighting is Baymard-informed only when purchase-context evidence exists and does not claim full Baymard certification; primary journeys/forms use usability research, while measured performance uses Google/web.dev evidence. Research percentages are never copied directly into site-specific deductions.",
         }
 
     @staticmethod
@@ -811,7 +813,7 @@ class ReportGenerator:
             "lead_quote": {"primary": "Request Quote / Enquire / Contact", "secondary": "Call / Chat"},
             "appointment_consultation": {"primary": "Book Appointment / Consultation", "secondary": "Call / Contact"},
             "reservation_event": {"primary": "Reserve / Book / Event Enquiry", "secondary": "Call / Directions / Contact"},
-            "direct_purchase": {"primary": "Add to Cart / Buy / Checkout", "secondary": "Product Question / Chat"},
+            "direct_purchase": {"primary": "Add to Cart / Buy / Order Now / Checkout", "secondary": "Product Question / Call / Chat"},
             "demo_sales": {"primary": "Request Demo / Start Trial / Contact Sales", "secondary": "Contact / Chat"},
             "membership_subscription": {"primary": "Join / Subscribe / Membership", "secondary": "Contact / Community"},
             "general": {"primary": "Primary Customer Action", "secondary": "Contact / Secondary Action"},
@@ -874,10 +876,15 @@ class ReportGenerator:
         if not self.resend_api_key:
             print("[Email] RESEND_API_KEY not configured — skipping email")
             return False
-        html_body = self._build_email_html(admin_report)
         domain_safe = re.sub(r"[^A-Za-z0-9._-]+", "_", str(admin_report.get("target_domain") or "site")).strip("_") or "site"
         attachment_name = f"Trilloka_Revenue_Audit_{domain_safe}.html"
+        foundation_name = f"Trilloka_Foundation_Omissions_{domain_safe}.html"
+        report_for_email = dict(admin_report or {})
+        report_for_email["foundation_omission_report_filename"] = foundation_name
+        html_body = self._build_email_html(report_for_email)
         attachment_content = base64.b64encode(html_body.encode("utf-8")).decode("ascii")
+        foundation_html = self._build_foundation_omissions_html(report_for_email)
+        foundation_content = base64.b64encode(foundation_html.encode("utf-8")).decode("ascii")
         try:
             response = requests.post(
                 "https://api.resend.com/emails",
@@ -894,6 +901,10 @@ class ReportGenerator:
                         {
                             "filename": attachment_name,
                             "content": attachment_content,
+                        },
+                        {
+                            "filename": foundation_name,
+                            "content": foundation_content,
                         }
                     ],
                 },
@@ -930,6 +941,23 @@ class ReportGenerator:
         evidence_confidence = report.get("evidence_confidence") if isinstance(report.get("evidence_confidence"), dict) else {}
         maturity_gate = report.get("maturity_gate") if isinstance(report.get("maturity_gate"), dict) else {}
         score_scope = html.escape(str(report.get("score_scope") or "Observable website Revenue Readiness only; not product-market fit, demand, traffic quality, pricing, sales execution or actual revenue."))
+        foundation_signal = report.get("foundation_omission_signal") if isinstance(report.get("foundation_omission_signal"), dict) else {}
+        foundation_triggered = bool(foundation_signal.get("triggered"))
+        foundation_count = int(foundation_signal.get("count") or 0)
+        foundation_level = html.escape(str(foundation_signal.get("highest_level") or "NONE"))
+        foundation_href = html.escape(str(report.get("foundation_omission_report_filename") or "#foundation-omissions"), quote=True)
+        foundation_notice = ""
+        if foundation_triggered:
+            plural = "s" if foundation_count != 1 else ""
+            foundation_notice = (
+                '<div style="border:1px solid #8B5E3C; background:#FFF7ED; border-radius:14px; padding:20px; margin:0 0 24px 0;">'
+                f'<p style="font-family:Inter,sans-serif; font-size:11px; color:#9A3412; text-transform:uppercase; letter-spacing:1.5px; margin:0 0 7px 0; font-weight:800;">MOST IMPORTANTLY — {foundation_level} FOUNDATION NOTICE</p>'
+                f'<p style="font-family:Georgia,serif; font-size:23px; color:#1F2937; margin:0 0 10px 0; line-height:1.25;">{foundation_count} verified basic website omission{plural} should be corrected before advanced optimization.</p>'
+                '<p style="font-family:Inter,sans-serif; font-size:13px; color:#4B5563; line-height:1.6; margin:0 0 14px 0;">These are foundational implementation requirements, not automatically the site\'s largest revenue leaks. They are surfaced separately so small point values do not hide obvious basics.</p>'
+                f'<a href="{foundation_href}" style="font-family:Inter,sans-serif; font-size:13px; color:#7C2D12; text-decoration:underline; font-weight:700;">Review Foundation Omissions →</a>'
+                '</div>'
+            )
+
         evidence_level = html.escape(str(evidence_confidence.get("level") or "UNKNOWN"))
         evidence_score = evidence_confidence.get("score")
         evidence_score_text = "N/A" if evidence_score is None else f"{float(evidence_score):.1f}/100"
@@ -1110,6 +1138,8 @@ class ReportGenerator:
     {rescan_html}
     {confirmation_html}
 
+    {foundation_notice}
+
     <div style="background:rgba(200,90,90,0.08); border:1px solid rgba(200,90,90,0.25); border-radius:12px; padding:20px; margin:16px 0; text-align:center;">
         <p style="font-family:Inter,sans-serif; font-size:11px; color:#C85A5A; text-transform:uppercase; letter-spacing:1.5px; margin:0 0 6px 0; font-weight:700;">REVENUE EXPOSURE</p>
         <p style="font-family:Georgia,serif; font-size:28px; color:#C85A5A; margin:0; font-weight:700;">{revenue_exposure}</p>
@@ -1148,6 +1178,40 @@ class ReportGenerator:
 </div>
 </body>
 </html>"""
+
+    def _build_foundation_omissions_html(self, report: Dict[str, Any]) -> str:
+        signal = report.get("foundation_omission_signal") if isinstance(report.get("foundation_omission_signal"), dict) else {}
+        omissions = [x for x in (signal.get("omissions") or []) if isinstance(x, dict)]
+        domain = html.escape(str(report.get("target_domain") or "Unknown"))
+        cards: List[str] = []
+        for index, item in enumerate(omissions, 1):
+            title = html.escape(str(item.get("title") or item.get("check") or "Foundational omission"))
+            level = html.escape(str(item.get("level") or "BASIC"))
+            url = html.escape(str(item.get("observed_url") or report.get("target_domain") or ""))
+            why = html.escape(str(item.get("why_it_matters") or ""))
+            solution = html.escape(str(item.get("recommended_change") or ""))
+            evidence = html.escape(str(item.get("evidence") or "Verified public checkpoint failure."))
+            cards.append(
+                '<section style="background:#FFFFFF;border:1px solid #D9D4CC;border-radius:14px;padding:20px;margin:0 0 18px 0;">'
+                f'<div style="font:700 11px Inter,sans-serif;color:#9A3412;letter-spacing:1.2px;text-transform:uppercase;">{index:02d} — {level} FOUNDATIONAL OMISSION</div>'
+                f'<h2 style="font:700 24px Georgia,serif;color:#1F2937;margin:8px 0 12px;">{title}</h2>'
+                f'<p style="font:13px/1.6 Inter,sans-serif;color:#4B5563;"><strong>Observed page:</strong> {url}</p>'
+                f'<p style="font:13px/1.6 Inter,sans-serif;color:#4B5563;"><strong>Why this matters:</strong> {why}</p>'
+                f'<p style="font:13px/1.6 Inter,sans-serif;color:#111827;"><strong>Correct this:</strong> {solution}</p>'
+                f'<p style="font:12px/1.55 Inter,sans-serif;color:#6B7280;"><strong>Evidence:</strong> {evidence}</p>'
+                '</section>'
+            )
+        if not cards:
+            cards.append('<p style="font:14px Inter,sans-serif;color:#4B5563;">No verified foundational omissions were detected in this scan.</p>')
+        return (
+            '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+            f'<title>Trilloka Foundation Omissions — {domain}</title></head><body style="margin:0;background:#F4F1EB;">'
+            '<main style="max-width:820px;margin:0 auto;padding:32px 18px 60px;">'
+            '<div style="font:700 11px Inter,sans-serif;color:#9A3412;letter-spacing:1.5px;text-transform:uppercase;">TRILLOKA — FOUNDATION OMISSIONS</div>'
+            '<h1 style="font:700 34px Georgia,serif;color:#111827;margin:8px 0 10px;">Basic website requirements detected as missing</h1>'
+            '<p style="font:14px/1.7 Inter,sans-serif;color:#4B5563;margin:0 0 28px;">These items are intentionally separated from the main Revenue Readiness findings. They are basic implementation omissions, not automatically the largest financial leaks, and UNKNOWN evidence is never included here.</p>'
+            + ''.join(cards) + '</main></body></html>'
+        )
 
     def build_vault_rescan_comparison(self, target_domain: str, current_audit: Dict[str, Any]) -> Dict[str, Any]:
         """Compare a fresh audit with the newest prior Vault snapshot for the same public domain.
@@ -1257,11 +1321,18 @@ class ReportGenerator:
         with open(filename, "w", encoding="utf-8") as handle:
             json.dump(vault_entry, handle, indent=2, ensure_ascii=False, default=str)
 
-        # Also persist the customer-readable action report as a standalone HTML file.
+        # Also persist the customer-readable action report plus a separate foundation-omissions page.
         html_filename = f"{self.vault_dir}/{sanitized}_{timestamp}_report.html"
+        foundation_basename = f"{sanitized}_{timestamp}_foundation_omissions.html"
+        foundation_filename = f"{self.vault_dir}/{foundation_basename}"
+        report_for_archive = dict(admin_report or {})
+        report_for_archive["foundation_omission_report_filename"] = foundation_basename
         with open(html_filename, "w", encoding="utf-8") as handle:
-            handle.write(self._build_email_html(admin_report))
+            handle.write(self._build_email_html(report_for_archive))
+        with open(foundation_filename, "w", encoding="utf-8") as handle:
+            handle.write(self._build_foundation_omissions_html(report_for_archive))
 
         print(f"[Vault] Archived scan snapshot to {filename}")
         print(f"[Vault] Archived customer-readable report to {html_filename}")
+        print(f"[Vault] Archived foundation-omissions page to {foundation_filename}")
         return filename

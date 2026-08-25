@@ -370,13 +370,19 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
     product_context = bool(
         scan.get("add_to_cart_visible")
         or scan.get("checkout_context_detected")
+        or scan.get("order_online_present")
         or any(token in final_url for token in ("/product/", "/products/", "/item/", "/p/"))
     )
-    call_relevant = bool(local_context and journey in {"lead_quote", "appointment_consultation", "reservation_event"})
+    legacy_business_type = str(architecture.get("legacy_business_type") or "").lower()
+    call_relevant = bool(local_context and (
+        journey in {"lead_quote", "appointment_consultation", "reservation_event"}
+        or legacy_business_type in {"restaurant", "cafe", "café", "food_service"}
+    ))
     sticky_relevant = bool(
         (journey in {"appointment_consultation", "reservation_event"} and (local_context or hospitality_context))
         or (journey == "lead_quote" and local_context)
         or (journey == "direct_purchase" and product_context)
+        or (journey == "general" and scan.get("mobile_primary_cta_present") is True)
     )
     location_relevant = bool(local_context)
     credential_required = bool(regulated)
@@ -398,7 +404,11 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
     if sticky_relevant:
         add(4, "Persistent Mobile Primary Action", bool_status(scan.get("mobile_sticky_cta_present"), scan.get("mobile_cta_status") == "verified"), "trust_conversion", scan.get("mobile_cta_types"), "A persistent action is scored only where mobile direct-action continuity is central to the inferred journey; direct purchase requires product/checkout context.")
     else:
-        status, note = optional_presence(scan.get("mobile_sticky_cta_present"), scan.get("mobile_cta_status") == "verified", "A sticky CTA is an optional enhancement for this customer journey/context and is not required for readiness.")
+        if not browser_verified and static_verified:
+            status = UNKNOWN
+            note = "Static HTML can show ordinary actions but cannot verify whether a primary action remains persistently available after mobile scrolling; this checkpoint is UNKNOWN and unscored."
+        else:
+            status, note = optional_presence(scan.get("mobile_sticky_cta_present"), scan.get("mobile_cta_status") == "verified", "A sticky CTA is an optional enhancement for this customer journey/context and is not required for readiness.")
         add(4, "Persistent Mobile Primary Action", status, "trust_conversion", scan.get("mobile_cta_types"), note)
 
     add(5, "Form Action / SPA Structure Valid", NA if scan.get("forms_present") is False else bool_status(scan.get("form_action_valid"), forms_verified), "trust_conversion")
@@ -596,7 +606,7 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
         completion_reason = "A customer-visible error state was passively observed on a conversion page. No form was submitted and no customer data was mutated."
     elif scan.get("forms_present") or (_safe_int(scan.get("journey_pages_verified"), 0) or 0) > 0:
         completion_status = UNKNOWN
-        completion_reason = "No customer-visible error was observed, but end-to-end delivery/completion is not claimed because the scanner does not submit live customer forms or orders."
+        completion_reason = "No destructive or customer-facing submission was performed. No customer-visible error was observed, but end-to-end delivery/completion is not claimed because the path is not destructively tested and the scanner does not submit live customer forms or orders."
     else:
         completion_status = NA
         completion_reason = "No form/booking conversion path was verified in the bounded public evidence sample."

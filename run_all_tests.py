@@ -1,89 +1,138 @@
-"""
-Trilloka Comprehensive Test Suite
-Validates URL normalization, security guardrails, tier authorization,
-blueprint generation, and email module readiness.
-"""
+"""Trilloka V7 core integrity runner.
 
-import os
+Runs the current Journey + Context scanner/scorer regression suite instead of the
+obsolete pre-V7 ``app.*`` package checks.  This file intentionally performs no live
+customer submissions and does not require network access or Google credentials.
+"""
+from __future__ import annotations
+
+import py_compile
+import subprocess
 import sys
+from pathlib import Path
 
-print("==================================================")
-print("     TRILLOKA SYSTEM INTEGRITY TEST SUITE         ")
-print("==================================================")
+from checkpoint_engine import UNKNOWN, build_50_checkpoints
+from report_engine import ReportGenerator
+from scorer import RevenueScorer
+from test_regressions import base_scan, valmont_fixture
 
-tests_passed = 0
-total_tests = 5
+ROOT = Path(__file__).resolve().parent
+CORE_FILES = (
+    "architecture_model.py",
+    "behavioural_engine.py",
+    "checkpoint_engine.py",
+    "hybrid_scanner.py",
+    "scorer.py",
+    "report_engine.py",
+    "main.py",
+)
 
-# --- TEST 1: URL Normalization ("Pebbles") ---
-try:
-    from app.services.tier_manager import normalize_url
-    assert normalize_url("EXAMPLE.COM/") == "https://example.com"
-    assert normalize_url("HTTPS://EXAMPLE.COM") == "https://example.com"
-    assert normalize_url("http://example.com///") == "https://example.com"
-    print("[PASS] Test 1: URL Normalization (Pebbles squashed)")
-    tests_passed += 1
-except Exception as e:
-    print(f"[FAIL] Test 1: URL Normalization failed -> {e}")
 
-# --- TEST 2: The Architect Guardrail ---
-try:
-    # Importing guardrail logic from main or simulating it
-    RESTRICTED_DOMAINS = ["trilloka.com", "thearchitect.io", "localhost", "127.0.0.1"]
-    def test_guardrail(url):
-        clean = url.lower().replace("https://", "").replace("http://", "").split("/")[0]
-        return any(d in clean for d in RESTRICTED_DOMAINS)
-    
-    assert test_guardrail("https://trilloka.com/dashboard") == True
-    assert test_guardrail("http://localhost:8000") == True
-    assert test_guardrail("https://randomclient.com") == False
-    print("[PASS] Test 2: Architect Ego Guardrail operational")
-    tests_passed += 1
-except Exception as e:
-    print(f"[FAIL] Test 2: Guardrail test failed -> {e}")
+def check(name: str, fn) -> bool:
+    try:
+        fn()
+        print(f"[PASS] {name}")
+        return True
+    except Exception as exc:
+        print(f"[FAIL] {name}: {exc}")
+        return False
 
-# --- TEST 3: Tier Manager & Database Simulation ---
-try:
-    from app.services.tier_manager import TierManager
-    manager = TierManager()
-    # Generate a test client pass
-    test_pass = manager.add_new_client("https://testclient99.com", tier=3)
-    assert test_pass.startswith("IFYB3-")
-    
-    # Authorize scan
-    authorized, tier, msg = manager.authorize_scan(test_pass, "https://testclient99.com/")
-    assert authorized == True
-    assert tier == 3
-    print("[PASS] Test 3: Tier Manager CSV database & auto-normalization working")
-    tests_passed += 1
-except Exception as e:
-    print(f"[FAIL] Test 3: Tier Manager test failed -> {e}")
 
-# --- TEST 4: Solution Blueprint Engine ---
-try:
-    from app.core.blueprints import SolutionBlueprintEngine
-    engine = SolutionBlueprintEngine()
-    # Mock checkpoint results
-    mock_results = {"speed_score": 45, "seo_missing_tags": True}
-    payload = engine.process_and_generate_report(mock_results, client_tier=3, business_type="local")
-    assert payload.get("status") == "CALCULATIONS_COMPLETE"
-    print("[PASS] Test 4: Dynamic Matrix Blueprint Engine calculations verified")
-    tests_passed += 1
-except Exception as e:
-    print(f"[FAIL] Test 4: Blueprint Engine test failed -> {e}")
+def test_compile() -> None:
+    for filename in CORE_FILES:
+        py_compile.compile(str(ROOT / filename), doraise=True)
 
-# --- TEST 5: Email Sender Module Load ---
-try:
-    from app.services.email_sender import send_audit_email
-    assert callable(send_audit_email)
-    print("[PASS] Test 5: Email Sender module imported cleanly")
-    tests_passed += 1
-except Exception as e:
-    print(f"[FAIL] Test 5: Email Sender test failed -> {e}")
 
-print("==================================================")
-print(f" TEST RESULTS: {tests_passed}/{total_tests} Tests Passed.")
-if tests_passed == total_tests:
-    print(" ALL SYSTEMS GREEN. Your architecture is sound.")
-else:
-    print(" WARNING: Some tests require inspection before launch.")
-print("==================================================")
+def test_pytest_regressions() -> None:
+    proc = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "test_regressions.py"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode:
+        raise AssertionError((proc.stdout + "\n" + proc.stderr).strip())
+    print("       " + proc.stdout.strip().replace("\n", "\n       "))
+
+
+def test_formula_reproducible() -> None:
+    audit = RevenueScorer().audit_and_score(valmont_fixture(), business_type="auto")
+    formula = audit["score_formula"]
+    penalty = round(sum(float(row.get("final_score_loss") or 0.0) for row in audit["scoring_ledger"]), 2)
+    recomputed = round(max(0.0, min(100.0,
+        float(formula["operating_baseline"])
+        + float(formula["verified_strength_points_awarded"])
+        + float(formula["elite_bonus_points"])
+        + float(formula["reference_completeness_bonus"])
+        - penalty
+    )), 1)
+    assert formula["total_final_penalty"] == penalty
+    assert audit["overall_score"] == recomputed
+
+
+def test_explicit_general() -> None:
+    audit = RevenueScorer().audit_and_score(valmont_fixture(), business_type="general")
+    assert audit["business_type"] == "general"
+    assert audit["journey_model"] == "general"
+    assert audit["business_profile"].get("source") == "explicit_request"
+
+
+def test_restaurant_mobile_and_overlap() -> None:
+    audit = RevenueScorer().audit_and_score(valmont_fixture(), business_type="auto")
+    leaks = audit["tiered_remediation_packages"]["all_scoring_leaks"]
+    click = next(item for item in leaks if item.get("rule_key") == "click_to_call")
+    sticky = next(item for item in leaks if item.get("rule_key") == "mobile_sticky_cta")
+    overlap = next(item for item in audit["overlap_adjustments"] if item.get("family") == "mobile_direct_action")
+    assert click["severity_factor"] == 0.4
+    assert sticky["final_score_loss"] > 0
+    assert overlap["post_dedupe_total"] < overlap["pre_dedupe_total"]
+
+
+def test_static_sticky_unknown() -> None:
+    scan = base_scan()
+    scan.update({
+        "browser_loaded": False,
+        "static_html_verified": True,
+        "mobile_sticky_cta_present": False,
+        "mobile_cta_status": "unknown",
+        "architecture_profile": {
+            "journey_model": "general",
+            "journey_label": "General / Unresolved Journey",
+            "provisional": False,
+            "context_tags": [],
+        },
+    })
+    cps = build_50_checkpoints(scan, {"architecture_profile": scan["architecture_profile"], "business_type": "general"})
+    cp4 = next(cp for cp in cps if cp["id"] == 4)
+    assert cp4["status"] == UNKNOWN
+
+
+def test_report_compatibility_wording() -> None:
+    audit = RevenueScorer().audit_and_score(base_scan(), business_type="general")
+    text = ReportGenerator()._build_scoring_methodology_explanation(audit)["hygiene_gatekeeping"].lower()
+    for phrase in ("conversion friction", "ordinary seo hygiene", "baymard-informed", "does not claim full baymard certification"):
+        assert phrase in text
+
+
+def main() -> int:
+    print("=" * 62)
+    print(" TRILLOKA V7 CORE SCANNER INTEGRITY SUITE ")
+    print("=" * 62)
+    checks = (
+        ("Core Python compile", test_compile),
+        ("Full regression suite", test_pytest_regressions),
+        ("Score formula reproducibility", test_formula_reproducible),
+        ("Explicit general remains general", test_explicit_general),
+        ("Restaurant click/sticky + overlap", test_restaurant_mobile_and_overlap),
+        ("Static sticky checkpoint stays UNKNOWN", test_static_sticky_unknown),
+        ("Report compatibility wording", test_report_compatibility_wording),
+    )
+    passed = sum(check(name, fn) for name, fn in checks)
+    print("=" * 62)
+    print(f" RESULT: {passed}/{len(checks)} checks passed")
+    print("=" * 62)
+    return 0 if passed == len(checks) else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

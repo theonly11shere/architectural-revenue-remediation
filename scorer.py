@@ -439,6 +439,7 @@ class RevenueScorer:
             raise TypeError("scan_data must be a dictionary")
 
         profile, biz_type = self._resolve_business_profile(scan_data, business_type)
+        public_business_type = self._public_business_type(scan_data, business_type, profile, biz_type)
         scan_quality_raw = scan_data.get("scan_quality")
         scan_quality = scan_quality_raw if isinstance(scan_quality_raw, dict) else {}
         coverage_raw = scan_data.get("evidence_coverage")
@@ -541,10 +542,15 @@ class RevenueScorer:
             total_loss=total_loss,
             unconfirmed_high_impact=unconfirmed_high_impact,
         )
-        overall = round(min(preliminary_public_score, float(maturity_gate["score_cap"])), 1)
+        # Evidence confidence/maturity is reported separately from website quality.  The maturity
+        # gate therefore remains diagnostic metadata and does not silently clamp the earned score.
+        # UNKNOWN evidence already limits what can be earned inside _score_checkpoint_layer.
+        overall = round(preliminary_public_score, 1)
         maturity_gate["pre_gate_score"] = round(preliminary_public_score, 1)
         maturity_gate["final_score"] = overall
-        maturity_gate["cap_applied"] = bool(preliminary_public_score > float(maturity_gate["score_cap"]) + 1e-9)
+        maturity_gate["cap_applied"] = False
+        maturity_gate["score_cap_enforced"] = False
+        maturity_gate["advisory_score_cap"] = maturity_gate.get("score_cap")
 
         sorted_leaks = sorted(leaks, key=lambda item: item.get("final_score_loss", 0.0), reverse=True)
         report_leaks = self._consolidate_report_families(sorted_leaks)
@@ -630,7 +636,8 @@ class RevenueScorer:
 
         return {
             "target_domain": str(scan_data.get("domain") or ""),
-            "business_type": biz_type,
+            "business_type": public_business_type,
+            "journey_model": biz_type,
             "business_profile": profile,
             "architecture_profile": profile,
             "overall_health_score": overall,
@@ -740,8 +747,11 @@ class RevenueScorer:
                 "elite_architecture_score": elite_bonus,
                 "elite_architecture_max": ELITE_BONUS_CAP,
                 "elite_bonus_points": elite_bonus,
-                "raw_verified_strength_points": raw_standard_strength,
-                "verified_strength_points_awarded": standard_strength,
+                # Gross earned strength is exposed so the published arithmetic can be recomputed
+                # from the scoring ledger: gross strength + elite - verified penalties = layer score.
+                "raw_verified_strength_points": round(raw_standard_strength + total_loss, 2),
+                "verified_strength_points_awarded": round(standard_strength + total_loss, 2),
+                "net_verified_strength_points": standard_strength,
                 "reference_completeness_bonus": 0.0,
                 "total_final_penalty": total_loss,
                 "common_foundation_penalty": common_loss,
@@ -751,7 +761,8 @@ class RevenueScorer:
                 "pre_maturity_gate_public_score": round(preliminary_public_score, 2),
                 "maturity_band_cap": maturity_gate.get("score_cap"),
                 "maturity_band": maturity_gate.get("band"),
-                "maturity_cap_applied": maturity_gate.get("cap_applied"),
+                "maturity_cap_applied": False,
+                "maturity_cap_enforced": False,
                 "public_score_ceiling": MAX_REVENUE_READINESS_SCORE,
                 "soft_ceiling_starts_at": SOFT_CEILING_START_SCORE,
                 "ceiling_method": "three earned point banks plus evidence-backed maturity caps; no forced mean or target distribution",
@@ -821,29 +832,82 @@ class RevenueScorer:
         }
 
     def _resolve_business_profile(self, scan_data: Dict[str, Any], requested: str) -> Tuple[Dict[str, Any], str]:
-        """Resolve the v7 Journey + Context profile.
+        """Resolve the internal Journey + Context profile without breaking explicit caller intent.
 
-        Legacy ``business_type`` input is retained only as a weak inference hint for API/backward
-        compatibility. It never overrides stronger public page/action evidence.
+        The scorer uses a journey model internally.  Legacy industry values are retained only as
+        compatibility metadata/output labels.  An explicit ``general`` request is never silently
+        promoted to a more specific journey: uncertainty belongs in the evidence/profile metadata,
+        not in an inferred category the caller explicitly declined.
         """
-        profile_raw = scan_data.get("architecture_profile") if isinstance(scan_data, dict) else {}
-        if not isinstance(profile_raw, dict) or not profile_raw.get("journey_model"):
-            legacy_raw = scan_data.get("business_profile") if isinstance(scan_data, dict) else {}
-            profile_raw = legacy_raw if isinstance(legacy_raw, dict) else {}
-        if isinstance(profile_raw, dict) and profile_raw.get("journey_model"):
-            profile = dict(profile_raw)
+        requested_raw = str(requested or "auto").strip()
+        requested_norm = requested_raw.lower().replace("-", "_").replace(" ", "_")
+
+        architecture_raw = scan_data.get("architecture_profile") if isinstance(scan_data, dict) else {}
+        legacy_raw = scan_data.get("business_profile") if isinstance(scan_data, dict) else {}
+        if not isinstance(architecture_raw, dict):
+            architecture_raw = {}
+        if not isinstance(legacy_raw, dict):
+            legacy_raw = {}
+
+        legacy_vertical = str(legacy_raw.get("vertical") or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+        # Explicit general means exactly general.  We still infer context tags from public evidence
+        # so policy/local/commerce obligations are not lost, but we do not overwrite the journey.
+        if requested_norm == "general":
+            inferred = infer_architecture_profile(scan_data, "auto")
+            profile = dict(inferred)
+            profile.update({k: v for k, v in legacy_raw.items() if k not in {"vertical", "journey_model", "model_basis"}})
+            profile["journey_model"] = "general"
+            profile["journey_label"] = "General / Unresolved Journey"
+            profile["vertical"] = "general"
+            profile["source"] = "explicit_request"
+            profile["requested_journey_hint"] = "general"
+            profile["direct_journey_hint"] = "general"
+            profile["provisional"] = False
+            if legacy_vertical and legacy_vertical not in {"general", "auto", "unknown", "none"}:
+                profile["legacy_business_type"] = legacy_vertical
+            return profile, "general"
+
+        # Prefer a scanner-produced architecture profile when it already has a journey model.
+        if architecture_raw.get("journey_model"):
+            profile = dict(architecture_raw)
+        elif legacy_raw.get("journey_model"):
+            profile = dict(legacy_raw)
         else:
-            profile = infer_architecture_profile(scan_data, requested)
+            # A legacy vertical is a weak hint only.  Strong page/action evidence can still select
+            # a different internal journey, preserving the V7 Journey + Context architecture.
+            hint = legacy_vertical if legacy_vertical and legacy_vertical not in {"general", "auto", "unknown", "none"} else requested_raw
+            profile = infer_architecture_profile(scan_data, hint)
+            for key in ("primary_conversion", "secondary_conversions", "signals"):
+                if key in legacy_raw and legacy_raw.get(key) not in (None, "", []):
+                    profile[f"legacy_{key}"] = legacy_raw.get(key)
+            if legacy_vertical and legacy_vertical not in {"general", "auto", "unknown", "none"}:
+                profile["legacy_business_type"] = legacy_vertical
+
         journey = self._normalize_business_type(profile.get("journey_model") or profile.get("vertical"))
-        if journey == "general" and not profile.get("model_basis"):
-            profile = infer_architecture_profile(scan_data, requested)
-            journey = self._normalize_business_type(profile.get("journey_model"))
         profile["journey_model"] = journey
         profile["journey_label"] = profile.get("journey_label") or journey.replace("_", " ").title()
-        profile["vertical"] = journey  # legacy compatibility alias
+        profile["vertical"] = journey  # journey compatibility alias; legacy value lives separately above
         profile["inferred_subtype"] = ""
         profile["model_basis"] = profile.get("model_basis") or "journey_context_v1"
+        profile["source"] = profile.get("source") or "observed_journey_context"
         return profile, journey
+
+    @staticmethod
+    def _public_business_type(scan_data: Dict[str, Any], requested: str, profile: Dict[str, Any], journey: str) -> str:
+        """Backward-compatible public label while Journey + Context remains the internal scorer model."""
+        requested_norm = str(requested or "auto").strip().lower().replace("-", "_").replace(" ", "_")
+        if requested_norm == "general":
+            return "general"
+        if requested_norm not in {"", "auto", "unknown", "none"} and requested_norm not in {
+            "lead_quote", "appointment_consultation", "reservation_event", "direct_purchase",
+            "demo_sales", "membership_subscription",
+        }:
+            return requested_norm
+        legacy = str(profile.get("legacy_business_type") or "").strip().lower()
+        if requested_norm in {"", "auto", "unknown", "none"} and legacy:
+            return legacy
+        return journey
 
     @staticmethod
     def _normalize_business_type(raw: Any) -> str:
@@ -1388,8 +1452,14 @@ class RevenueScorer:
                 0.8, "high", 1.0, competitor_verified,
                 {"crux_lcp_ms": data.get("crux_lcp_ms"), "crux_inp_ms": data.get("crux_inp_ms"), "crux_cls": data.get("crux_cls")}, "Google CrUX"))
 
-        # Journey-supporting call action only when local direct contact is a normal path.
-        call_relevant = bool(local and biz_type in {"lead_quote", "appointment_consultation", "reservation_event"})
+        # Journey-supporting call action only when local direct contact is a normal path.  Legacy
+        # restaurant/cafe sites may have a direct-purchase/order-online primary journey while calling
+        # remains a normal supporting action, so that compatibility context is retained explicitly.
+        legacy_business_type = str(profile.get("legacy_business_type") or "").lower()
+        call_relevant = bool(local and (
+            biz_type in {"lead_quote", "appointment_consultation", "reservation_event"}
+            or legacy_business_type in {"restaurant", "cafe", "café", "food_service"}
+        ))
         call_status = str(data.get("click_to_call_status") or "unknown").lower()
         phone_status = str(data.get("phone_visibility_status") or "unknown").lower()
         if call_relevant and call_status == "verified" and phone_status == "verified" and not data.get("click_to_call_present"):
@@ -1405,11 +1475,15 @@ class RevenueScorer:
 
         # Sticky/direct action continuity is adaptive; missing sticky is never treated like a broken form.
         final_url = str(data.get("final_url") or data.get("url") or "").lower()
-        product_context = bool(data.get("add_to_cart_visible") or data.get("checkout_context_detected") or any(x in final_url for x in ("/product/", "/products/", "/item/")))
+        product_context = bool(
+            data.get("add_to_cart_visible") or data.get("checkout_context_detected") or data.get("order_online_present")
+            or any(x in final_url for x in ("/product/", "/products/", "/item/"))
+        )
         sticky_relevant = bool(
             (biz_type in {"appointment_consultation", "reservation_event"} and (local or context_has(profile, "hospitality_event")))
             or (biz_type == "lead_quote" and local)
             or (biz_type == "direct_purchase" and product_context)
+            or (biz_type == "general" and data.get("mobile_primary_cta_present") is True)
         )
         if sticky_relevant and str(data.get("mobile_cta_status") or "unknown").lower() == "verified" and not data.get("mobile_sticky_cta_present"):
             severity = 0.45 if data.get("mobile_primary_cta_present") else 0.72
@@ -1743,7 +1817,8 @@ class RevenueScorer:
             after = round(before * factor, 2)
             leak["layer_penalty_adjustment"] = round(factor, 4)
             leak["final_score_loss"] = after
-            leak["final_severity_score"] = after
+            leak["score_impact_points"] = after
+            leak["final_severity_score"] = float(leak.get("intrinsic_severity_score") or leak.get("economic_severity") or after)
         adjustments.append({
             "type": "common_foundation_penalty_cap",
             "raw_common_penalty": round(raw, 2),
@@ -1833,7 +1908,8 @@ class RevenueScorer:
                 final = round(float(leak.get("pre_dedupe_penalty") or 0.0) * factor, 2)
                 leak["family_adjustment"] = factor
                 leak["final_score_loss"] = final
-                leak["final_severity_score"] = final
+                leak["score_impact_points"] = final
+                leak["final_severity_score"] = float(leak.get("intrinsic_severity_score") or leak.get("economic_severity") or final)
                 after += final
 
             cap = FAMILY_SCORE_CAPS.get(family)
@@ -1844,7 +1920,8 @@ class RevenueScorer:
                     capped = round(float(leak.get("final_score_loss") or 0.0) * scale, 2)
                     leak["family_adjustment"] = round(float(leak.get("family_adjustment") or 1.0) * scale, 4)
                     leak["final_score_loss"] = capped
-                    leak["final_severity_score"] = capped
+                    leak["score_impact_points"] = capped
+                    leak["final_severity_score"] = float(leak.get("intrinsic_severity_score") or leak.get("economic_severity") or capped)
                     after += capped
                 after = round(after, 2)
 
@@ -2067,8 +2144,10 @@ class RevenueScorer:
             return "ELITE VERIFIED REVENUE ARCHITECTURE"
         if score >= 80:
             return "EXCEPTIONAL VERIFIED WEBSITE READINESS"
-        if score >= 70:
+        if score >= 75:
             return "STRONG REVENUE ARCHITECTURE"
+        if score >= 65:
+            return "GOOD — LEAKS REMAIN" if total_loss > 0 else "GOOD VERIFIED WEBSITE READINESS"
         if score >= 55:
             return "FUNCTIONAL FOUNDATION — MATERIAL COMMERCIAL HEADROOM"
         if score >= 40:
