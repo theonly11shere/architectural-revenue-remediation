@@ -566,3 +566,246 @@ def test_v5_methodology_keeps_baymard_informed_conversion_priority():
     assert "ordinary seo hygiene" in text
     assert "baymard-informed" in text
     assert "does not claim full baymard certification" in text
+
+# --- V7 completion regressions: calibration + false-positive hardening ---
+
+def test_action_classifier_rejects_incidental_book_and_order_words():
+    from hybrid_scanner import HybridScanner
+    assert HybridScanner._classify_action_text("Facebook", "https://facebook.com/example") == "other"
+    assert HybridScanner._classify_action_text("Removal Orders", "/immigration/removal-orders/") == "other"
+    assert HybridScanner._classify_action_text("Delivery Information", "/delivery/") == "other"
+    assert HybridScanner._classify_action_text("Book Appointment", "/appointments/") == "book"
+    assert HybridScanner._classify_action_text("Book a Table", "/reservations/") == "reserve"
+    assert HybridScanner._classify_action_text("Order Online", "/order-online/") == "order"
+
+
+def test_booking_action_does_not_manufacture_reservation_context():
+    from hybrid_scanner import HybridScanner
+    html = """<!doctype html><html><head><title>Clinic</title></head><body>
+    <h1>Clinic</h1><a href='/appointments/'>Book Appointment</a><a href='/contact/'>Contact Us</a>
+    </body></html>"""
+    scan = HybridScanner()._extract_static_html_evidence(html, "https://example.com/", verified=True)
+    assert scan["booking_action_present"] is True
+    assert scan["reservation_present"] is False
+    assert "book" in scan["mobile_cta_types"]
+
+
+def test_legal_policy_boilerplate_does_not_create_hospitality_context():
+    from architecture_model import infer_architecture_profile
+    scan = {
+        "title": "Vancouver Immigration Lawyers",
+        "h1_tags": ["Immigration Lawyers"],
+        "meta_description": "Book a consultation with our law firm",
+        "page_text": "We reserve the right to update this policy in the event of changes. Legal services and immigration advice.",
+        "journey_text_sample": "Contact our lawyers about your immigration legal matter.",
+        "forms_present": True,
+        "phone_number_visible": True,
+        "address_location_visible": True,
+        "mobile_cta_types": ["contact"],
+    }
+    profile = infer_architecture_profile(scan, "auto")
+    assert profile["journey_model"] == "appointment_consultation"
+    assert "regulated_high_trust" in profile["context_tags"]
+    assert "hospitality_event" not in profile["context_tags"]
+
+
+def test_home_builder_policy_boilerplate_does_not_create_sensitive_or_hospitality_context():
+    from architecture_model import infer_architecture_profile
+    scan = {
+        "title": "Custom Homes Vancouver",
+        "h1_tags": ["Custom Home Builder"],
+        "meta_description": "Custom home renovation contractor",
+        "page_text": "In the event of changes, we reserve the right to update this policy. Legal matter terms may apply. Custom home projects.",
+        "journey_text_sample": "Custom homes renovations projects portfolio contact us",
+        "forms_present": False,
+        "mobile_cta_types": ["contact"],
+        "address_location_visible": True,
+        "phone_number_visible": True,
+    }
+    profile = infer_architecture_profile(scan, "auto")
+    assert profile["journey_model"] == "lead_quote"
+    assert "enterprise_considered_purchase" in profile["context_tags"]
+    assert "sensitive_data" not in profile["context_tags"]
+    assert "hospitality_event" not in profile["context_tags"]
+
+
+def test_conversion_readiness_cannot_look_elite_when_journey_is_general():
+    audit = RevenueScorer().audit_and_score(base_scan(), business_type="general", competitor_data_present=None)
+    metrics = audit["surface_metrics"]
+    assert metrics["conversion_metric_status"] == "PROVISIONAL_JOURNEY"
+    assert metrics["conversion_efficiency"] == metrics["conversion_path_readiness"]
+    assert metrics["conversion_path_readiness"] < 80
+    assert audit["business_profile"]["journey_model"] == "general"
+
+
+def test_surface_layer_indices_reconcile_to_earned_layer_scores():
+    audit = RevenueScorer().audit_and_score(valmont_fixture(), business_type="auto", competitor_data_present=None)
+    layers = audit["analysis_layers"]
+    metrics = audit["surface_metrics"]
+    expected_foundation = round(100 * layers["common_foundation"]["layer_score"] / layers["common_foundation"]["layer_max"], 1)
+    expected_adaptive = round(100 * layers["adaptive_architecture"]["layer_score"] / layers["adaptive_architecture"]["layer_max"], 1)
+    assert metrics["common_foundation_index"] == expected_foundation
+    assert metrics["adaptive_architecture_index"] == expected_adaptive
+
+
+def test_score_formula_exposes_canonical_three_layer_arithmetic():
+    audit = RevenueScorer().audit_and_score(valmont_fixture(), business_type="auto", competitor_data_present=None)
+    formula = audit["score_formula"]
+    recomputed = round(
+        formula["foundation_layer_score"]
+        + formula["revenue_user_architecture_score"]
+        + formula["elite_architecture_score"],
+        1,
+    )
+    assert recomputed == audit["overall_score"]
+    assert formula["penalties_already_reflected_in_layer_scores"] is True
+    assert "foundation_layer_score" in formula["canonical_formula"]
+
+
+def test_maturity_threshold_is_advisory_not_an_enforced_cap():
+    audit = RevenueScorer().audit_and_score(valmont_fixture(), business_type="auto", competitor_data_present=None)
+    gate = audit["maturity_gate"]
+    assert gate["score_cap_enforced"] is False
+    assert gate["advisory_score_threshold"] == gate["score_cap"]
+    assert "not enforced" in gate["score_cap_semantics"]
+
+
+def test_report_uses_100_point_bands_and_advisory_threshold_language():
+    reporter = ReportGenerator()
+    scan = valmont_fixture()
+    audit = RevenueScorer().audit_and_score(scan, business_type="auto", competitor_data_present=None)
+    report = reporter.generate_admin_master_report(audit, scan)
+    html = reporter._build_email_html(report)
+    assert "/ 78" not in html
+    assert "Advisory maturity threshold" in html
+    assert "not a score cap" in html
+    assert "GOOD — LEAKS REMAIN (65–74)" == report["score_level_impact"]["level"]
+
+
+def test_competitor_fallback_query_uses_specific_offering_evidence():
+    from hybrid_scanner import HybridScanner
+    profile = {
+        "journey_model": "lead_quote",
+        "journey_signals": ["hero:custom home", "meta:renovation", "action:contact"],
+    }
+    target_place = {"place_primary_type": "service", "place_types": ["service", "establishment"]}
+    query = HybridScanner._competitor_search_query(target_place, profile)
+    assert "custom home" in query
+    assert "renovation" in query
+    assert query != "local service provider"
+
+
+def test_journey_role_does_not_treat_legal_orders_as_checkout_or_legal_services_as_policy():
+    from hybrid_scanner import HybridScanner
+    assert HybridScanner._journey_role("https://example.com/legal-services/") == "support"
+    assert HybridScanner._journey_role("https://example.com/immigration/removal-orders/") == "support"
+    assert HybridScanner._journey_role("https://example.com/privacy-policy/") == "policy"
+    assert HybridScanner._journey_role("https://example.com/order-online/") == "commerce_conversion"
+
+
+def test_revenue_exposure_context_changes_stakes_not_issue_severity():
+    leak = {
+        "economic_severity": 3.0,
+        "intrinsic_severity_score": 3.0,
+        "final_score_loss": 1.2,
+        "confidence": "high",
+        "severity_factor": 0.8,
+        "base_impact_weight": 4.0,
+    }
+    evidence = {"score": 90}
+    plain = RevenueScorer._revenue_exposure("lead_quote", [leak], evidence, {"context_tags": []})
+    considered = RevenueScorer._revenue_exposure("lead_quote", [leak], evidence, {"context_tags": ["enterprise_considered_purchase"]})
+    assert plain["economic_severity_basis"] == considered["economic_severity_basis"] == 3.0
+    assert considered["economic_context_multiplier"] > plain["economic_context_multiplier"]
+    assert considered["max"] > plain["max"]
+
+
+def test_conversion_error_confirmation_prefers_revenue_path_over_homepage_or_policy():
+    from hybrid_scanner import HybridScanner
+    signals = [
+        {"key": "recaptcha_invalid_site_key", "url": "https://example.com/"},
+        {"key": "recaptcha_invalid_site_key", "url": "https://example.com/privacy-policy/"},
+        {"key": "recaptcha_invalid_site_key", "url": "https://example.com/contact/"},
+    ]
+    assert HybridScanner._select_conversion_error_confirmation_url(signals, {}) == "https://example.com/contact/"
+
+    rendered = {
+        "url": "https://example.com/contact/",
+        "conversion_error_signals": [{"key": "recaptcha_invalid_site_key"}],
+    }
+    assert HybridScanner._select_conversion_error_confirmation_url(signals, rendered) == "https://example.com/contact/"
+
+
+def test_foundation_omission_signal_requires_verified_fail_and_keeps_modal_generic():
+    from checkpoint_engine import build_foundation_omission_signal
+    checkpoints = [
+        {"id": 22, "status": FAIL, "rule_key": "canonical_missing", "check": "Canonical URL Present", "evidence": None},
+        {"id": 31, "status": UNKNOWN, "rule_key": "mobile_viewport", "check": "Mobile Viewport Configured", "evidence": None},
+    ]
+    signal = build_foundation_omission_signal(checkpoints, {"final_url": "https://example.com/", "title": "Example", "browser_loaded": True})
+    assert signal["triggered"] is True
+    assert signal["count"] == 1
+    assert signal["highest_level"] == "BASIC"
+    assert signal["public_modal_disclose_items"] is False
+    assert "canonical" not in signal["modal_message"].lower()
+    assert len(signal["omissions"]) == 1
+    assert signal["omissions"][0]["checkpoint_id"] == 22
+
+
+def test_revenue_path_failure_outweighs_minor_search_hygiene():
+    from copy import deepcopy
+    strong = base_scan()
+    strong.update({
+        "title": "Vancouver Home Renovation Contractor",
+        "h1_tags": ["Custom Home Renovations"],
+        "meta_description": "Custom home renovation contractor. Request a quote.",
+        "page_text": "Custom home renovations projects portfolio request a quote contact us Vancouver " * 20,
+        "forms_present": True,
+        "form_action_valid": True,
+        "form_functional_status": PASS,
+        "mobile_cta_types": ["quote", "call"],
+        "click_to_call_present": True,
+        "mobile_primary_cta_present": True,
+        "mobile_sticky_cta_present": True,
+        "credentials_present": True,
+        "trust_badges_present": True,
+    })
+    minor = deepcopy(strong)
+    minor.update({"meta_description": "", "canonical_present": False})
+    major = deepcopy(strong)
+    major.update({
+        "forms_present": False,
+        "form_action_valid": False,
+        "form_functional_status": FAIL,
+        "mobile_primary_cta_present": False,
+        "mobile_sticky_cta_present": False,
+        "mobile_cta_types": [],
+        "click_to_call_present": False,
+        "click_to_call_status": "verified",
+    })
+    scorer = RevenueScorer()
+    strong_a = scorer.audit_and_score(strong, business_type="auto", competitor_data_present=None)
+    minor_a = scorer.audit_and_score(minor, business_type="auto", competitor_data_present=None)
+    major_a = scorer.audit_and_score(major, business_type="auto", competitor_data_present=None)
+    minor_drop = strong_a["overall_score"] - minor_a["overall_score"]
+    major_drop = strong_a["overall_score"] - major_a["overall_score"]
+    assert minor_drop < 3.0
+    assert major_drop > 10.0
+    assert major_drop > minor_drop * 4
+    assert major_a["surface_metrics"]["conversion_path_readiness"] < minor_a["surface_metrics"]["conversion_path_readiness"]
+
+
+def test_context_hardening_preserves_genuine_hospitality_event_sites():
+    from architecture_model import infer_architecture_profile
+    profile = infer_architecture_profile({
+        "title": "Vancouver Waterfront Wedding Venue",
+        "h1_tags": ["Waterfront Wedding Venue"],
+        "meta_description": "Reserve your wedding venue and event catering date.",
+        "page_text": "Wedding venue banquet event catering reservations.",
+        "journey_text_sample": "Book wedding venue reserve event date",
+        "forms_present": True,
+        "mobile_cta_types": ["reserve"],
+        "address_location_visible": True,
+    }, "auto")
+    assert profile["journey_model"] == "reservation_event"
+    assert "hospitality_event" in profile["context_tags"]

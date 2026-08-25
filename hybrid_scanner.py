@@ -87,7 +87,7 @@ CONVERSION_ERROR_PATTERNS = (
 )
 
 # Shared role terms used by bounded journey sampling. Journey-specific priorities live in architecture_model.py.
-POLICY_TERMS = ("privacy", "terms", "legal", "policy")
+POLICY_TERMS = ("privacy", "terms", "terms-of-service", "terms_of_service", "cookie-policy", "cookie_policy", "policy")
 PROOF_TERMS = ("about", "team", "staff", "reviews", "testimonials", "case-studies", "case_studies", "portfolio", "credentials")
 
 # External booking/scheduling providers are allow-listed to avoid turning the scanner into
@@ -832,6 +832,66 @@ class HybridScanner:
         return architecture_competitor_search_text(journey_model)
 
     @staticmethod
+    def _competitor_search_query(target_place: Dict[str, Any], architecture_profile: Dict[str, Any]) -> str:
+        """Build a specific Places fallback query from verified target identity + offering evidence.
+
+        A generic journey query such as ``local service provider`` can surface telecoms, stores or
+        unrelated service businesses.  Prefer the target's specific Google type and strong journey
+        phrases (for example ``general contractor custom home renovation``) and only fall back to
+        the broad journey query when neither is available.
+        """
+        generic_types = {
+            "", "establishment", "point_of_interest", "service", "business", "organization",
+            "store", "professional_service", "local_business",
+        }
+        primary = str((target_place or {}).get("place_primary_type") or "").strip().lower()
+        type_candidates = [primary] + [str(x or "").strip().lower() for x in ((target_place or {}).get("place_types") or [])]
+        specific_type = next((x for x in type_candidates if x and x not in generic_types), "")
+
+        generic_signal_phrases = {
+            "contact us", "contact", "book", "booking", "reserve", "reservation", "order",
+            "verified reservation path", "verified order-online path", "verified add-to-cart",
+            "verified checkout context", "direct-purchase journey",
+        }
+        offering_terms: List[str] = []
+        for raw in ((architecture_profile or {}).get("journey_signals") or (architecture_profile or {}).get("signals") or []):
+            text = str(raw or "").strip().lower()
+            if ":" in text and text.split(":", 1)[0] in {"hero", "meta", "action"}:
+                text = text.split(":", 1)[1].strip()
+            text = re.sub(r"[^a-z0-9&+ /-]+", " ", text)
+            text = " ".join(text.split())
+            if not text or text in generic_signal_phrases or text.startswith("direct_journey_hint"):
+                continue
+            if len(text) < 4 or len(text) > 42:
+                continue
+            if text not in offering_terms:
+                offering_terms.append(text)
+            if len(offering_terms) >= 2:
+                break
+
+        parts: List[str] = []
+        if specific_type:
+            friendly = specific_type.replace("_", " ")
+            # Google types can end in generic suffixes; keep them because they still anchor category.
+            parts.append(friendly)
+        parts.extend(offering_terms)
+        query = " ".join(dict.fromkeys(parts)).strip()
+        if query:
+            return query[:120]
+        return architecture_competitor_search_text(str((architecture_profile or {}).get("journey_model") or "general"))
+
+    @staticmethod
+    def _places_candidate_key(place: Dict[str, Any]) -> str:
+        place_id = str((place or {}).get("id") or "").strip()
+        if place_id:
+            return "id:" + place_id
+        website = HybridScanner._host_from_url(str((place or {}).get("websiteUri") or ""))
+        if website:
+            return "web:" + website
+        name = str(((place or {}).get("displayName") or {}).get("text") or "").strip().lower()
+        return "name:" + re.sub(r"\s+", " ", name)
+
+    @staticmethod
     def _expected_competitor_actions(journey_model: str) -> set:
         return architecture_expected_actions(journey_model)
 
@@ -1020,39 +1080,76 @@ class HybridScanner:
         )
         headers = {"Content-Type": "application/json", "X-Goog-Api-Key": self.places_api_key, "X-Goog-FieldMask": field_mask}
         endpoint = "https://places.googleapis.com/v1/places:searchNearby"
-        primary_type = str((target_place or {}).get("place_primary_type") or "").strip()
+        primary_type = str((target_place or {}).get("place_primary_type") or "").strip().lower()
+        generic_place_types = {"", "establishment", "point_of_interest", "service", "business", "organization", "store", "professional_service", "local_business"}
+        search_query = self._competitor_search_query(target_place, architecture_profile)
         body: Dict[str, Any] = {
             "maxResultCount": max_results,
             "rankPreference": "POPULARITY",
             "locationRestriction": {"circle": {"center": {"latitude": lat, "longitude": lng}, "radius": radius}},
         }
-        if primary_type and primary_type not in {"establishment", "point_of_interest"}:
+        # Nearby type filtering is excellent when Google exposes a specific type, but generic
+        # types such as ``service`` create noisy peer sets and are intentionally not used.
+        if primary_type and primary_type not in generic_place_types:
             body["includedTypes"] = [primary_type]
 
-        places: List[Dict[str, Any]] = []
+        nearby_places: List[Dict[str, Any]] = []
+        nearby_status = "not_attempted"
         try:
             response = self.session.post(endpoint, json=body, headers=headers, timeout=(4, 12))
+            nearby_status = f"http_{response.status_code}"
             if response.status_code == 200:
-                places = response.json().get("places") or []
+                nearby_places = response.json().get("places") or []
             else:
-                print(f"[Hybrid Scanner] Nearby competitor search HTTP {response.status_code}; trying text fallback")
+                print(f"[Hybrid Scanner] Nearby competitor search HTTP {response.status_code}; evaluating text fallback")
         except Exception as exc:
+            nearby_status = "error"
             print(f"[Hybrid Scanner] Nearby competitor search error: {exc}")
 
-        if not places:
+        # Text search is used when Nearby is empty, the Google type is generic, too few candidates
+        # expose websites, or strong offering language exists that can make the query materially
+        # more specific than the broad journey.  Results are merged and deduplicated.
+        text_places: List[Dict[str, Any]] = []
+        text_status = "not_needed"
+        nearby_websites = sum(bool(str(x.get("websiteUri") or "")) for x in nearby_places)
+        strong_offering_query = bool(search_query and search_query != self._competitor_search_text(journey_model))
+        need_text = bool(
+            not nearby_places
+            or primary_type in generic_place_types
+            or nearby_websites < 3
+            or (strong_offering_query and len(nearby_places) < max_results)
+        )
+        if need_text:
             try:
                 text_endpoint = "https://places.googleapis.com/v1/places:searchText"
                 text_body = {
-                    "textQuery": self._competitor_search_text(journey_model),
+                    "textQuery": search_query or self._competitor_search_text(journey_model),
                     "pageSize": max_results,
                     "locationBias": {"circle": {"center": {"latitude": lat, "longitude": lng}, "radius": radius}},
                 }
                 response = self.session.post(text_endpoint, json=text_body, headers=headers, timeout=(4, 12))
+                text_status = f"http_{response.status_code}"
                 if response.status_code == 200:
-                    places = response.json().get("places") or []
+                    text_places = response.json().get("places") or []
             except Exception as exc:
+                text_status = "error"
                 print(f"[Hybrid Scanner] Text competitor search error: {exc}")
 
+        # Specific text results are preferred when the target type is generic; otherwise Nearby
+        # remains the primary source and text results merely improve coverage.
+        combined_places = (text_places + nearby_places) if primary_type in generic_place_types else (nearby_places + text_places)
+        places: List[Dict[str, Any]] = []
+        seen_place_keys: set[str] = set()
+        for place in combined_places:
+            marker = self._places_candidate_key(place)
+            if not marker or marker in seen_place_keys:
+                continue
+            seen_place_keys.add(marker)
+            places.append(place)
+            if len(places) >= max_results:
+                break
+
+        search_strategy = "nearby+specific_text" if nearby_places and text_places else ("specific_text" if text_places else "nearby")
         target_id = str((target_place or {}).get("place_id") or "")
         target_host = self._host_from_url((target_place or {}).get("place_website_uri") or target_scan.get("domain") or "")
         competitors: List[Dict[str, Any]] = []
@@ -1138,6 +1235,11 @@ class HybridScanner:
             "status": "measured" if available else "partial",
             "reason": "" if available else "Fewer than 3 journey/context-relevant competitors had enough public website evidence for a stable benchmark",
             "radius_meters": int(radius),
+            "competitor_search_strategy": search_strategy,
+            "competitor_search_query": search_query,
+            "target_google_primary_type": primary_type or None,
+            "nearby_search_status": nearby_status,
+            "text_search_status": text_status,
             "target_place_name": target_place.get("place_display_name") or "",
             "target_address": str(target_place.get("place_formatted_address") or ""),
             "target_google_rating": self._to_float(target_place.get("google_rating")),
@@ -1378,7 +1480,8 @@ class HybridScanner:
                 "mobile_cta_type": action_types[0] if action_types else "unknown",
                 "add_to_cart_visible": any(t in action_types for t in ("add_to_cart", "buy")),
                 "order_online_present": "order" in action_types,
-                "reservation_present": "reserve" in action_types or "book" in action_types,
+                "reservation_present": "reserve" in action_types,
+                "booking_action_present": "book" in action_types,
                 "directions_present": "directions" in action_types,
                 "internal_links": internal_links,
                 "booking_provider_links": booking_provider_links,
@@ -1422,25 +1525,49 @@ class HybridScanner:
 
     @staticmethod
     def _classify_action_text(text: str, href: str) -> str:
-        value = f"{text} {href}".lower()
-        patterns = (
-            (r"add\s*to\s*(?:cart|bag)", "add_to_cart"),
-            (r"buy\s*now|checkout|purchase", "buy"),
-            (r"order\s*(?:online|now)?|pickup|delivery", "order"),
-            (r"reserve|reservation", "reserve"),
-            (r"book\s*demo|request\s*demo|demo", "demo"),
-            (r"book\s*(?:now|appointment|consultation)?", "book"),
-            (r"tel:|call\s*(?:now|us|restaurant)?", "call"),
-            (r"directions|maps\.google|google\.com/maps", "directions"),
-            (r"get\s*a?\s*quote|request\s*quote|estimate", "quote"),
-            (r"start\s*(?:free\s*)?trial|free\s*trial", "trial"),
-            (r"subscribe|newsletter|join\s*(?:the\s*)?(?:list|newsletter)|sign\s*up\s*for\s*(?:the\s*)?newsletter", "subscribe"),
-            (r"contact\s*(?:us)?|get\s*in\s*touch", "contact"),
-            (r"chat|whatsapp|wa\.me", "chat"),
-        )
-        for pattern, action_type in patterns:
-            if re.search(pattern, value, re.I):
-                return action_type
+        """Classify an actual customer action conservatively.
+
+        Earlier versions searched loose substrings across link text + href, which could classify
+        ``Facebook`` as ``book`` or a legal ``removal-order`` page as an ecommerce order CTA.
+        This version uses word boundaries, intent phrases and path-segment evidence.
+        """
+        label = " ".join(str(text or "").strip().lower().split())
+        raw_href = str(href or "").strip().lower()
+        try:
+            parsed = urllib.parse.urlparse(raw_href)
+            path = urllib.parse.unquote(parsed.path or "").lower()
+        except Exception:
+            path = raw_href
+        href_tokens = " ".join(x for x in re.split(r"[/_?&=#.-]+", path) if x)
+        combined = f"{label} {href_tokens}".strip()
+
+        if raw_href.startswith("tel:") or re.search(r"\bcall(?:\s+(?:now|us|today|restaurant))?\b", label):
+            return "call"
+        if re.search(r"\b(?:directions?|get directions)\b", label) or "maps.google" in raw_href or "google.com/maps" in raw_href:
+            return "directions"
+        if re.search(r"\badd\s+to\s+(?:cart|bag)\b", combined):
+            return "add_to_cart"
+        if re.search(r"\b(?:checkout|buy\s+now|purchase\s+now|complete\s+purchase)\b", label) or re.search(r"(?:^|\s)checkout(?:\s|$)", href_tokens):
+            return "buy"
+        if re.search(r"\b(?:order\s+(?:online|now|pickup|delivery)|start\s+(?:an?\s+)?order|place\s+(?:an?\s+)?order)\b", label) or re.search(r"(?:^|\s)(?:order-online|online-order)(?:\s|$)", path.replace("/", " ")):
+            return "order"
+        # Hospitality booking language is distinct from appointment booking.
+        if re.search(r"\b(?:reserve(?:\s+(?:now|a\s+table|a\s+room|a\s+spot))?|make\s+(?:a\s+)?reservation|book\s+(?:a\s+)?(?:table|room|venue|tour|charter|cruise))\b", label) or re.search(r"(?:^|\s)reservations?(?:\s|$)", href_tokens):
+            return "reserve"
+        if re.search(r"\b(?:book\s+(?:a\s+)?demo|request\s+(?:a\s+)?demo|schedule\s+(?:a\s+)?demo)\b", label):
+            return "demo"
+        if re.search(r"\b(?:book(?:\s+(?:now|online|appointment|consultation|a\s+consultation))?|schedule\s+(?:an?\s+)?(?:appointment|consultation))\b", label) or re.search(r"(?:^|\s)(?:book|booking|appointment|appointments)(?:\s|$)", href_tokens):
+            return "book"
+        if re.search(r"\b(?:get|request|receive)\s+(?:a\s+)?(?:free\s+)?quote\b|\b(?:free\s+)?estimate\b", label) or re.search(r"(?:^|\s)(?:quote|estimate)(?:\s|$)", href_tokens):
+            return "quote"
+        if re.search(r"\b(?:start\s+(?:a\s+)?(?:free\s+)?trial|free\s+trial|try\s+free)\b", label):
+            return "trial"
+        if re.search(r"\b(?:subscribe|join\s+(?:the\s+)?(?:list|newsletter|community)|sign\s+up\s+for\s+(?:the\s+)?newsletter)\b", label):
+            return "subscribe"
+        if re.search(r"\b(?:contact(?:\s+us)?|get\s+in\s+touch|send\s+(?:us\s+)?a\s+message)\b", label) or re.search(r"(?:^|\s)contact(?:\s|$)", href_tokens):
+            return "contact"
+        if re.search(r"\b(?:live\s+chat|chat\s+(?:now|with\s+us)|whatsapp)\b", label) or "wa.me" in raw_href or "whatsapp.com" in raw_href:
+            return "chat"
         return "other"
 
     @staticmethod
@@ -1518,19 +1645,21 @@ class HybridScanner:
     @staticmethod
     def _journey_role(url: str) -> str:
         path = urllib.parse.unquote(urllib.parse.urlparse(str(url or "")).path).lower().strip("/")
-        tokens = [token for token in re.split(r"[/_-]+", path) if token]
+        tokens = [token for token in re.split(r"[/_.-]+", path) if token]
+        token_set = set(tokens)
         joined = " ".join(tokens)
-        if any(term in joined for term in ("contact", "enquiry", "inquiry", "quote", "estimate")):
+        if token_set & {"contact", "enquiry", "inquiry", "quote", "estimate"} or re.search(r"\brequest (?:a )?(?:quote|estimate)\b", joined):
             return "contact_or_lead"
-        if any(term in joined for term in ("book", "booking", "appointment", "consultation", "reservation", "reserve")):
+        if token_set & {"book", "booking", "appointment", "appointments", "consultation", "reservation", "reservations", "reserve"}:
             return "booking"
-        if any(term in joined for term in ("cart", "checkout", "order")):
+        if token_set & {"cart", "checkout"} or "order online" in joined or "online order" in joined or "place order" in joined:
             return "commerce_conversion"
-        if any(term in joined for term in ("pricing", "plans", "packages", "demo", "trial", "signup", "sign up")):
+        if token_set & {"pricing", "plans", "packages", "demo", "trial", "signup"} or "sign up" in joined:
             return "evaluation"
-        if any(term in joined for term in ("about", "team", "staff", "reviews", "testimonials", "case studies", "portfolio")):
+        if token_set & {"about", "team", "staff", "reviews", "testimonials", "portfolio", "projects", "customers"} or "case studies" in joined:
             return "proof"
-        if any(term in joined for term in ("privacy", "terms", "legal", "policy")):
+        # A law firm's /legal-services/ page is not a policy page. Keep policy matching narrow.
+        if token_set & {"privacy", "terms", "policy", "cookies", "cookie"} or "terms of service" in joined or "terms and conditions" in joined:
             return "policy"
         return "support"
 
@@ -1674,7 +1803,9 @@ class HybridScanner:
                     aggregate["credential_signals_present"] = True
                     aggregate["trust_badges_present"] = True
                 sample = str(evidence.get("page_text") or "")[:5000]
-                if sample:
+                # Policy/legal boilerplate is still scanned for policy evidence, but is deliberately
+                # excluded from journey/context language inference ("in the event", "we reserve", etc.).
+                if sample and role != "policy":
                     text_samples.append(sample)
                 pages.append({
                     "url": response.url,
@@ -1935,6 +2066,58 @@ class HybridScanner:
             return not bool((expected & cta_types) or form_usable)
         return not bool(data.get("mobile_primary_cta_present") or form_usable or call)
 
+    @classmethod
+    def _select_conversion_error_confirmation_url(
+        cls,
+        signals: List[Dict[str, Any]],
+        browser_journey_probe: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Choose the strongest affected customer-journey URL for passive re-confirmation.
+
+        First preference is an already-rendered journey page that carried the same error.
+        Otherwise, rank actual contact/booking/checkout paths above homepage/support/proof/policy
+        pages. This prevents a duplicated site-wide error string on the homepage or a policy page
+        from stealing confirmation away from the revenue-bearing path that originally exposed it.
+        """
+        usable = [x for x in (signals or []) if isinstance(x, dict) and x.get("url")]
+        if not usable:
+            return ""
+
+        initial_urls = [str(x.get("url") or "") for x in usable if x.get("url")]
+        expected_keys = {str(x.get("key") or "") for x in usable if x.get("key")}
+        first_browser = browser_journey_probe if isinstance(browser_journey_probe, dict) else {}
+        first_browser_url = str(first_browser.get("url") or "")
+        first_browser_keys = {
+            str(x.get("key") or "")
+            for x in (first_browser.get("conversion_error_signals") or [])
+            if isinstance(x, dict) and x.get("key")
+        }
+        if (
+            first_browser_url
+            and first_browser_url in initial_urls
+            and (not expected_keys or bool(first_browser_keys & expected_keys))
+        ):
+            return first_browser_url
+
+        role_rank = {
+            "contact_or_lead": 0,
+            "booking": 0,
+            "commerce_conversion": 0,
+            "evaluation": 1,
+            "support": 2,
+            "proof": 3,
+            "policy": 5,
+        }
+        ranked_urls = sorted(
+            dict.fromkeys(initial_urls),
+            key=lambda u: (
+                role_rank.get(cls._journey_role(u), 4),
+                len(urllib.parse.urlparse(u).path or "/"),
+                u,
+            ),
+        )
+        return ranked_urls[0] if ranked_urls else ""
+
     async def confirm_high_impact_findings(
         self,
         scan_data: Dict[str, Any],
@@ -1989,8 +2172,11 @@ class HybridScanner:
         second_error_probe: Dict[str, Any] = {}
         error_url = ""
         if error_candidate:
-            signals = ((error_candidate.get("evidence") or {}).get("error_signals") or [])
-            error_url = next((str(x.get("url") or "") for x in signals if isinstance(x, dict) and x.get("url")), "")
+            signals = [x for x in (((error_candidate.get("evidence") or {}).get("error_signals") or [])) if isinstance(x, dict)]
+            error_url = self._select_conversion_error_confirmation_url(
+                signals,
+                scan_data.get("browser_journey_probe") if isinstance(scan_data, dict) else {},
+            )
             if error_url and self._booking_provider_for_host(urllib.parse.urlparse(error_url).hostname or ""):
                 # External booking destinations are confirmed with the provider health checker, not Chromium.
                 health = await asyncio.to_thread(self._check_external_booking_provider_health, [
@@ -2566,7 +2752,7 @@ class HybridScanner:
             for key in (
                 "mobile_cta_visible", "mobile_primary_cta_present", "mobile_sticky_cta_present",
                 "mobile_cta_status", "mobile_cta_type", "mobile_cta_types", "mobile_cta_evidence",
-                "add_to_cart_visible", "order_online_present", "reservation_present", "directions_present",
+                "add_to_cart_visible", "order_online_present", "reservation_present", "booking_action_present", "directions_present",
             ):
                 merged[key] = mobile_attempt.get(key)
         else:
@@ -2802,7 +2988,7 @@ class HybridScanner:
             for key in (
                 "mobile_cta_visible", "mobile_primary_cta_present", "mobile_sticky_cta_present",
                 "mobile_cta_status", "mobile_cta_type", "mobile_cta_types", "mobile_cta_evidence",
-                "add_to_cart_visible", "order_online_present", "reservation_present", "directions_present",
+                "add_to_cart_visible", "order_online_present", "reservation_present", "booking_action_present", "directions_present",
             ):
                 merged[key] = dom.get(key)
 
@@ -2880,6 +3066,7 @@ class HybridScanner:
             "add_to_cart_visible": False,
             "order_online_present": False,
             "reservation_present": False,
+            "booking_action_present": False,
             "directions_present": False,
             "whatsapp_present": False,
             "live_chat_present": False,
@@ -3262,7 +3449,8 @@ class HybridScanner:
                 results["mobile_cta_evidence"] = all_actions[:20]
                 results["add_to_cart_visible"] = any(t in cta_types for t in ("add_to_cart", "buy"))
                 results["order_online_present"] = "order" in cta_types
-                results["reservation_present"] = "reserve" in cta_types or "book" in cta_types
+                results["reservation_present"] = "reserve" in cta_types
+                results["booking_action_present"] = "book" in cta_types
                 results["directions_present"] = "directions" in cta_types
 
                 # Content / trust / navigation signals used only when observed.
@@ -3373,22 +3561,26 @@ class HybridScanner:
 
     async def _collect_action_candidates(self, page: Any) -> List[Dict[str, Any]]:
         return await page.evaluate(
-            """() => {
+            r"""() => {
                 const classify = (text, href) => {
-                    const value = `${text || ''} ${href || ''}`.toLowerCase();
-                    if (/add\\s*to\\s*cart|add\\s*to\\s*bag/.test(value)) return 'add_to_cart';
-                    if (/buy\\s*now|checkout|purchase/.test(value)) return 'buy';
-                    if (/order\\s*(online|now)?|pickup|delivery/.test(value)) return 'order';
-                    if (/reserve|reservation/.test(value)) return 'reserve';
-                    if (/book\\s*demo|request\\s*demo|demo/.test(value)) return 'demo';
-                    if (/book\\s*(now|appointment|consultation)?/.test(value)) return 'book';
-                    if (/tel:|call\\s*(now|us|restaurant)?/.test(value)) return 'call';
-                    if (/directions|maps\\.google|google\\.com\\/maps/.test(value)) return 'directions';
-                    if (/get\\s*a?\\s*quote|request\\s*quote|estimate/.test(value)) return 'quote';
-                    if (/start\\s*(free\\s*)?trial|free\\s*trial/.test(value)) return 'trial';
-                    if (/subscribe|newsletter|join\\s*(the\\s*)?(list|newsletter)|sign\\s*up\\s*for\\s*(the\\s*)?newsletter/.test(value)) return 'subscribe';
-                    if (/contact\\s*(us)?|get\\s*in\\s*touch/.test(value)) return 'contact';
-                    if (/chat|whatsapp|wa\\.me/.test(value)) return 'chat';
+                    const label = String(text || '').toLowerCase().replace(/\s+/g, ' ').trim();
+                    const rawHref = String(href || '').toLowerCase();
+                    let path = rawHref;
+                    try { path = decodeURIComponent(new URL(rawHref, location.href).pathname || '').toLowerCase(); } catch (e) {}
+                    const hrefTokens = path.split(/[\/_?&=#.\-]+/).filter(Boolean).join(' ');
+                    if (rawHref.startsWith('tel:') || /\bcall(?:\s+(?:now|us|today|restaurant))?\b/.test(label)) return 'call';
+                    if (/\b(?:directions?|get directions)\b/.test(label) || rawHref.includes('maps.google') || rawHref.includes('google.com/maps')) return 'directions';
+                    if (/\badd\s+to\s+(?:cart|bag)\b/.test(`${label} ${hrefTokens}`)) return 'add_to_cart';
+                    if (/\b(?:checkout|buy\s+now|purchase\s+now|complete\s+purchase)\b/.test(label) || /(?:^|\s)checkout(?:\s|$)/.test(hrefTokens)) return 'buy';
+                    if (/\b(?:order\s+(?:online|now|pickup|delivery)|start\s+(?:an?\s+)?order|place\s+(?:an?\s+)?order)\b/.test(label) || /(?:^|\s)(?:order online|online order)(?:\s|$)/.test(hrefTokens)) return 'order';
+                    if (/\b(?:reserve(?:\s+(?:now|a\s+table|a\s+room|a\s+spot))?|make\s+(?:a\s+)?reservation|book\s+(?:a\s+)?(?:table|room|venue|tour|charter|cruise))\b/.test(label) || /(?:^|\s)reservations?(?:\s|$)/.test(hrefTokens)) return 'reserve';
+                    if (/\b(?:book\s+(?:a\s+)?demo|request\s+(?:a\s+)?demo|schedule\s+(?:a\s+)?demo)\b/.test(label)) return 'demo';
+                    if (/\b(?:book(?:\s+(?:now|online|appointment|consultation|a\s+consultation))?|schedule\s+(?:an?\s+)?(?:appointment|consultation))\b/.test(label) || /(?:^|\s)(?:book|booking|appointment|appointments)(?:\s|$)/.test(hrefTokens)) return 'book';
+                    if (/\b(?:get|request|receive)\s+(?:a\s+)?(?:free\s+)?quote\b|\b(?:free\s+)?estimate\b/.test(label) || /(?:^|\s)(?:quote|estimate)(?:\s|$)/.test(hrefTokens)) return 'quote';
+                    if (/\b(?:start\s+(?:a\s+)?(?:free\s+)?trial|free\s+trial|try\s+free)\b/.test(label)) return 'trial';
+                    if (/\b(?:subscribe|join\s+(?:the\s+)?(?:list|newsletter|community)|sign\s+up\s+for\s+(?:the\s+)?newsletter)\b/.test(label)) return 'subscribe';
+                    if (/\b(?:contact(?:\s+us)?|get\s+in\s+touch|send\s+(?:us\s+)?a\s+message)\b/.test(label) || /(?:^|\s)contact(?:\s|$)/.test(hrefTokens)) return 'contact';
+                    if (/\b(?:live\s+chat|chat\s+(?:now|with\s+us)|whatsapp)\b/.test(label) || rawHref.includes('wa.me') || rawHref.includes('whatsapp.com')) return 'chat';
                     return 'other';
                 };
                 const elements = Array.from(document.querySelectorAll('a, button, [role="button"]'));

@@ -335,7 +335,8 @@ class ReportGenerator:
             "core_philosophy": "Trilloka measures observable website Revenue Readiness, not literal conversion percentage, product-market fit, demand, sales-team performance or actual revenue. Readiness is earned across three unequal layers—Foundation, Revenue/User Architecture and Elite Architecture—while verified leaks retain separate score impact, severity and evidence confidence.",
             "graded_continuum": "Every deduction is scaled by implementation severity, evidence confidence and journey/context relevance. Unknown telemetry earns no strength and creates no penalty. Severe deductions require independent confirmation or corroboration.",
             "architecture_model": f"Primary customer journey: {journey}. Context tags: {contexts}. Legacy industry selections are only weak hints; the score is driven by observed customer actions and context evidence.",
-            "two_layer_model": "Common Foundation checks cover universal HTTPS, SEO/search structure, performance, mobile and accessibility basics at deliberately low Revenue Readiness weight. Adaptive Architecture checks carry more weight and change applicability based on the observed customer journey and context tags.",
+            "two_layer_model": "Three earned layers are used: Common Foundation (22 points), Revenue/User Architecture (60 points), and Elite Architecture (18 points). Foundation covers universal HTTPS, SEO/search structure, performance, mobile and accessibility basics; Revenue/User Architecture adapts to the observed customer journey and context; Elite requires advanced verified maturity.",
+            "vertical_weighting": "Journey + Context weighting replaces broad industry scoring. The same technical condition can have different commercial importance depending on the verified customer action, substitution paths and contextual obligations; legacy industry labels are weak hints only.",
             "hygiene_gatekeeping": "Verified conversion friction and customer-path blockers are prioritized ahead of ordinary SEO hygiene. Ecommerce checkout weighting is Baymard-informed only when purchase-context evidence exists and does not claim full Baymard certification; primary journeys/forms use usability research, while measured performance uses Google/web.dev evidence. Research percentages are never copied directly into site-specific deductions.",
         }
 
@@ -343,23 +344,29 @@ class ReportGenerator:
     def _build_score_level_impact_explanation(score: float, audit_data: Dict[str, Any] | None = None) -> Dict[str, str]:
         audit = audit_data or {}
         rating = str(audit.get("score_rating") or "")
-        evidence = audit.get("evidence_confidence") if isinstance(audit.get("evidence_confidence"), dict) else {}
         penalty = float((audit.get("score_formula") or {}).get("total_final_penalty") or audit.get("total_severity_index") or 0.0)
-        if "EVIDENCE GAPS" in rating or "PROVISIONAL" in rating:
-            return {"level": rating or "MODERATE READINESS — MATERIAL EVIDENCE GAPS", "impact_summary":"The public scan did not verify enough of the adaptive architecture to describe the site as heavily broken. Missing evidence is shown separately from confirmed failures.", "severity_behavior":f"Verified penalty burden is {penalty:.2f} points; unknown evidence is neutral and does not become a hidden deduction."}
-        if score >= 77:
-            return {"level":"REFERENCE-LEVEL WEBSITE READINESS (77–78)","impact_summary":"Exceptionally mature observable website architecture. This does not mean the business has product-market fit, enough traffic or strong sales execution.","severity_behavior":"Requires reference-level evidence, strong customer-journey/trust/performance/measurement maturity and almost no verified penalty burden."}
+        maturity = audit.get("maturity_gate") if isinstance(audit.get("maturity_gate"), dict) else {}
+        if "PROVISIONAL" in rating or bool(maturity.get("journey_provisional")):
+            return {
+                "level": rating or "PROVISIONAL READINESS — CUSTOMER JOURNEY NOT YET RESOLVED",
+                "impact_summary": "The scanner verified useful website evidence but has not resolved the primary customer journey strongly enough to present the result as a mature commercial model.",
+                "severity_behavior": f"Verified penalty burden is {penalty:.2f} points. UNKNOWN evidence remains neutral; the unresolved journey limits what can be earned, rather than creating a hidden deduction.",
+            }
+        if score >= 90:
+            return {"level":"ELITE VERIFIED REVENUE ARCHITECTURE (90–100)","impact_summary":"Exceptionally mature observable customer-journey, trust, performance and measurement architecture was verified. This remains a website-readiness assessment, not a claim about market demand or actual revenue.","severity_behavior":"Scores in this range require substantial Revenue/User Architecture plus difficult-to-earn Elite points; basic technical hygiene alone cannot reach this band."}
+        if score >= 80:
+            return {"level":"EXCEPTIONAL VERIFIED WEBSITE READINESS (80–89)","impact_summary":"The observable customer journey is unusually complete and evidence-backed, with only limited architectural headroom.","severity_behavior":"The result is earned across the 22/60/18 layers; maturity thresholds are advisory diagnostics and do not silently cap or inflate the score."}
         if score >= 75:
-            return {"level":"EXCEPTIONAL VERIFIED READINESS (75–76)","impact_summary":"The observable website journey is unusually mature and evidence-backed, while still saying nothing about market demand or sales-team execution.","severity_behavior":"This band is unavailable unless the exceptional maturity gate passes; ordinary checklist strengths cannot accumulate into it."}
-        if score >= 70:
-            return {"level":"STRONG VERIFIED COMMERCIAL MATURITY (70–74)","impact_summary":"Core customer-journey, trust, performance, measurement and evidence maturity were verified strongly enough to enter the high-readiness band.","severity_behavior":"The score can reach this band only after the foundational maturity gate passes."}
+            return {"level":"STRONG REVENUE ARCHITECTURE (75–79)","impact_summary":"The website shows strong commercial architecture, while remaining verified weaknesses or maturity gaps still prevent an exceptional score.","severity_behavior":f"Verified penalty burden is {penalty:.2f} points; score separation primarily comes from what was earned in the Revenue/User and Elite layers."}
         if score >= 65:
-            return {"level":"STRONG FUNDAMENTALS (65–69)","impact_summary":"The website has credible observable strengths, but one or more maturity systems or evidence gates are not fully verified.","severity_behavior":"This is a deliberate ceiling for good sites that have not proven the full architecture required for 70+."}
-        if score >= 50:
-            return {"level":"MATERIAL REMEDIATION OPPORTUNITY (50–64)","impact_summary":"Verified architectural weaknesses materially limit observable customer-journey readiness.","severity_behavior":f"The result reflects a verified penalty burden of {penalty:.2f} points plus earned-strength limits; missing evidence is not counted as failure."}
-        if score >= 35:
-            return {"level":"HIGH STRUCTURAL / CONVERSION RISK (35–49)","impact_summary":"Multiple verified weaknesses create substantial observable website risk.","severity_behavior":"The rating is produced by the evidence-weighted scoring ledger and architecture severity, not generic SEO volume."}
-        return {"level":"SEVERE STRUCTURAL / CONVERSION RISK (0–34)","impact_summary":"Severe verified structural, performance or conversion failures materially compromise the public customer journey.","severity_behavior":"This band requires significant evidence-backed deductions beyond the operating baseline."}
+            return {"level":"GOOD — LEAKS REMAIN (65–74)","impact_summary":"The site has credible foundations and customer-path strengths, but meaningful commercial or maturity headroom remains.","severity_behavior":"Good technical hygiene can support this band, but it cannot substitute for customer-journey, trust, completion and measurement evidence."}
+        if score >= 55:
+            return {"level":"FUNCTIONAL FOUNDATION — MATERIAL COMMERCIAL HEADROOM (55–64)","impact_summary":"The website is functional, but the observable revenue/user architecture is not yet strong enough to be considered commercially mature.","severity_behavior":f"The result reflects both earned-layer limits and {penalty:.2f} points of verified finding impact; missing evidence is not counted as failure."}
+        if score >= 40:
+            return {"level":"MATERIAL REVENUE / EXPERIENCE WEAKNESSES (40–54)","impact_summary":"Multiple verified weaknesses or missing high-value strengths materially constrain the public customer journey.","severity_behavior":"The rating comes from weighted journey/context evidence rather than the volume of generic SEO findings."}
+        if score >= 25:
+            return {"level":"SIGNIFICANT STRUCTURAL / CONVERSION RISK (25–39)","impact_summary":"The site has significant observable customer-path, trust, performance or conversion architecture risk.","severity_behavior":"A low score requires weak earned architecture and/or verified high-impact findings; the engine does not force sites into a target distribution."}
+        return {"level":"CRITICAL REVENUE ARCHITECTURE WEAKNESS (0–24)","impact_summary":"Severe observable architecture weaknesses materially compromise the website's ability to support a dependable customer journey.","severity_behavior":"The score is earned from zero across the three layers; there is no operating baseline protecting a weak site from a genuinely low result."}
 
     def _build_3_angle_solutions(
         self,
@@ -962,8 +969,8 @@ class ReportGenerator:
         evidence_score = evidence_confidence.get("score")
         evidence_score_text = "N/A" if evidence_score is None else f"{float(evidence_score):.1f}/100"
         maturity_band = html.escape(str(maturity_gate.get("band") or "UNAVAILABLE").replace("_", " "))
-        maturity_cap = maturity_gate.get("score_cap")
-        maturity_cap_text = "N/A" if maturity_cap is None else f"{float(maturity_cap):.0f}"
+        maturity_threshold = maturity_gate.get("advisory_score_threshold", maturity_gate.get("score_cap"))
+        maturity_threshold_text = "N/A" if maturity_threshold is None else f"{float(maturity_threshold):.0f}"
         failed_gate_names = [str(x).replace("_", " ") for x in (maturity_gate.get("failed_gate_names") or [])]
         failed_gate_text = html.escape(", ".join(failed_gate_names[:6]) if failed_gate_names else "None at the active maturity tier")
         analysis_layers = report.get("analysis_layers") if isinstance(report.get("analysis_layers"), dict) else {}
@@ -1118,7 +1125,7 @@ class ReportGenerator:
 
     <div style="background:#F8FAFC;border:1px solid #DCE3EA;border-radius:12px;padding:16px;margin:16px 0;">
         <p style="font-family:Inter,sans-serif;font-size:11px;color:#5A7A9E;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px 0;font-weight:700;">Evidence & Score Scope</p>
-        <p style="font-family:Inter,sans-serif;font-size:12px;color:#374151;margin:0;line-height:1.6;"><strong>Evidence Confidence:</strong> {evidence_level} ({html.escape(evidence_score_text)})<br><strong>Maturity Band:</strong> {maturity_band}<br><strong>Current band cap:</strong> {html.escape(maturity_cap_text)} / 78<br><strong>Unmet gate(s) at next band:</strong> {failed_gate_text}</p>
+        <p style="font-family:Inter,sans-serif;font-size:12px;color:#374151;margin:0;line-height:1.6;"><strong>Evidence Confidence:</strong> {evidence_level} ({html.escape(evidence_score_text)})<br><strong>Maturity Band:</strong> {maturity_band}<br><strong>Advisory maturity threshold:</strong> {html.escape(maturity_threshold_text)} / 100 <span style="color:#6B7280;">(not a score cap)</span><br><strong>Unmet gate(s) at next band:</strong> {failed_gate_text}</p>
         <p style="font-family:Inter,sans-serif;font-size:10px;color:#6B7280;margin:8px 0 0 0;line-height:1.5;"><strong>Scope:</strong> {score_scope}</p>
     </div>
 
@@ -1156,7 +1163,7 @@ class ReportGenerator:
     <div style="background:#121621; color:#F2F0E8; border-radius:12px; padding:20px; margin:24px 0;">
         <h3 style="font-family:Georgia,serif; font-size:16px; color:#D8B66A; margin:0 0 10px 0;">🧠 Scoring Methodology & Reasonability</h3>
         <p style="font-family:Inter,sans-serif; font-size:12px; color:#D1D5DB; margin:0 0 8px 0; line-height:1.5;">• <strong>Graded Continuum:</strong> {html.escape(str(methodology.get('graded_continuum','')))}</p>
-        <p style="font-family:Inter,sans-serif; font-size:12px; color:#D1D5DB; margin:0 0 8px 0; line-height:1.5;">• <strong>Vertical Weighting:</strong> {html.escape(str(methodology.get('vertical_weighting','')))}</p>
+        <p style="font-family:Inter,sans-serif; font-size:12px; color:#D1D5DB; margin:0 0 8px 0; line-height:1.5;">• <strong>Journey + Context Weighting:</strong> {html.escape(str(methodology.get('vertical_weighting','')))}</p>
         <p style="font-family:Inter,sans-serif; font-size:12px; color:#D1D5DB; margin:0; line-height:1.5;">• <strong>Hygiene:</strong> {html.escape(str(methodology.get('hygiene_gatekeeping','')))}</p>
     </div>
 
@@ -1174,7 +1181,7 @@ class ReportGenerator:
 
     <div style="text-align:center; margin:28px 0 20px 0;"><a href="#" style="font-family:Inter,sans-serif; font-size:13px; color:#2563EB; text-decoration:none; font-weight:600;">Access Complete Raw Vault Telemetry Entry</a></div>
 
-    <div style="border-top:1px solid #e0e0e0; margin-top:24px; padding-top:20px;"><p style="font-family:Inter,sans-serif; font-size:11px; color:#555555; line-height:1.6; margin:0;"><strong>DISCLAIMER & TERMS OF SALE:</strong> This diagnostic report reflects evidence available to the scanner at the recorded time. Unknown or inaccessible telemetry is not treated as a failure. Revenue exposure labels are model-based unless the business supplied validated traffic, conversion and transaction-value inputs. Maturity-band caps do not represent measured lost revenue. The Revenue Readiness Index evaluates observable website architecture only; product-market fit, demand, traffic quality, pricing, sales follow-up and offline operations are outside its scope. Results and performance improvements depend on correct implementation and later platform changes.</p></div>
+    <div style="border-top:1px solid #e0e0e0; margin-top:24px; padding-top:20px;"><p style="font-family:Inter,sans-serif; font-size:11px; color:#555555; line-height:1.6; margin:0;"><strong>DISCLAIMER & TERMS OF SALE:</strong> This diagnostic report reflects evidence available to the scanner at the recorded time. Unknown or inaccessible telemetry is not treated as a failure. Revenue exposure labels are model-based unless the business supplied validated traffic, conversion and transaction-value inputs. Maturity-band thresholds are advisory diagnostics only; they do not clamp the earned score and do not represent measured lost revenue. The Revenue Readiness Index evaluates observable website architecture only; product-market fit, demand, traffic quality, pricing, sales follow-up and offline operations are outside its scope. Results and performance improvements depend on correct implementation and later platform changes.</p></div>
 </div>
 </body>
 </html>"""

@@ -251,19 +251,44 @@ def _add_phrase_scores(scores: Dict[str, float], signals: Dict[str, List[str]], 
                 signals[model].append(phrase)
 
 
+def _phrase_hits(text: str, terms: Iterable[str]) -> List[str]:
+    """Return boundary-aware phrase matches in deterministic order.
+
+    Context tagging must not fire because a token merely appears inside another word
+    (for example ``book`` inside ``facebook``) or because generic policy boilerplate
+    contains words such as ``event`` / ``reserve``.  This helper is deliberately
+    conservative and context-specific callers add their own corroboration rules.
+    """
+    haystack = str(text or "").lower()
+    hits: List[str] = []
+    for raw in terms:
+        term = str(raw or "").strip().lower()
+        if not term:
+            continue
+        pattern = r"(?<![a-z0-9])" + re.escape(term).replace(r"\ ", r"\s+") + r"(?![a-z0-9])"
+        if re.search(pattern, haystack, re.I):
+            hits.append(term)
+    return hits
+
+
 def infer_context_tags(data: Mapping[str, Any], journey_model: str = "general") -> Tuple[List[str], Dict[str, List[str]]]:
     surfaces = _text_surfaces(data)
     text = surfaces["all"]
+    hero_meta = f"{surfaces['hero']} {surfaces['meta']}"
+    # ``journey_text_sample`` is intended to contain customer-path/proof pages, not policy boilerplate.
+    # Older callers may not provide it, so body remains a fallback but receives stricter thresholds.
+    journey_text = str(data.get("journey_text_sample") or "").lower()
+    body_text = surfaces["body"]
     tags: List[str] = []
     reasons: Dict[str, List[str]] = {}
 
     def mark(tag: str, why: Iterable[str]) -> None:
-        vals = [str(x) for x in why if x]
+        vals = list(dict.fromkeys(str(x) for x in why if x))
         if vals:
             tags.append(tag)
             reasons[tag] = vals[:8]
 
-    regulated_hits = [term for term in REGULATED_TERMS if term in text]
+    regulated_hits = _phrase_hits(text, REGULATED_TERMS)
     mark("regulated_high_trust", regulated_hits)
 
     # A city name in the footer/title does not by itself make an online/enterprise site location-dependent.
@@ -276,12 +301,11 @@ def infer_context_tags(data: Mapping[str, Any], journey_model: str = "general") 
         local_hits.append("verified address/location")
     if data.get("places_found") and str(data.get("places_confidence") or "") == "high":
         local_hits.append("verified Google Place identity")
-    if any(term in text for term in structural_local_terms):
-        local_hits.extend(term for term in structural_local_terms if term in text)
+    local_hits.extend(_phrase_hits(text, structural_local_terms))
     if journey_model in {"lead_quote", "appointment_consultation", "reservation_event"}:
         if data.get("phone_number_visible") is True:
             local_hits.append("verified local phone path")
-        local_hits.extend(term for term in geographic_terms if term in text)
+        local_hits.extend(_phrase_hits(text, geographic_terms))
     mark("local_location_dependent", local_hits)
 
     commerce_hits: List[str] = []
@@ -295,19 +319,57 @@ def infer_context_tags(data: Mapping[str, Any], journey_model: str = "general") 
         commerce_hits.append("direct-purchase journey")
     mark("commerce_payment", commerce_hits)
 
-    sensitive_hits = [term for term in SENSITIVE_TERMS if term in text]
-    if regulated_hits and data.get("forms_present"):
+    # Sensitive-data context is about information a customer may actually submit, not words that
+    # happen to appear in a privacy policy, legal disclaimer, project description or footer.
+    sensitive_hits: List[str] = []
+    forms_present = bool(data.get("forms_present"))
+    if regulated_hits and forms_present:
         sensitive_hits.append("regulated-context form")
+        strong_source = f"{hero_meta} {journey_text}" if journey_text else hero_meta
+        sensitive_hits.extend(_phrase_hits(strong_source, SENSITIVE_TERMS))
+    elif data.get("checkout_context_detected") and journey_model == "direct_purchase":
+        sensitive_hits.append("verified checkout/payment context")
+    elif forms_present:
+        strong_source = f"{hero_meta} {journey_text}" if journey_text else hero_meta
+        explicit_sensitive = _phrase_hits(strong_source, SENSITIVE_TERMS)
+        # Outside a regulated/checkout journey require corroboration; one incidental phrase is not enough.
+        if len(explicit_sensitive) >= 2:
+            sensitive_hits.extend(explicit_sensitive)
     mark("sensitive_data", sensitive_hits)
 
-    enterprise_hits = [term for term in ENTERPRISE_TERMS if term in text]
+    # Considered-purchase/enterprise context should come from deliberate page/journey language rather
+    # than policy boilerplate. A strong hero/meta hit is enough; body-only evidence needs corroboration.
+    enterprise_primary = _phrase_hits(hero_meta, ENTERPRISE_TERMS)
+    enterprise_journey = _phrase_hits(journey_text, ENTERPRISE_TERMS) if journey_text else []
+    enterprise_body = _phrase_hits(body_text, ENTERPRISE_TERMS)
+    enterprise_hits: List[str] = list(enterprise_primary)
+    if enterprise_journey:
+        enterprise_hits.extend(enterprise_journey)
+    elif len(enterprise_body) >= 2:
+        enterprise_hits.extend(enterprise_body[:4])
     if journey_model == "demo_sales":
         enterprise_hits.append("demo/sales journey")
     mark("enterprise_considered_purchase", enterprise_hits)
 
-    hospitality_hits = [term for term in HOSPITALITY_EVENT_TERMS if term in text]
+    # ``event`` and ``reserve`` are common legal/privacy boilerplate ("in the event...", "we reserve...").
+    # They can never create hospitality/event context on their own. Strong domain terms or an actual
+    # reservation journey are required.
+    strong_hospitality = ("wedding", "venue", "cruise", "charter", "yacht", "restaurant", "catering", "hotel", "banquet")
+    weak_hospitality = ("event", "tour", "reservation", "reserve", "rental")
+    hospitality_hits: List[str] = []
     if journey_model == "reservation_event":
         hospitality_hits.append("reservation/event journey")
+    hero_strong = _phrase_hits(hero_meta, strong_hospitality)
+    journey_strong = _phrase_hits(journey_text, strong_hospitality) if journey_text else []
+    journey_weak = _phrase_hits(journey_text, weak_hospitality) if journey_text else []
+    body_strong = _phrase_hits(body_text, strong_hospitality)
+    body_weak = _phrase_hits(body_text, weak_hospitality)
+    if hero_strong:
+        hospitality_hits.extend(hero_strong)
+    elif journey_strong and (len(journey_strong) >= 2 or journey_weak or data.get("reservation_present")):
+        hospitality_hits.extend(journey_strong + journey_weak[:2])
+    elif len(body_strong) >= 2 or (body_strong and body_weak and (data.get("reservation_present") or journey_model == "general")):
+        hospitality_hits.extend(body_strong[:3] + body_weak[:2])
     mark("hospitality_event", hospitality_hits)
 
     # Keep deterministic order for reports/diffs.
