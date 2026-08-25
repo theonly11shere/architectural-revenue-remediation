@@ -1,4 +1,4 @@
-"""Trilloka V6 server-side free-scan and paid-plan access controls.
+"""Trilloka V7.1 server-side free-scan and paid-plan access controls.
 
 The scanner itself is unchanged. This module controls who may run a fresh scan and how much
 customer-facing remediation is unlocked after a verified purchase.
@@ -13,13 +13,13 @@ ESSENTIAL_350
 * CAD $350
 * 30 days for the purchased domain
 * 2 fresh successful scans per calendar day
-* full 50-checkpoint evidence + detailed remediation for Top 3 findings
+* full 50-checkpoint evidence + detailed remediation for Top 4 findings
 
 ADVANCED_550
 * CAD $550
 * 30 days for the purchased domain
 * 3 fresh successful scans per calendar day
-* full 50-checkpoint evidence + detailed remediation for Top 6 findings
+* full 50-checkpoint evidence + detailed remediation for Top 8 findings
 * one 15-minute implementation guidance call
 
 ARCHITECT_850
@@ -64,7 +64,7 @@ PLAN_CATALOG: Dict[str, Dict[str, Any]] = {
         "currency": "CAD",
         "duration_days": 30,
         "scans_per_day": 2,
-        "remediation_limit": 3,
+        "remediation_limit": 4,
         "checkpoint_access": "full_50",
         "guidance_calls": 0,
         "guidance_call_minutes": 15,
@@ -77,7 +77,7 @@ PLAN_CATALOG: Dict[str, Dict[str, Any]] = {
         "currency": "CAD",
         "duration_days": 30,
         "scans_per_day": 3,
-        "remediation_limit": 6,
+        "remediation_limit": 8,
         "checkpoint_access": "full_50",
         "guidance_calls": 1,
         "guidance_call_minutes": 15,

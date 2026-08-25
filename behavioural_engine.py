@@ -1,4 +1,4 @@
-"""Trilloka behavioural-risk heuristics (v7.0 Journey + Context).
+"""Trilloka behavioural-risk heuristics (v7.1 Journey + Context).
 
 These outputs are modeled diagnostic indices, not observed analytics. They supplement the
 observable architecture scan and never pretend to be real conversion/bounce telemetry.

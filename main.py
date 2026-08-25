@@ -103,7 +103,7 @@ _PROTECTED_DOMAIN_ROOTS = tuple(
 app = FastAPI(
     title="Trilloka Architect Engine API",
     description="Evidence-weighted Revenue Readiness Diagnostic, local competitor benchmark & tiered report gateway",
-    version="7.0.1",
+    version="7.1.0",
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -412,7 +412,7 @@ def _build_self_snapshot(
         "snapshot_source": "owner_controlled_v7_self_scan",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "target_domain": target_domain,
-        "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.0"),
+        "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.1"),
         "overall_score": score,
         "score_rating": audit_results.get("score_rating", ""),
         "score_scope": audit_results.get("score_scope", "Observable website Revenue Readiness only."),
@@ -528,7 +528,7 @@ def handle_trilloka_guardrail(target_domain: str) -> Optional[Dict[str, Any]]:
 def health_check() -> Dict[str, Any]:
     return {
         "status": "online",
-        "system": "Trilloka Architect Engine v7.0.1",
+        "system": "Trilloka Architect Engine v7.1.0",
         "google_api_configured": bool(os.environ.get("PAGESPEED_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
         "places_api_configured": bool(os.environ.get("GOOGLE_PLACES_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("PAGESPEED_API_KEY")),
         "report_engine": REPORT_ENGINE_AVAILABLE,
@@ -1166,7 +1166,7 @@ def _base_success_payload(
         "verification_coverage_note": (admin_master_report or {}).get("verification_coverage_note", ""),
         # Kept in protected server cache. Free responses strip this; paid responses expose all 50.
         "full_50_checkpoint_basis": audit_results.get("full_50_checkpoint_basis", []),
-        "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.0"),
+        "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.1"),
         "evidence_receipts": audit_results.get("evidence_receipts", []),
         "high_impact_confirmation": audit_results.get("high_impact_confirmation", {}),
         "unconfirmed_high_impact_observations": audit_results.get("unconfirmed_high_impact_observations", []),

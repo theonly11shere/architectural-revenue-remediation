@@ -1,6 +1,6 @@
 """Trilloka evidence-weighted Revenue Readiness scorer.
 
-V7.0 real-world Journey + Context score-calibration guardrails:
+V7.1 real-world Journey + Context score-calibration guardrails:
 - High score bands are gated by verified commercial maturity; ordinary strengths cannot accumulate into high-readiness bands by themselves.
 - Evidence Confidence is published separately from website quality.
 - Revenue Readiness explicitly excludes demand, product-market fit, traffic quality, pricing and sales-team execution.
@@ -283,6 +283,34 @@ REVENUE_ARCHITECTURE_LAYER_MAX = 60.0
 ELITE_BONUS_CAP = 18.0
 MAX_REVENUE_READINESS_SCORE = 100.0
 
+# The adaptive 60-point layer is intentionally non-compensatory.  A site cannot
+# make up for a weak/broken conversion path by collecting dozens of low-value
+# content/trust hygiene passes.  Each pillar has its own point bank and only
+# verified PASS evidence inside that pillar earns those points.
+ADAPTIVE_ARCHITECTURE_PILLARS: Dict[str, Dict[str, Any]] = {
+    "conversion_execution": {
+        "max_points": 32.0,
+        "checkpoint_ids": {3, 4, 5, 7, 8, 15, 43, 50},
+        "label": "Primary conversion execution & mobile continuity",
+    },
+    "trust_decision_support": {
+        "max_points": 16.0,
+        "checkpoint_ids": {9, 10, 11, 13, 14, 42, 44, 45},
+        "label": "Trust, proof & decision support",
+    },
+    "measurement_policy": {
+        "max_points": 8.0,
+        "checkpoint_ids": {6, 12, 48, 49},
+        "label": "Measurement, privacy & policy readiness",
+    },
+    "supporting_experience": {
+        "max_points": 4.0,
+        "checkpoint_ids": {36, 37, 38, 39, 40, 41, 46, 47},
+        "label": "Supporting content & experience maturity",
+    },
+}
+assert round(sum(float(v["max_points"]) for v in ADAPTIVE_ARCHITECTURE_PILLARS.values()), 6) == REVENUE_ARCHITECTURE_LAYER_MAX
+
 # Legacy constants remain exported for compatibility with older report/integration code,
 # but the operating baseline is no longer used to calculate the score.
 OPERATING_BASELINE_SCORE = 0.0
@@ -500,28 +528,45 @@ class RevenueScorer:
         foundation_score, foundation_detail = self._score_checkpoint_layer(
             checkpoints, set(COMMON_FOUNDATION_IDS), FOUNDATION_LAYER_MAX, biz_type, leaks
         )
-        revenue_architecture_score, revenue_detail = self._score_checkpoint_layer(
-            checkpoints, set(ARCHITECTURAL_CHECKPOINT_IDS), REVENUE_ARCHITECTURE_LAYER_MAX, biz_type, leaks
+        revenue_architecture_score, revenue_detail = self._score_adaptive_architecture(
+            checkpoints=checkpoints,
+            biz_type=biz_type,
+            leaks=leaks,
         )
+
+        # A provisional/unresolved customer journey cannot earn the same 60-point architecture
+        # bank as a resolved journey merely because generic contact/trust checks happen to pass.
+        # This is not a penalty or hidden cap: unresolved journey evidence simply supports fewer
+        # high-value readiness points.  The factor and pre-factor score are exposed in the ledger.
+        journey_resolution_factor = 1.0
+        if bool(profile.get("provisional")) or biz_type == "general":
+            journey_confidence = max(0.0, min(1.0, float(self._safe_float(profile.get("confidence")) or 0.0)))
+            if biz_type == "general":
+                journey_resolution_factor = max(0.72, min(0.82, 0.72 + (0.25 * journey_confidence)))
+            else:
+                journey_resolution_factor = max(0.82, min(0.90, 0.80 + (0.11 * journey_confidence)))
+            pre_resolution_score = revenue_architecture_score
+            revenue_architecture_score = round(revenue_architecture_score * journey_resolution_factor, 2)
+            revenue_detail["pre_journey_resolution_score"] = pre_resolution_score
+            revenue_detail["journey_resolution_factor"] = round(journey_resolution_factor, 3)
+            revenue_detail["journey_resolution_status"] = "PROVISIONAL"
+            revenue_detail["journey_resolution_note"] = (
+                "The customer journey is unresolved/provisional, so only the supported share of the 60-point "
+                "commercial architecture bank is earned. This is not a deduction and does not turn UNKNOWN into FAIL."
+            )
+        else:
+            revenue_detail["pre_journey_resolution_score"] = revenue_architecture_score
+            revenue_detail["journey_resolution_factor"] = 1.0
+            revenue_detail["journey_resolution_status"] = "RESOLVED"
+
         standard_strength = round(foundation_score + revenue_architecture_score, 2)
         common_strength = foundation_score
         adaptive_strength = revenue_architecture_score
         raw_standard_strength = standard_strength
 
-        elite_ledger, elite_bonus = self._evaluate_elite_bonus(
-            scan_data=scan_data,
-            biz_type=biz_type,
-            profile=profile,
-            leaks=leaks,
-            standard_strength=standard_strength,
-        )
-        elite_bonus = round(min(ELITE_BONUS_CAP, elite_bonus), 2)
-        reference_bonus = 0.0
-
-        pre_clamp = foundation_score + revenue_architecture_score + elite_bonus
-        raw_readiness = max(0.0, min(MAX_REVENUE_READINESS_SCORE, pre_clamp))
-        preliminary_public_score = round(raw_readiness, 3)
-
+        # Evidence confidence is deliberately separate from website quality, but elite
+        # points require a sufficiently verified evidence base.  This prevents a mostly
+        # unknown site from earning elite maturity merely because a few easy signals passed.
         evidence_confidence = self._build_evidence_confidence(
             cp_summary=cp_summary,
             scan_quality=scan_quality,
@@ -529,6 +574,24 @@ class RevenueScorer:
             browser_loaded=bool(scan_data.get("browser_loaded")),
             unconfirmed_high_impact=unconfirmed_high_impact,
         )
+
+        elite_ledger, elite_bonus, elite_eligibility = self._evaluate_elite_bonus(
+            scan_data=scan_data,
+            biz_type=biz_type,
+            profile=profile,
+            leaks=leaks,
+            checkpoints=checkpoints,
+            cp_summary=cp_summary,
+            evidence_confidence=evidence_confidence,
+            foundation_score=foundation_score,
+            revenue_architecture_score=revenue_architecture_score,
+        )
+        elite_bonus = round(min(ELITE_BONUS_CAP, elite_bonus), 2)
+        reference_bonus = 0.0
+
+        pre_clamp = foundation_score + revenue_architecture_score + elite_bonus
+        raw_readiness = max(0.0, min(MAX_REVENUE_READINESS_SCORE, pre_clamp))
+        preliminary_public_score = round(raw_readiness, 3)
         maturity_gate = self._evaluate_maturity_gate(
             scan_data=scan_data,
             biz_type=biz_type,
@@ -572,7 +635,7 @@ class RevenueScorer:
         perf = self._safe_float(scan_data.get("performance_score"))
         seo = self._safe_float(scan_data.get("google_seo_score"))
         # Maturity caps express unverified readiness; they must not create extra modeled dollar exposure.
-        exposure = self._revenue_exposure(biz_type, report_leaks, evidence_confidence, profile)
+        exposure = self._revenue_exposure(biz_type, report_leaks, evidence_confidence, profile, scan_data)
         foundation_omission_signal = build_foundation_omission_signal(checkpoints, scan_data)
 
         # Preserve the public keys, but do not represent unavailable telemetry as a
@@ -693,7 +756,8 @@ class RevenueScorer:
                     "layer_score": elite_bonus,
                     "layer_max": ELITE_BONUS_CAP,
                     "verified_elite_signals": elite_ledger,
-                    "note": "Elite points are intentionally difficult to earn and require advanced verified commercial/measurement maturity."
+                    "eligibility": elite_eligibility,
+                    "note": "Elite points are intentionally difficult to earn: strong Foundation, Revenue/User and evidence-quality thresholds must be cleared before advanced maturity points are available."
                 },
             },
             "foundation_omission_signal": foundation_omission_signal,
@@ -701,20 +765,36 @@ class RevenueScorer:
             "competitor_benchmark": competitor_benchmark,
             "key_friction_insight": key_friction,
             "revenue_leak": {
-                # Legacy key retained; the customer again receives a dollar range, explicitly model-based.
+                # Legacy container retained for frontend compatibility.  Semantics are now
+                # explicitly potential commercial exposure, not a claim of measured lost revenue.
                 "est_annual_revenue_leak": exposure["display"],
                 "estimated_annual_range": exposure["range"],
                 "estimated_annual_min": exposure["min"],
                 "estimated_annual_max": exposure["max"],
                 "exposure_level": exposure["level"],
                 "method_note": exposure["method_note"],
+                "model_version": exposure.get("model_version"),
+                "model_basis": exposure.get("basis"),
                 "model_based": True,
                 "verified_penalty_basis": exposure.get("verified_penalty_basis"),
                 "economic_severity_basis": exposure.get("economic_severity_basis"),
+                "combined_path_impairment_pct": exposure.get("combined_path_impairment_pct"),
+                "impairment_range_pct": exposure.get("impairment_range_pct"),
+                "annual_digital_opportunity_pool": exposure.get("annual_digital_opportunity_pool"),
+                "central_annual_exposure": exposure.get("central_annual_exposure"),
+                "rounding_increment": exposure.get("rounding_increment"),
+                "economic_context_multiplier": exposure.get("economic_context_multiplier"),
+                "economic_context_tags": exposure.get("economic_context_tags"),
+                "family_impairment": exposure.get("family_impairment"),
+                "financial_model_assumptions": exposure.get("assumptions"),
                 "exposure_confidence": exposure.get("confidence"),
                 "exposure_confidence_score": exposure.get("confidence_score"),
+                "exposure_evidence_confidence_score": exposure.get("evidence_confidence_score"),
+                "economic_input_confidence": exposure.get("economic_input_confidence"),
+                "estimate_status": exposure.get("estimate_status"),
                 "measured_revenue_loss": False,
             },
+            "financial_exposure": exposure,
             "ai_spectrum_pct": ai_pct,
             "ai_spectrum_status": scan_data.get("ai_spectrum_status", "unknown"),
             "behavioral_diagnostics": behavioral,
@@ -736,6 +816,7 @@ class RevenueScorer:
             "elite_strength_ledger": elite_ledger,
             "overlap_adjustments": overlap_adjustments,
             "score_semantics": "Revenue Readiness index for observable website architecture; not a literal visitor conversion percentage, sales forecast or business-quality score.",
+            "score_method_version": "real_world_v2",
             "score_scope_exclusions": ["product-market fit", "market demand", "traffic quality", "pricing", "sales-team execution", "offline operations", "actual revenue"],
             "score_ceiling": MAX_REVENUE_READINESS_SCORE,
             "score_ceiling_note": "100/100 is theoretically available only by earning all three layers; the score is not a visitor conversion percentage.",
@@ -748,7 +829,7 @@ class RevenueScorer:
                 "guardrail": "Research changes relative priority only after the scanner verifies a site-specific condition. Unknown evidence remains neutral.",
             },
             "score_formula": {
-                "method": "three_unequal_earned_layers",
+                "method": "three_unequal_earned_layers_non_compensatory_v2",
                 "operating_baseline": 0.0,
                 "foundation_layer_score": foundation_score,
                 "foundation_layer_max": FOUNDATION_LAYER_MAX,
@@ -770,6 +851,8 @@ class RevenueScorer:
                 "raw_pre_ceiling_score": round(raw_readiness, 2),
                 "pre_maturity_gate_public_score": round(preliminary_public_score, 2),
                 "canonical_formula": "foundation_layer_score + revenue_user_architecture_score + elite_architecture_score",
+                "adaptive_pillars": {key: {"max_points": float(spec["max_points"]), "checkpoint_ids": sorted(spec["checkpoint_ids"])} for key, spec in ADAPTIVE_ARCHITECTURE_PILLARS.items()},
+                "unknown_policy": "UNKNOWN is never a failure or deduction, but unverified evidence does not earn readiness points.",
                 "penalties_already_reflected_in_layer_scores": True,
                 "legacy_reproducibility_formula": "operating_baseline + verified_strength_points_awarded + elite_bonus_points + reference_completeness_bonus - total_final_penalty",
                 "maturity_advisory_threshold": maturity_gate.get("advisory_score_threshold", maturity_gate.get("score_cap")),
@@ -792,16 +875,20 @@ class RevenueScorer:
         biz_type: str,
         leaks: List[Dict[str, Any]],
     ) -> Tuple[float, Dict[str, Any]]:
-        """Earn a layer score from weighted PASS/FAIL evidence without treating UNKNOWN as failure.
+        """Earn a layer score only from verified positive evidence.
 
-        PASS vs FAIL determines verified quality. Evidence coverage controls how much of the
-        layer can be *earned*; UNKNOWN therefore creates no deduction but cannot manufacture
-        readiness. Journey-specific rule weights make revenue-path checks worth more than
-        generic hygiene. Extra verified rules not represented by a checkpoint can reduce the
-        relevant layer without changing their intrinsic severity.
+        The previous calibration multiplied verified quality by ``sqrt(coverage)``.  That was
+        intentionally forgiving, but it let a site earn too much when a meaningful slice of the
+        customer journey remained UNKNOWN.  Real-world readiness is now simpler and auditable:
+
+            earned share = verified PASS weight / all applicable weight
+
+        FAIL therefore earns nothing for that requirement; UNKNOWN is still *not a failure* and
+        creates no penalty/leak, but it also cannot manufacture readiness points.  NOT_APPLICABLE
+        is excluded entirely.  This is a point-earning model, not a hidden deduction model.
         """
-        applicable_weight = known_weight = pass_weight = 0.0
-        layer_rules = set()
+        applicable_weight = known_weight = pass_weight = fail_weight = unknown_weight = 0.0
+        layer_rules: set[str] = set()
         for cp in checkpoints or []:
             if not isinstance(cp, dict) or int(cp.get("id") or 0) not in checkpoint_ids:
                 continue
@@ -814,22 +901,37 @@ class RevenueScorer:
             journey_weight = self._get_base_weight(rule, biz_type) if rule in RULE_BASE_WEIGHTS else generic
             weight = max(generic, min(12.0, journey_weight))
             applicable_weight += weight
-            if status in {PASS, FAIL}:
+            if status == PASS:
                 known_weight += weight
-                if status == PASS:
-                    pass_weight += weight
-        if known_weight <= 0 or applicable_weight <= 0:
-            return 0.0, {"pass_quality": 0.0, "evidence_coverage": 0.0, "extra_verified_penalty": 0.0}
-        pass_quality = pass_weight / known_weight
+                pass_weight += weight
+            elif status == FAIL:
+                known_weight += weight
+                fail_weight += weight
+            else:
+                unknown_weight += weight
+
+        if applicable_weight <= 0:
+            return 0.0, {
+                "pass_quality": 0.0,
+                "evidence_coverage": 0.0,
+                "earned_share": 0.0,
+                "extra_verified_penalty": 0.0,
+            }
+
+        pass_quality = (pass_weight / known_weight) if known_weight > 0 else 0.0
         coverage = known_weight / applicable_weight
-        earned = float(layer_max) * pass_quality * math.sqrt(max(0.0, min(1.0, coverage)))
+        earned_share = pass_weight / applicable_weight
+        earned = float(layer_max) * earned_share
+
+        # Only verified leak rules that are *not already represented by a checkpoint in this
+        # layer* can reduce the layer. This avoids double-penalising a checkpoint FAIL.
         extra_penalty = 0.0
+        target_common = checkpoint_ids == set(COMMON_FOUNDATION_IDS)
         for leak in leaks or []:
             if not isinstance(leak, dict):
                 continue
             rule = str(leak.get("rule_key") or "")
             is_common = str(leak.get("analysis_layer") or "") == "common_foundation"
-            target_common = checkpoint_ids == set(COMMON_FOUNDATION_IDS)
             if is_common != target_common or rule in layer_rules:
                 continue
             extra_penalty += float(leak.get("final_score_loss") or 0.0) * 0.55
@@ -838,11 +940,70 @@ class RevenueScorer:
         return round(final, 2), {
             "pass_quality": round(pass_quality, 4),
             "evidence_coverage": round(coverage, 4),
+            "earned_share": round(earned_share, 4),
             "applicable_weight": round(applicable_weight, 2),
             "verified_weight": round(known_weight, 2),
             "passed_weight": round(pass_weight, 2),
+            "failed_weight": round(fail_weight, 2),
+            "unknown_weight": round(unknown_weight, 2),
             "extra_verified_penalty": round(extra_penalty, 2),
-            "method": "weighted pass quality × sqrt(public evidence coverage), minus verified non-checkpoint rule impact",
+            "method": "verified PASS weight / all applicable weight; UNKNOWN earns no points and causes no deduction",
+        }
+
+    def _score_adaptive_architecture(
+        self,
+        checkpoints: List[Dict[str, Any]],
+        biz_type: str,
+        leaks: List[Dict[str, Any]],
+    ) -> Tuple[float, Dict[str, Any]]:
+        """Score the 60-point customer/revenue layer through non-compensatory pillars.
+
+        A website cannot compensate for weak conversion execution with a large number of blog,
+        social, policy or cosmetic passes. Each pillar has a fixed point bank, and each bank uses
+        the same verified-PASS / applicable-weight rule as the Foundation layer.
+        """
+        pillar_details: Dict[str, Any] = {}
+        total = 0.0
+        for key, spec in ADAPTIVE_ARCHITECTURE_PILLARS.items():
+            ids = set(int(x) for x in spec["checkpoint_ids"])
+            max_points = float(spec["max_points"])
+            score, detail = self._score_checkpoint_layer(
+                checkpoints=checkpoints,
+                checkpoint_ids=ids,
+                layer_max=max_points,
+                biz_type=biz_type,
+                leaks=[],  # extra non-checkpoint leak penalties are handled once below
+            )
+            pillar_details[key] = {
+                "label": spec["label"],
+                "checkpoint_ids": sorted(ids),
+                "score": score,
+                "max": max_points,
+                **detail,
+            }
+            total += score
+
+        represented_rules = {
+            str(cp.get("rule_key") or "")
+            for cp in checkpoints or []
+            if isinstance(cp, dict) and int(cp.get("id") or 0) in set(ARCHITECTURAL_CHECKPOINT_IDS)
+        }
+        extra_penalty = 0.0
+        for leak in leaks or []:
+            if not isinstance(leak, dict):
+                continue
+            if str(leak.get("analysis_layer") or "") == "common_foundation":
+                continue
+            if str(leak.get("rule_key") or "") in represented_rules:
+                continue
+            extra_penalty += float(leak.get("final_score_loss") or 0.0) * 0.55
+        extra_penalty = min(REVENUE_ARCHITECTURE_LAYER_MAX * 0.20, extra_penalty)
+        total = max(0.0, min(REVENUE_ARCHITECTURE_LAYER_MAX, total - extra_penalty))
+        return round(total, 2), {
+            "pillars": pillar_details,
+            "pillar_score_before_extra_penalty": round(sum(float(x["score"]) for x in pillar_details.values()), 2),
+            "extra_verified_penalty": round(extra_penalty, 2),
+            "method": "four non-compensatory commercial pillars; each earns points only from verified PASS evidence",
         }
 
     def _resolve_business_profile(self, scan_data: Dict[str, Any], requested: str) -> Tuple[Dict[str, Any], str]:
@@ -1141,65 +1302,144 @@ class RevenueScorer:
         biz_type: str,
         profile: Dict[str, Any],
         leaks: List[Dict[str, Any]],
-        standard_strength: float,
-    ) -> Tuple[List[Dict[str, Any]], float]:
-        """Award rare maturity points only after the core customer architecture is credible."""
+        checkpoints: List[Dict[str, Any]],
+        cp_summary: Dict[str, Any],
+        evidence_confidence: Dict[str, Any],
+        foundation_score: float,
+        revenue_architecture_score: float,
+    ) -> Tuple[List[Dict[str, Any]], float, Dict[str, Any]]:
+        """Award the final 18 points only for genuinely advanced, verified maturity.
+
+        Elite points are not a collection of easy bonuses.  The site first has to clear a
+        minimum Foundation, Revenue/User and evidence-quality threshold.  Once eligible,
+        advanced points are earned across journey execution, measurement sophistication,
+        contextual trust, performance, friction control and verification depth.
+        """
+        foundation_ratio = foundation_score / FOUNDATION_LAYER_MAX if FOUNDATION_LAYER_MAX else 0.0
+        revenue_ratio = revenue_architecture_score / REVENUE_ARCHITECTURE_LAYER_MAX if REVENUE_ARCHITECTURE_LAYER_MAX else 0.0
+        evidence_score = float((evidence_confidence or {}).get("score") or 0.0)
+        provisional = bool(profile.get("provisional")) or biz_type == "general"
+        major_leaks = [x for x in (leaks or []) if float(x.get("final_score_loss") or 0.0) >= 3.5]
+
+        eligibility_checks = {
+            "resolved_customer_journey": not provisional,
+            "foundation_at_least_70_pct": foundation_ratio >= 0.70,
+            "revenue_user_layer_at_least_80_pct": revenue_ratio >= 0.80,
+            "evidence_confidence_at_least_85": evidence_score >= 85.0,
+            "no_confirmed_major_leak": len(major_leaks) == 0,
+        }
+        eligible = all(eligibility_checks.values())
+        eligibility = {
+            "eligible": eligible,
+            "checks": eligibility_checks,
+            "foundation_ratio": round(foundation_ratio, 3),
+            "revenue_user_ratio": round(revenue_ratio, 3),
+            "evidence_confidence_score": round(evidence_score, 1),
+            "note": "Elite points require strong verified core architecture first; failing eligibility earns 0/18 rather than being penalized.",
+        }
+        if not eligible:
+            return [], 0.0, eligibility
+
+        elite: List[Dict[str, Any]] = []
+
+        def add(key: str, points: float, evidence: Dict[str, Any], source: str) -> None:
+            if points > 0:
+                elite.append({
+                    "strength_key": key,
+                    "points": round(float(points), 2),
+                    "category": "elite_maturity",
+                    "analysis_layer": "elite_architecture",
+                    "evidence": evidence,
+                    "source": source,
+                })
+
+        cp_by_id = {int(cp.get("id") or 0): cp for cp in (checkpoints or []) if isinstance(cp, dict)}
+        conversion = self._conversion_path_readiness_index(checkpoints, scan_data, biz_type, profile)
+        conversion_score = self._safe_float(conversion.get("score")) or 0.0
+        cp7_pass = str((cp_by_id.get(7) or {}).get("status") or "").upper() == PASS
+        cp50 = cp_by_id.get(50) or {}
+        cp50_status = str(cp50.get("status") or UNKNOWN).upper()
+        cp50_reason = str(cp50.get("unknown_reason_code") or "")
+        conversion_family_loss = sum(
+            float(x.get("final_score_loss") or 0.0)
+            for x in (leaks or [])
+            if str(x.get("family") or "") == "conversion_execution"
+        )
+        passive_completion_limit = cp50_status == UNKNOWN and cp50_reason == "SAFE_SUBMISSION_LIMIT"
+        if conversion_score >= 86 and cp7_pass and passive_completion_limit and conversion_family_loss <= 0.25:
+            add("elite_passive_customer_journey", 4.0, {**conversion, "completion_checkpoint": "SAFE_SUBMISSION_LIMIT"}, "Verified passive conversion-path architecture")
+        elif conversion_score >= 90 and cp7_pass and cp50_status != FAIL and conversion_family_loss <= 1.0:
+            add("strong_customer_journey", 2.0, conversion, "Verified conversion-path architecture")
+        elif conversion_score >= 82 and cp7_pass and cp50_status != FAIL:
+            add("mature_customer_journey", 1.0, conversion, "Verified conversion-path architecture")
+
+        platforms = {str(x) for x in (scan_data.get("measurement_platforms") or []) if x}
+        qualitative = bool(scan_data.get("has_qualitative_analytics"))
+        retargeting = bool(scan_data.get("retargeting_pixel_installed"))
+        if qualitative and retargeting and len(platforms) >= 3:
+            add("advanced_measurement_stack", 3.0, {"measurement_platforms": sorted(platforms)}, "Rendered/source measurement inspection")
+        elif qualitative and len(platforms) >= 2:
+            add("multi_method_measurement", 1.5, {"measurement_platforms": sorted(platforms)}, "Rendered/source measurement inspection")
+        elif len(platforms) >= 2:
+            add("multi_platform_measurement", 0.75, {"measurement_platforms": sorted(platforms)}, "Rendered/source measurement inspection")
+
+        trust_state = self._maturity_trust_state(scan_data, biz_type, profile)
+        trust_count = int(trust_state.get("signal_count") or 0)
+        regulated = context_has(profile, "regulated_high_trust")
+        trust_full = bool(trust_state.get("passed")) and trust_count >= 6 and bool(trust_state.get("proof_of_work")) and (not regulated or bool(trust_state.get("credentials")))
+        if trust_full:
+            add("elite_contextual_trust", 2.5, trust_state, "Rendered/journey/Places evidence")
+        elif bool(trust_state.get("passed")) and trust_count >= 4:
+            add("strong_contextual_trust", 1.25, trust_state, "Rendered/journey/Places evidence")
+        elif bool(trust_state.get("passed")) and trust_count >= 2:
+            add("contextual_trust_foundation", 0.5, trust_state, "Rendered/journey/Places evidence")
+
         perf = self._safe_float(scan_data.get("performance_score"))
         psi_success = scan_data.get("pagespeed_api_status") == "success" and perf is not None
         crux_good = str(scan_data.get("real_user_speed_grade") or "UNKNOWN").upper() == "GOOD"
-        performance_mature = bool((psi_success and perf >= 75) or crux_good)
-        conversion_points, conversion_evidence = self._business_conversion_strength(scan_data, biz_type, profile)
-        secure = bool(scan_data.get("response_ok") and scan_data.get("has_ssl") is True)
-        trust_state = self._maturity_trust_state(scan_data, biz_type, profile)
-        measurement = bool(scan_data.get("measurement_layer_present") or scan_data.get("has_ga4") or scan_data.get("has_meta_pixel") or scan_data.get("has_other_measurement") or scan_data.get("has_qualitative_analytics"))
-        form_clear = bool(scan_data.get("forms_present") is not True or scan_data.get("form_action_valid") is True)
-        if biz_type == "general" or bool(profile.get("provisional")) or sum((secure, performance_mature, conversion_points >= 2.0, bool(trust_state["passed"]), measurement, form_clear)) < 5:
-            return [], 0.0
-
-        elite: List[Dict[str, Any]] = []
-        def add(key: str, points: float, evidence: Dict[str, Any], source: str) -> None:
-            if points > 0:
-                elite.append({"strength_key": key, "points": round(float(points), 2), "category": "elite_maturity", "analysis_layer": "adaptive_architecture", "evidence": evidence, "source": source})
-
-        if conversion_points >= 3.5:
-            add("mature_customer_journey", 1.75, conversion_evidence, "Rendered customer-journey architecture")
-        elif conversion_points >= 2.6:
-            add("strong_customer_journey", 0.9, conversion_evidence, "Rendered customer-journey architecture")
-
-        if measurement:
-            platforms = scan_data.get("measurement_platforms") or []
-            add("mature_measurement_layer", 1.0, {"measurement_platforms": platforms}, "Rendered/source measurement inspection")
-        if scan_data.get("retargeting_pixel_installed") and scan_data.get("has_qualitative_analytics"):
-            add("multi_layer_measurement_stack", 0.75, {"retargeting": True, "qualitative_analytics": True}, "Rendered script inspection")
-
-        if bool(trust_state["passed"]) and int(trust_state.get("signal_count") or 0) >= 2:
-            add("mature_contextual_trust", 1.25, trust_state, "Rendered/journey/Places evidence")
-
-        if performance_mature:
-            add("strong_measured_performance", 0.75, {"performance_score": perf, "crux_grade": scan_data.get("real_user_speed_grade")}, "Google PageSpeed / CrUX")
-        if psi_success and perf is not None and perf >= 95:
-            add("elite_mobile_performance", 0.75, {"performance_score": perf}, "Google PageSpeed")
-
         lcp = self._safe_float(scan_data.get("crux_lcp_ms")) or self._safe_float(scan_data.get("psi_lcp_ms"))
         inp = self._safe_float(scan_data.get("crux_inp_ms"))
         cls = self._safe_float(scan_data.get("crux_cls"))
         if cls is None:
             cls = self._safe_float(scan_data.get("psi_cls"))
         cwv_good = sum((lcp is not None and lcp <= 2500, inp is not None and inp <= 200, cls is not None and cls <= 0.1))
-        if cwv_good >= 2:
-            add("mature_core_web_vitals", 0.6, {"lcp_ms": lcp, "inp_ms": inp, "cls": cls}, "CrUX / PageSpeed")
+        perf_evidence = {"performance_score": perf, "crux_grade": scan_data.get("real_user_speed_grade"), "lcp_ms": lcp, "inp_ms": inp, "cls": cls}
+        if psi_success and perf is not None and perf >= 95 and cwv_good >= 3:
+            add("elite_measured_performance", 3.0, perf_evidence, "Google PageSpeed / CrUX")
+        elif psi_success and perf is not None and perf >= 90 and cwv_good >= 2:
+            add("strong_measured_performance", 1.5, perf_evidence, "Google PageSpeed / CrUX")
+        elif psi_success and perf is not None and perf >= 80 and cwv_good >= 2:
+            add("mature_measured_performance", 0.75, perf_evidence, "Google PageSpeed / CrUX")
+        elif not psi_success and crux_good and cwv_good >= 2:
+            add("field_performance_maturity", 0.75, perf_evidence, "CrUX field evidence")
 
+        adaptive_summary = ((cp_summary.get("layers") or {}).get("adaptive_architecture") or {})
+        adaptive_fails = int(adaptive_summary.get("failed") or 0)
+        unresolved_major = int((evidence_confidence or {}).get("unresolved_high_impact_observations") or 0)
+        if adaptive_fails == 0 and unresolved_major == 0:
+            add("friction_control", 2.0, {"adaptive_failures": 0, "unresolved_major": 0}, "Checkpoint/evidence ledger")
+        elif adaptive_fails <= 1 and unresolved_major == 0 and not major_leaks:
+            add("strong_friction_control", 0.75, {"adaptive_failures": adaptive_fails, "unresolved_major": 0}, "Checkpoint/evidence ledger")
+
+        verified_ratio = float(cp_summary.get("verified_applicable_ratio") or 0.0)
         coverage_raw = scan_data.get("evidence_coverage") if isinstance(scan_data.get("evidence_coverage"), dict) else {}
-        coverage = self._safe_float(coverage_raw.get("ratio")) or 0.0
-        if coverage >= 0.85:
-            add("high_evidence_coverage", 0.35, {"coverage_ratio": coverage}, "Scanner evidence coverage")
+        scanner_coverage = self._safe_float(coverage_raw.get("ratio")) or 0.0
+        scan_conf = str((scan_data.get("scan_quality") or {}).get("confidence") or "").lower()
+        if verified_ratio >= 0.97 and scanner_coverage >= 0.95 and scan_conf == "high":
+            add("reference_evidence_depth", 1.5, {"verified_ratio": verified_ratio, "scanner_coverage": scanner_coverage}, "Scanner evidence coverage")
+        elif verified_ratio >= 0.93 and scanner_coverage >= 0.90:
+            add("high_evidence_depth", 0.75, {"verified_ratio": verified_ratio, "scanner_coverage": scanner_coverage}, "Scanner evidence coverage")
 
-        major = [x for x in leaks if float(x.get("final_score_loss") or 0.0) >= 3.5]
-        if not major:
-            add("no_major_verified_leaks", 0.6, {"major_verified_leaks": 0}, "Scoring ledger")
+        consent_coherent = bool(scan_data.get("cookie_banner_present") or scan_data.get("consent_required") is False)
+        if qualitative and retargeting and consent_coherent:
+            add("advanced_behavioral_measurement", 2.0, {"qualitative_analytics": True, "retargeting": True, "consent_context": True}, "Rendered script/privacy inspection")
+        elif qualitative and retargeting:
+            add("behavioral_measurement_stack", 1.0, {"qualitative_analytics": True, "retargeting": True}, "Rendered script inspection")
 
-        raw = sum(float(item.get("points") or 0.0) for item in elite)
-        return elite, round(min(ELITE_BONUS_CAP, raw), 2)
+        raw = min(ELITE_BONUS_CAP, sum(float(item.get("points") or 0.0) for item in elite))
+        eligibility["awarded_points"] = round(raw, 2)
+        eligibility["max_points"] = ELITE_BONUS_CAP
+        return elite, round(raw, 2), eligibility
 
     @staticmethod
     def _reference_completeness_bonus(
@@ -1281,7 +1521,7 @@ class RevenueScorer:
         1) weighted applicable conversion checkpoint quality,
         2) verified primary-action strength, and
         3) whether the journey itself is actually resolved.
-        UNKNOWN remains neutral: it lowers evidence coverage but never becomes a failure.
+        UNKNOWN remains neutral: it is never a failure or deduction, but unverified evidence does not earn readiness points.
         """
         ids = {3, 4, 5, 7, 8, 10, 11, 13, 14, 43, 48, 50}
         applicable_weight = 0.0
@@ -1315,14 +1555,26 @@ class RevenueScorer:
 
         pass_quality = passed_weight / verified_weight
         evidence_coverage = verified_weight / applicable_weight
-        checkpoint_quality = 100.0 * pass_quality * math.sqrt(max(0.0, min(1.0, evidence_coverage)))
+        checkpoint_quality = 100.0 * (passed_weight / applicable_weight)
 
         conversion_points, conversion_evidence = self._business_conversion_strength(scan_data, biz_type, profile)
         primary_action = max(0.0, min(100.0, 100.0 * conversion_points / 3.5))
         journey_resolved = bool(biz_type != "general" and not profile.get("provisional"))
-        journey_resolution = 100.0 if journey_resolved else (45.0 if biz_type == "general" else 60.0)
+        if journey_resolved:
+            journey_resolution = 100.0
+            resolution_factor = 1.0
+        elif biz_type == "general":
+            journey_resolution = 45.0
+            resolution_factor = 0.70
+        else:
+            journey_resolution = 60.0
+            resolution_factor = 0.82
 
-        score = (0.55 * checkpoint_quality) + (0.30 * primary_action) + (0.15 * journey_resolution)
+        # The observable path can look technically complete while the scanner is still unsure
+        # what the business's primary customer journey actually is.  In that case, readiness is
+        # discounted transparently rather than displaying a misleading 90+ provisional metric.
+        evidence_path_score = (0.65 * checkpoint_quality) + (0.35 * primary_action)
+        score = evidence_path_score * resolution_factor
         score = round(max(0.0, min(100.0, score)), 1)
         status = "VERIFIED_MODEL" if journey_resolved else "PROVISIONAL_JOURNEY"
         return {
@@ -1334,6 +1586,8 @@ class RevenueScorer:
                 "evidence_coverage": round(evidence_coverage, 3),
                 "primary_action": round(primary_action, 1),
                 "journey_resolution": round(journey_resolution, 1),
+                "journey_resolution_factor": round(resolution_factor, 2),
+                "pre_resolution_path_score": round(evidence_path_score, 1),
                 "journey_model": biz_type,
                 "qualified_primary_action": bool(conversion_evidence.get("qualified_primary_action")),
                 "mobile_primary_cta_present": bool(conversion_evidence.get("mobile_primary_cta_present")),
@@ -2275,94 +2529,339 @@ class RevenueScorer:
         leaks: List[Dict[str, Any]],
         evidence_confidence: Dict[str, Any] | None = None,
         profile: Dict[str, Any] | None = None,
+        scan_data: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
-        """Model plausible financial exposure independently from score deductions.
+        """Estimate *potential commercial exposure* with an explicit expected-value model.
 
-        Economic magnitude uses intrinsic verified issue severity + journey economics.
-        Evidence confidence changes the confidence label/range width, not the website's
-        intrinsic issue severity.  No claim of measured loss is made without business data.
+        The old model multiplied abstract severity units by a journey-specific dollar constant.
+        That was transparent but still too arbitrary for real-world use.  V7.1 instead models:
+
+            annual commercial opportunity pool × affected-path impairment
+
+        The opportunity pool uses caller-supplied business inputs when available.  Without them,
+        Trilloka uses a deliberately broad journey scenario and exposes every assumption.  Issue
+        impairment is based on the causal type of the verified finding, its intrinsic severity and
+        substitution/alternate-path evidence.  Score loss is never used as a dollar multiplier.
+
+        Multiple findings are combined multiplicatively by family so overlapping issues cannot
+        simply stack into impossible 100%+ loss estimates.  The result is still a scenario model,
+        never measured accounting loss.
         """
-        items = [x for x in (leaks or []) if isinstance(x, dict)]
+        items = [x for x in (leaks or []) if isinstance(x, dict) and float(x.get("final_score_loss") or 0.0) > 0.0]
+        scan_data = scan_data or {}
+        profile = profile or {}
+
+        # Probability-of-impairment ceilings for a fully severe, verified issue. These describe
+        # causal exposure of the *digital opportunity pool*, not conversion-rate claims.
+        rule_impairment = {
+            "conversion_path_error": 0.70,
+            "primary_conversion_path": 0.45,
+            "form_architecture": 0.38,
+            "lead_form_friction": 0.15,
+            "checkout_cost_transparency": 0.28,
+            "guest_checkout_barrier": 0.22,
+            "checkout_complexity": 0.22,
+            "delivery_expectation_clarity": 0.14,
+            "shipping_info_discoverability": 0.10,
+            "return_policy_discoverability": 0.10,
+            "b2b_pricing_transparency": 0.12,
+            "unsecured_ssl": 0.22,
+            "core_web_vitals": 0.10,
+            "pagespeed_below_90": 0.03,
+            "click_to_call": 0.07,
+            "mobile_sticky_cta": 0.05,
+            "measurement_telemetry": 0.025,
+            "retargeting_telemetry": 0.015,
+            "diluted_h1": 0.02,
+            "missing_alt_images": 0.01,
+        }
+        family_impairment = {
+            "conversion_execution": 0.38,
+            "checkout_cost": 0.28,
+            "checkout_account": 0.22,
+            "checkout_complexity": 0.22,
+            "checkout_delivery": 0.14,
+            "commerce_policy": 0.10,
+            "foundation_security": 0.22,
+            "performance": 0.10,
+            "mobile_direct_action": 0.07,
+            "trust_proof": 0.09,
+            "trust_local": 0.07,
+            "trust_policy": 0.07,
+            "trust_identity": 0.06,
+            "measurement": 0.025,
+            "hero_clarity": 0.02,
+            "content_distinctiveness": 0.02,
+            "content_eeat": 0.02,
+            "search_structure": 0.015,
+            "search_snippet": 0.01,
+            "crawlability": 0.015,
+            "technical_hygiene": 0.005,
+            "accessibility_content": 0.01,
+        }
+        family_caps = {
+            "conversion_execution": 0.70,
+            "checkout_cost": 0.35,
+            "checkout_account": 0.28,
+            "checkout_complexity": 0.28,
+            "checkout_delivery": 0.18,
+            "commerce_policy": 0.16,
+            "foundation_security": 0.30,
+            "performance": 0.15,
+            "mobile_direct_action": 0.12,
+            "trust_proof": 0.16,
+            "trust_local": 0.12,
+            "trust_policy": 0.12,
+            "trust_identity": 0.10,
+            "measurement": 0.04,
+        }
+
+        conf_map = {"high": 1.0, "medium": 0.70, "low": 0.40, "unknown": 0.0}
+        family_fractions: Dict[str, List[float]] = defaultdict(list)
+        issue_components: List[Dict[str, Any]] = []
         economic_units = 0.0
         confidence_weighted = 0.0
-        conf_map = {"high": 1.0, "medium": 0.65, "low": 0.35, "unknown": 0.0}
         for leak in items:
-            intrinsic = float(leak.get("economic_severity") or leak.get("intrinsic_severity_score") or 0.0)
-            if intrinsic <= 0:
-                sev = max(0.0, min(1.0, float(leak.get("severity_factor") or 0.0)))
-                base = max(0.0, float(leak.get("base_impact_weight") or 0.0))
-                intrinsic = sev * base
-            # Bound one issue so a single heuristic cannot dominate the whole model.
-            intrinsic = min(12.0, max(0.0, intrinsic))
+            rule = str(leak.get("rule_key") or "")
+            family = str(leak.get("family") or LEAK_FAMILY.get(rule) or "other")
+            severity = max(0.0, min(1.0, float(leak.get("severity_factor") or 0.0)))
+            intrinsic = max(0.0, float(leak.get("economic_severity") or leak.get("intrinsic_severity_score") or 0.0))
             economic_units += intrinsic
-            confidence_weighted += intrinsic * conf_map.get(str(leak.get("confidence") or "unknown").lower(), 0.0)
-        economic_units = min(28.0, economic_units)
-        issue_conf = (confidence_weighted / economic_units) if economic_units > 0 else 0.0
-        scan_conf = float((evidence_confidence or {}).get("score") or 0.0) / 100.0
-        combined_conf = max(0.0, min(1.0, issue_conf * 0.75 + scan_conf * 0.25)) if economic_units else 0.0
+            conf = conf_map.get(str(leak.get("confidence") or "unknown").lower(), 0.0)
+            confidence_weighted += max(intrinsic, 0.05) * conf
 
-        # Journey-specific economics represent relative customer-value/transaction stakes,
-        # not claimed client revenue.  High-ticket lead/demo journeys therefore produce
-        # materially different ranges from low-value/general sites for the same architecture issue.
-        unit_ranges = {
-            "general": (700.0, 2200.0),
-            "lead_quote": (1800.0, 6000.0),
-            "appointment_consultation": (1300.0, 4200.0),
-            "reservation_event": (900.0, 3000.0),
-            "direct_purchase": (1400.0, 4500.0),
-            "demo_sales": (2200.0, 7500.0),
-            "membership_subscription": (800.0, 2600.0),
+            base = float(rule_impairment.get(rule, family_impairment.get(family, 0.04)))
+            substitution = max(0.20, min(1.0, float(leak.get("substitution_factor") or 1.0)))
+            # Intrinsic severity is already evidence-independent; severity_factor expresses how much
+            # of the rule's maximum causal impairment is present. Alternate paths reduce exposure.
+            fraction = max(0.0, min(0.75, base * severity * substitution))
+            family_fractions[family].append(fraction)
+            issue_components.append({
+                "rule_key": rule,
+                "family": family,
+                "severity_factor": round(severity, 3),
+                "causal_impairment_ceiling": round(base, 3),
+                "substitution_factor": round(substitution, 3),
+                "modeled_path_impairment": round(fraction, 4),
+                "confidence": str(leak.get("confidence") or "unknown").lower(),
+            })
+
+        combined_family: Dict[str, float] = {}
+        for family, fractions in family_fractions.items():
+            remaining = 1.0
+            for fraction in sorted(fractions, reverse=True):
+                remaining *= (1.0 - max(0.0, min(0.95, fraction)))
+            family_fraction = 1.0 - remaining
+            family_fraction = min(family_fraction, float(family_caps.get(family, 0.20)))
+            combined_family[family] = family_fraction
+
+        remaining = 1.0
+        for fraction in combined_family.values():
+            remaining *= (1.0 - fraction)
+        combined_impairment = min(0.65, max(0.0, 1.0 - remaining))
+
+        # Prefer explicit commercial inputs.  These may be supplied later by a paid diagnostic
+        # intake without changing the scanner architecture.
+        inputs = scan_data.get("economic_inputs") if isinstance(scan_data.get("economic_inputs"), dict) else {}
+        if not inputs and isinstance(scan_data.get("commercial_inputs"), dict):
+            inputs = scan_data.get("commercial_inputs") or {}
+
+        def _num(key: str) -> Optional[float]:
+            return RevenueScorer._safe_float(inputs.get(key)) if isinstance(inputs, dict) else None
+
+        basis = "journey_scenario"
+        assumptions: Dict[str, Any] = {}
+        pool_low = pool_high = None
+        annual_value = _num("annual_digital_opportunity_value")
+        annual_value_alias = _num("annual_digital_commercial_value")
+        if annual_value is None:
+            annual_value = annual_value_alias
+        if annual_value is not None and annual_value > 0:
+            basis = (
+                "business_input_annual_digital_opportunity_value"
+                if _num("annual_digital_opportunity_value") is not None
+                else "business_input_annual_digital_commercial_value"
+            )
+            pool_low = pool_high = annual_value
+            assumptions = {
+                "annual_digital_opportunity_value": round(annual_value, 2),
+                "input_note": "This input should represent the annual expected value of high-intent digital opportunities, not total company revenue.",
+            }
+        else:
+            monthly_ops = _num("monthly_conversion_opportunities")
+            value_per_opportunity = _num("expected_value_per_opportunity")
+            if monthly_ops is not None and monthly_ops > 0 and value_per_opportunity is not None and value_per_opportunity > 0:
+                basis = "business_input_opportunity_value"
+                pool_low = pool_high = monthly_ops * value_per_opportunity * 12.0
+                assumptions = {
+                    "monthly_conversion_opportunities": round(monthly_ops, 2),
+                    "expected_value_per_opportunity": round(value_per_opportunity, 2),
+                }
+            else:
+                # Optional analytics-backed path.  This is the preferred paid-diagnostic input
+                # when the business can supply commercial-path traffic and an expected value per
+                # successful conversion.  Rates accept either 0-1 or percentage form.
+                monthly_sessions = _num("monthly_commercial_path_sessions")
+                if monthly_sessions is None:
+                    monthly_sessions = _num("monthly_qualified_sessions")
+                conversion_rate = _num("expected_conversion_rate")
+                if conversion_rate is None:
+                    conversion_rate = _num("baseline_conversion_rate")
+                if conversion_rate is None:
+                    conversion_rate = _num("baseline_conversion_rate_pct")
+                value_per_conversion = _num("expected_value_per_conversion")
+                if value_per_conversion is None:
+                    value_per_conversion = _num("average_customer_value")
+                if conversion_rate is not None and conversion_rate > 1.0:
+                    conversion_rate = conversion_rate / 100.0
+                if (
+                    monthly_sessions is not None and monthly_sessions > 0
+                    and conversion_rate is not None and 0 < conversion_rate <= 1.0
+                    and value_per_conversion is not None and value_per_conversion > 0
+                ):
+                    basis = "business_input_commercial_path_analytics"
+                    pool_low = pool_high = monthly_sessions * conversion_rate * value_per_conversion * 12.0
+                    assumptions = {
+                        "monthly_commercial_path_sessions": round(monthly_sessions, 2),
+                        "expected_conversion_rate": round(conversion_rate, 4),
+                        "expected_value_per_conversion": round(value_per_conversion, 2),
+                        "input_note": "Analytics-backed expected-value pool supplied by the business; Trilloka still models issue attribution rather than claiming measured lost revenue.",
+                    }
+
+        # Scenario priors are expected-value ranges per high-intent digital opportunity, not
+        # project price/AOV claims. They are intentionally broad and are surfaced in the report.
+        scenario_priors = {
+            "general": {"monthly_opportunities": (8.0, 25.0), "value_per_opportunity": (50.0, 250.0)},
+            "lead_quote": {"monthly_opportunities": (5.0, 18.0), "value_per_opportunity": (250.0, 1200.0)},
+            "appointment_consultation": {"monthly_opportunities": (12.0, 40.0), "value_per_opportunity": (80.0, 350.0)},
+            "reservation_event": {"monthly_opportunities": (15.0, 60.0), "value_per_opportunity": (60.0, 250.0)},
+            "direct_purchase": {"monthly_opportunities": (50.0, 250.0), "value_per_opportunity": (15.0, 80.0)},
+            "demo_sales": {"monthly_opportunities": (4.0, 14.0), "value_per_opportunity": (500.0, 3000.0)},
+            "membership_subscription": {"monthly_opportunities": (15.0, 70.0), "value_per_opportunity": (25.0, 120.0)},
         }
-        low_unit, high_unit = unit_ranges.get(biz_type, unit_ranges["general"])
-        context_tags = {str(x) for x in ((profile or {}).get("context_tags") or []) if x}
-        # Context modifies economic *stakes*, not score severity.  Keep the adjustment modest and
-        # transparent so a high-ticket considered-purchase journey can differ from a generic lead
-        # journey without inventing industry revenue or letting labels dominate the model.
+        prior = scenario_priors.get(biz_type, scenario_priors["general"])
+        if pool_low is None or pool_high is None:
+            monthly_low, monthly_high = prior["monthly_opportunities"]
+            value_low, value_high = prior["value_per_opportunity"]
+            pool_low = monthly_low * value_low * 12.0
+            pool_high = monthly_high * value_high * 12.0
+            assumptions = {
+                "monthly_high_intent_opportunity_range": [monthly_low, monthly_high],
+                "expected_value_per_opportunity_range": [value_low, value_high],
+                "assumption_note": "Scenario values are broad expected-value priors, not observed traffic, conversion rate, order value or project revenue.",
+            }
+
+        context_tags = {str(x) for x in (profile.get("context_tags") or []) if x}
         context_multiplier = 1.0
         if "enterprise_considered_purchase" in context_tags:
-            context_multiplier += 0.20
+            context_multiplier *= 1.25
         if "regulated_high_trust" in context_tags:
-            context_multiplier += 0.10
+            context_multiplier *= 1.10
         if "commerce_payment" in context_tags:
-            context_multiplier += 0.05
+            context_multiplier *= 1.05
         if "hospitality_event" in context_tags:
-            context_multiplier += 0.05
-        context_multiplier = min(1.35, context_multiplier)
-        low_unit *= context_multiplier
-        high_unit *= context_multiplier
+            context_multiplier *= 1.05
+        context_multiplier = min(1.45, context_multiplier)
+        pool_low *= context_multiplier
+        pool_high *= context_multiplier
 
-        # Confidence narrows/lowers the floor but does not erase the plausible upper economic
-        # magnitude simply because public telemetry is incomplete.
-        lower_factor = 0.30 + 0.70 * combined_conf
-        upper_factor = 0.70 + 0.30 * combined_conf
-        annual_min = int(round((economic_units * low_unit * lower_factor) / 100.0) * 100)
-        annual_max = int(round((economic_units * high_unit * upper_factor) / 100.0) * 100)
-        annual_max = max(annual_max, annual_min)
-        if economic_units <= 0.10:
+        scan_conf = max(0.0, min(1.0, float((evidence_confidence or {}).get("score") or 0.0) / 100.0))
+        intrinsic_conf = (confidence_weighted / max(economic_units, 0.05)) if economic_units > 0 else 0.0
+        combined_conf = max(0.0, min(1.0, 0.70 * intrinsic_conf + 0.30 * scan_conf)) if items else 0.0
+
+        if combined_conf >= 0.80:
+            low_mult, high_mult, evidence_label = 0.70, 1.15, "HIGH"
+        elif combined_conf >= 0.55:
+            low_mult, high_mult, evidence_label = 0.50, 1.20, "MODERATE"
+        elif combined_conf > 0:
+            low_mult, high_mult, evidence_label = 0.30, 1.25, "LOW"
+        else:
+            low_mult, high_mult, evidence_label = 0.0, 0.0, "NONE"
+
+        # Strong evidence that an issue exists is not the same as knowing the business's traffic,
+        # close rate or customer value. Scenario-based dollar outputs are therefore labelled
+        # SCENARIO regardless of scanner evidence quality. Paid/business-supplied economic inputs
+        # unlock a normal evidence-confidence label.
+        scenario_based = basis == "journey_scenario"
+        confidence_label = "SCENARIO" if scenario_based and items else evidence_label
+        economic_input_confidence = "SCENARIO_PRIOR" if scenario_based else "BUSINESS_SUPPLIED_INPUT"
+
+        impairment_low = max(0.0, min(0.65, combined_impairment * low_mult))
+        impairment_high = max(0.0, min(0.75, combined_impairment * high_mult))
+        raw_min = (pool_low * impairment_low) if items else 0.0
+        raw_max = (pool_high * impairment_high) if items else 0.0
+        raw_central = (((pool_low + pool_high) / 2.0) * combined_impairment) if items else 0.0
+
+        # Scenario priors are intentionally broad, so avoid false $100 precision. Business-supplied
+        # inputs can retain finer precision because the opportunity pool itself is less uncertain.
+        if basis == "journey_scenario":
+            rounding_increment = 500 if raw_max < 50000 else 1000
+        else:
+            rounding_increment = 100 if raw_max < 100000 else 500
+
+        def _round_money(value: float) -> int:
+            if value <= 0:
+                return 0
+            return int(round(value / rounding_increment) * rounding_increment)
+
+        annual_min = _round_money(raw_min)
+        annual_max = _round_money(raw_max)
+        annual_central = _round_money(raw_central)
+        annual_max = max(annual_min, annual_max)
+        annual_central = min(annual_max, max(annual_min, annual_central))
+
+        if not items:
+            level = "NONE"
+        elif combined_impairment <= 0.015:
             level = "VERY LOW"
-        elif economic_units <= 2.0:
+        elif combined_impairment <= 0.05:
             level = "LOW"
-        elif economic_units <= 5.0:
+        elif combined_impairment <= 0.10:
             level = "MODERATE"
-        elif economic_units <= 10.0:
+        elif combined_impairment <= 0.20:
             level = "HIGH"
         else:
             level = "VERY HIGH"
-        confidence_label = "HIGH" if combined_conf >= 0.80 else ("MODERATE" if combined_conf >= 0.55 else ("LOW" if combined_conf > 0 else "NONE"))
+
         range_text = f"${annual_min:,} – ${annual_max:,} / year"
         return {
-            "level": level, "min": annual_min, "max": annual_max, "range": range_text,
+            "model_version": "commercial_exposure_v2",
+            "basis": basis,
+            "level": level,
+            "min": annual_min,
+            "max": annual_max,
+            "range": range_text,
             "economic_severity_basis": round(economic_units, 2),
             "verified_penalty_basis": round(sum(float(x.get("final_score_loss") or 0.0) for x in items), 2),
-            "journey_economic_unit_range": {"low": round(low_unit, 2), "high": round(high_unit, 2)},
+            "combined_path_impairment": round(combined_impairment, 4),
+            "combined_path_impairment_pct": round(combined_impairment * 100.0, 1),
+            "impairment_range_pct": [round(impairment_low * 100.0, 1), round(impairment_high * 100.0, 1)],
+            "annual_digital_opportunity_pool": {"low": int(round(pool_low)), "high": int(round(pool_high))},
+            "central_annual_exposure": annual_central,
+            "rounding_increment": rounding_increment,
             "economic_context_multiplier": round(context_multiplier, 2),
             "economic_context_tags": sorted(context_tags & {"enterprise_considered_purchase", "regulated_high_trust", "commerce_payment", "hospitality_event"}),
-            "confidence": confidence_label, "confidence_score": round(combined_conf * 100.0, 1),
-            "display": f"{range_text} — {level} model-based exposure",
+            "family_impairment": {k: round(v, 4) for k, v in sorted(combined_family.items())},
+            "issue_components": issue_components[:12],
+            "assumptions": assumptions,
+            "causal_calibration_note": "Issue impairment ceilings are conservative diagnostic calibration parameters, not universal empirical conversion-loss percentages.",
+            "confidence": confidence_label,
+            "confidence_score": None if scenario_based else round(combined_conf * 100.0, 1),
+            "evidence_confidence_score": round(combined_conf * 100.0, 1),
+            "economic_input_confidence": economic_input_confidence,
+            "estimate_status": (
+                "NO_VERIFIED_EXPOSURE" if not items
+                else ("SCENARIO_ESTIMATE" if scenario_based else "BUSINESS_INPUT_ESTIMATE")
+            ),
+            "display": (
+                f"{range_text} — no verified modeled exposure" if not items
+                else (f"{range_text} — {level} scenario exposure" if scenario_based else f"{range_text} — {level} model-based exposure")
+            ),
             "method_note": (
-                "Model-based potential exposure derived from intrinsic verified issue severity and journey-specific economic stakes, "
-                "not from the final score deduction. Evidence confidence controls the confidence/range calibration separately. "
-                "This is not measured accounting loss, a traffic forecast, or proof that remediation will produce this amount."
+                "Potential commercial exposure is modeled as an annual digital opportunity pool multiplied by the combined impairment of verified customer-journey issues. "
+                "Issue overlap is compounded by family rather than added blindly, alternate conversion paths reduce exposure, and score deductions are not used as dollar multipliers. "
+                "Business-supplied economic inputs are used when available; otherwise a broad journey scenario is shown explicitly and rounded coarsely to avoid false precision. "
+                "This is not measured accounting loss, observed traffic, a conversion-rate forecast, or guaranteed remediation uplift."
             ),
         }
 

@@ -281,15 +281,21 @@ def test_score_math_is_reproducible():
     assert audit["overall_score"] == expected
 
 
-def test_good_valmont_style_site_calibrates_to_good_65_75_band():
+def test_valmont_style_site_no_longer_receives_an_easy_good_score():
     audit = RevenueScorer().audit_and_score(valmont_fixture(), business_type="auto", competitor_data_present=None)
-    assert 65.0 <= audit["overall_score"] <= 75.0
-    assert audit["score_rating"] == "GOOD — LEAKS REMAIN"
+    # A functional ordering site with missing mobile support and no meaningful measurement
+    # should land in the functional/headroom band rather than automatically receiving 65+.
+    assert 58.0 <= audit["overall_score"] < 65.0
+    assert audit["score_rating"] == "FUNCTIONAL FOUNDATION — MATERIAL COMMERCIAL HEADROOM"
+    assert audit["analysis_layers"]["elite_architecture"]["layer_score"] == 0
 
 
-def test_strong_ordinary_site_does_not_casually_exceed_80():
+def test_provisional_site_does_not_receive_resolved_strong_score_too_easily():
     audit = RevenueScorer().audit_and_score(base_scan(), business_type="auto", competitor_data_present=None)
-    assert 75.0 <= audit["overall_score"] < 80.0
+    assert audit["business_profile"].get("provisional") is True
+    assert 65.0 <= audit["overall_score"] < 75.0
+    detail = audit["analysis_layers"]["adaptive_architecture"]["weighted_checkpoint_detail"]
+    assert detail["journey_resolution_factor"] < 1.0
 
 
 def test_score_is_explicitly_not_literal_conversion_rate():
@@ -679,7 +685,7 @@ def test_report_uses_100_point_bands_and_advisory_threshold_language():
     assert "/ 78" not in html
     assert "Advisory maturity threshold" in html
     assert "not a score cap" in html
-    assert "GOOD — LEAKS REMAIN (65–74)" == report["score_level_impact"]["level"]
+    assert "FUNCTIONAL FOUNDATION — MATERIAL COMMERCIAL HEADROOM (55–64)" == report["score_level_impact"]["level"]
 
 
 def test_competitor_fallback_query_uses_specific_offering_evidence():
@@ -809,3 +815,367 @@ def test_context_hardening_preserves_genuine_hospitality_event_sites():
     }, "auto")
     assert profile["journey_model"] == "reservation_event"
     assert "hospitality_event" in profile["context_tags"]
+
+# --- V7.1 real-world scorer / economic model completion regressions ---
+
+def _resolved_lead_fixture():
+    scan = base_scan()
+    scan.update({
+        "title": "Vancouver Custom Home Renovation Contractor",
+        "h1_tags": ["Custom Home Renovations"],
+        "h1_relevance_status": "PASS",
+        "meta_description": "Custom home renovation contractor serving Vancouver homeowners. Request a detailed project quote today.",
+        "page_text": "Custom home renovations projects portfolio request a quote contact us Vancouver " * 24,
+        "forms_present": True,
+        "form_action_valid": True,
+        "form_functional_status": PASS,
+        "mobile_cta_types": ["quote", "call"],
+        "click_to_call_present": True,
+        "click_to_call_status": "verified",
+        "mobile_primary_cta_present": True,
+        "mobile_sticky_cta_present": True,
+        "mobile_cta_status": "verified",
+        "credential_signals_present": True,
+        "trust_badges_present": True,
+        "reviews_visible": True,
+        "social_proof_present": True,
+        "about_team_linked": True,
+        "case_studies_portfolio_present": True,
+        "measurement_platforms": ["Google Analytics / GTM", "Meta Pixel"],
+        "measurement_layer_present": True,
+        "has_ga4": True,
+        "has_meta_pixel": True,
+        "retargeting_pixel_installed": True,
+    })
+    return scan
+
+
+def test_adaptive_layer_is_non_compensatory_and_pillars_total_60():
+    audit = RevenueScorer().audit_and_score(_resolved_lead_fixture(), business_type="auto")
+    detail = audit["analysis_layers"]["adaptive_architecture"]["weighted_checkpoint_detail"]
+    pillars = detail["pillars"]
+    assert round(sum(float(x["max"]) for x in pillars.values()), 2) == 60.0
+    assert pillars["conversion_execution"]["max"] == 32.0
+    assert pillars["supporting_experience"]["max"] == 4.0
+    assert "verified PASS" in detail["method"]
+
+
+def test_unknown_evidence_cannot_earn_points_but_is_not_a_penalty():
+    scan = _resolved_lead_fixture()
+    scorer = RevenueScorer()
+    resolved = scorer.audit_and_score(scan, business_type="auto")
+    unknown = dict(scan)
+    unknown.update({
+        "mobile_cta_status": "unknown",
+        "mobile_sticky_cta_present": False,
+        "browser_loaded": False,
+        "static_html_verified": True,
+    })
+    # Static evidence cannot prove persistence. It must not become a FAIL/leak, but it also
+    # cannot earn the same conversion-continuity points as a verified rendered PASS.
+    audit_unknown = scorer.audit_and_score(unknown, business_type="auto")
+    cp4 = next(cp for cp in audit_unknown["full_50_checkpoint_basis"] if cp["id"] == 4)
+    assert cp4["status"] == UNKNOWN
+    assert not any(x.get("rule_key") == "mobile_sticky_cta" for x in audit_unknown["tiered_remediation_packages"]["all_scoring_leaks"])
+    assert audit_unknown["analysis_layers"]["adaptive_architecture"]["layer_score"] < resolved["analysis_layers"]["adaptive_architecture"]["layer_score"]
+
+
+def test_score_discriminates_poor_mid_strong_without_forced_distribution():
+    from copy import deepcopy
+    scorer = RevenueScorer()
+    strong = _resolved_lead_fixture()
+    mid = deepcopy(strong)
+    mid.update({
+        "performance_score": 62.0,
+        "mobile_sticky_cta_present": False,
+        "has_meta_pixel": False,
+        "retargeting_pixel_installed": False,
+        "measurement_platforms": ["Google Analytics / GTM"],
+        "trust_badges_present": False,
+    })
+    poor = deepcopy(strong)
+    poor.update({
+        "performance_score": 38.0,
+        "mobile_primary_cta_present": False,
+        "mobile_sticky_cta_present": False,
+        "mobile_cta_types": [],
+        "click_to_call_present": False,
+        "click_to_call_status": "verified",
+        "forms_present": False,
+        "form_action_valid": False,
+        "form_functional_status": FAIL,
+        "reviews_visible": False,
+        "social_proof_present": False,
+        "trust_badges_present": False,
+        "case_studies_portfolio_present": False,
+        "canonical_present": False,
+        "meta_description": "",
+    })
+    strong_a = scorer.audit_and_score(strong, business_type="auto")
+    mid_a = scorer.audit_and_score(mid, business_type="auto")
+    poor_a = scorer.audit_and_score(poor, business_type="auto")
+    assert poor_a["overall_score"] < mid_a["overall_score"] < strong_a["overall_score"]
+    assert strong_a["overall_score"] < 85.0  # good modern sites do not casually become elite
+    assert poor_a["overall_score"] < 55.0
+
+
+def test_elite_points_require_strong_core_architecture_first():
+    from copy import deepcopy
+    scorer = RevenueScorer()
+    strong = _resolved_lead_fixture()
+    weak_core = deepcopy(strong)
+    weak_core.update({
+        "mobile_primary_cta_present": False,
+        "mobile_sticky_cta_present": False,
+        "mobile_cta_types": [],
+        "click_to_call_present": False,
+        "click_to_call_status": "verified",
+    })
+    strong_a = scorer.audit_and_score(strong, business_type="auto")
+    weak_a = scorer.audit_and_score(weak_core, business_type="auto")
+    assert strong_a["analysis_layers"]["elite_architecture"]["eligibility"]["eligible"] is True
+    assert weak_a["analysis_layers"]["elite_architecture"]["eligibility"]["eligible"] is False
+    assert weak_a["analysis_layers"]["elite_architecture"]["layer_score"] == 0
+
+
+def test_financial_exposure_v2_uses_opportunity_pool_not_score_points():
+    leak = {
+        "rule_key": "conversion_path_error",
+        "family": "conversion_execution",
+        "economic_severity": 4.0,
+        "intrinsic_severity_score": 4.0,
+        "final_score_loss": 1.0,
+        "confidence": "high",
+        "severity_factor": 1.0,
+        "substitution_factor": 1.0,
+    }
+    evidence = {"score": 95}
+    modeled = RevenueScorer._revenue_exposure(
+        "lead_quote", [leak], evidence, {"context_tags": []},
+        {"economic_inputs": {"annual_digital_commercial_value": 100000}},
+    )
+    changed_score_loss = dict(leak)
+    changed_score_loss["final_score_loss"] = 9.0
+    modeled_changed = RevenueScorer._revenue_exposure(
+        "lead_quote", [changed_score_loss], evidence, {"context_tags": []},
+        {"economic_inputs": {"annual_digital_commercial_value": 100000}},
+    )
+    assert modeled["model_version"] == "commercial_exposure_v2"
+    assert modeled["basis"] == "business_input_annual_digital_commercial_value"
+    assert modeled["annual_digital_opportunity_pool"]["low"] == 100000
+    assert modeled["combined_path_impairment_pct"] == modeled_changed["combined_path_impairment_pct"]
+    assert modeled["max"] == modeled_changed["max"]
+    assert modeled["verified_penalty_basis"] != modeled_changed["verified_penalty_basis"]
+
+
+def test_financial_exposure_compounds_overlap_and_measurement_is_low_causality():
+    evidence = {"score": 95}
+    perf_a = {
+        "rule_key": "core_web_vitals", "family": "performance", "economic_severity": 2.0,
+        "final_score_loss": 1.0, "confidence": "high", "severity_factor": 0.8, "substitution_factor": 1.0,
+    }
+    perf_b = {
+        "rule_key": "pagespeed_below_90", "family": "performance", "economic_severity": 1.0,
+        "final_score_loss": 0.2, "confidence": "high", "severity_factor": 0.5, "substitution_factor": 1.0,
+    }
+    exposure = RevenueScorer._revenue_exposure("lead_quote", [perf_a, perf_b], evidence, {"context_tags": []})
+    assert exposure["family_impairment"]["performance"] <= 0.20
+    assert exposure["combined_path_impairment_pct"] < 20.0
+
+    measurement = {
+        "rule_key": "measurement_telemetry", "family": "measurement", "economic_severity": 2.0,
+        "final_score_loss": 1.0, "confidence": "high", "severity_factor": 1.0, "substitution_factor": 1.0,
+    }
+    conversion = {
+        "rule_key": "conversion_path_error", "family": "conversion_execution", "economic_severity": 2.0,
+        "final_score_loss": 1.0, "confidence": "high", "severity_factor": 1.0, "substitution_factor": 1.0,
+    }
+    m = RevenueScorer._revenue_exposure("lead_quote", [measurement], evidence, {"context_tags": []})
+    c = RevenueScorer._revenue_exposure("lead_quote", [conversion], evidence, {"context_tags": []})
+    assert c["combined_path_impairment_pct"] > m["combined_path_impairment_pct"] * 10
+    assert c["max"] > m["max"] * 5
+
+
+def test_competitor_probe_rejects_google_type_vs_content_category_conflict():
+    from hybrid_scanner import HybridScanner
+    competitor = {
+        "name": "Example Construction Ltd",
+        "primary_type": "general_contractor",
+        "place_types": ["general_contractor", "service", "establishment"],
+    }
+    signals = {
+        "title": "Vancouver Physiotherapy Clinic",
+        "meta_description": "Book physiotherapy and rehabilitation treatment.",
+        "h1_tags": ["Physiotherapy & Sports Rehab"],
+        "page_text": "Our physiotherapists treat patients with sports injuries and rehabilitation plans.",
+    }
+    profile = {"journey_model": "appointment_consultation", "context_tags": ["regulated_high_trust"]}
+    result = HybridScanner._competitor_probe_identity_check(competitor, signals, profile)
+    assert result["expected_category"] == "construction_trades"
+    assert result["observed_category"] == "healthcare"
+    assert result["conflict"] is True
+
+
+def test_nearby_search_uses_primary_type_and_retries_without_bad_filter():
+    from hybrid_scanner import HybridScanner
+
+    class Resp:
+        def __init__(self, status, payload):
+            self.status_code = status
+            self._payload = payload
+            self.text = str(payload)
+        def json(self):
+            return self._payload
+
+    class FakeSession:
+        def __init__(self):
+            self.calls = []
+            self.responses = [
+                Resp(400, {"error": {"message": "invalid type filter"}}),
+                Resp(200, {"places": []}),
+                Resp(200, {"places": []}),
+            ]
+        def post(self, url, json=None, headers=None, timeout=None):
+            self.calls.append((url, dict(json or {})))
+            return self.responses.pop(0)
+
+    scanner = HybridScanner(google_api_key="test-key")
+    fake = FakeSession()
+    scanner.session = fake
+    target = {
+        "places_found": True,
+        "benchmark_identity_verified": True,
+        "place_location": {"latitude": 49.28, "longitude": -123.12},
+        "place_primary_type": "general_contractor",
+        "place_types": ["general_contractor", "service"],
+        "place_id": "target",
+        "place_website_uri": "https://target.example/",
+        "place_display_name": "Target Builder",
+    }
+    profile = {
+        "journey_model": "lead_quote", "provisional": False,
+        "journey_signals": ["hero:custom home", "meta:renovation"], "context_tags": ["local_location_dependent"],
+    }
+    scanner._fetch_local_competitors(target, profile, {"domain": "target.example"})
+    first_body = fake.calls[0][1]
+    retry_body = fake.calls[1][1]
+    assert first_body["includedPrimaryTypes"] == ["general_contractor"]
+    assert "includedTypes" not in first_body
+    assert "includedPrimaryTypes" not in retry_body
+
+
+def test_financial_exposure_is_explicitly_scenario_based_without_business_inputs():
+    leak = {
+        "rule_key": "core_web_vitals", "family": "performance", "economic_severity": 2.0,
+        "final_score_loss": 1.0, "confidence": "high", "severity_factor": 0.7, "substitution_factor": 1.0,
+    }
+    result = RevenueScorer._revenue_exposure("lead_quote", [leak], {"score": 90}, {"context_tags": ["enterprise_considered_purchase"]})
+    assert result["basis"] == "journey_scenario"
+    assert result["assumptions"]["monthly_high_intent_opportunity_range"]
+    assert result["annual_digital_opportunity_pool"]["high"] > result["annual_digital_opportunity_pool"]["low"]
+    assert "not measured accounting loss" in result["method_note"].lower()
+
+
+def test_hasler_style_strong_trust_but_unverified_completion_is_not_scored_too_generously():
+    from copy import deepcopy
+    scan = _resolved_lead_fixture()
+    scan.update({
+        "performance_score": 45.0,
+        "mobile_sticky_cta_present": False,
+        "mobile_cta_types": ["contact"],
+        "forms_present": False,
+        "form_action_valid": None,
+        "form_functional_status": NA,
+        "journey_pages_verified": 5,
+        "h1_tags": ["Vancouver Custom Home Builder", "Vancouver Custom Home Builder"],
+        "h1_dom_count": 2,
+        "missing_alt_images": 1,
+        "images_with_alt": 2,
+        "image_count": 3,
+        "total_images": 3,
+    })
+    audit = RevenueScorer().audit_and_score(scan, business_type="auto")
+    cp50 = next(cp for cp in audit["full_50_checkpoint_basis"] if cp["id"] == 50)
+    assert cp50["status"] == UNKNOWN
+    assert cp50["unknown_reason_code"] == "SAFE_SUBMISSION_LIMIT"
+    assert 55.0 <= audit["overall_score"] < 65.0
+    assert audit["analysis_layers"]["elite_architecture"]["layer_score"] == 0
+    assert audit["analysis_layers"]["adaptive_architecture"]["weighted_checkpoint_detail"]["pillars"]["conversion_execution"]["score"] < 20.0
+
+
+def test_provisional_conversion_readiness_cannot_present_as_near_perfect():
+    audit = RevenueScorer().audit_and_score(base_scan(), business_type="auto")
+    metrics = audit["surface_metrics"]
+    assert metrics["conversion_metric_status"] == "PROVISIONAL_JOURNEY"
+    assert metrics["conversion_path_readiness"] <= 85.0
+    assert metrics["conversion_metric_components"]["journey_resolution_factor"] < 1.0
+
+
+def test_financial_exposure_supports_analytics_backed_expected_value_pool():
+    leak = {
+        "rule_key": "conversion_path_error", "family": "conversion_execution",
+        "economic_severity": 4.0, "final_score_loss": 2.0, "confidence": "high",
+        "severity_factor": 1.0, "substitution_factor": 1.0,
+    }
+    result = RevenueScorer._revenue_exposure(
+        "lead_quote", [leak], {"score": 95}, {"context_tags": []},
+        {"economic_inputs": {
+            "monthly_commercial_path_sessions": 1000,
+            "expected_conversion_rate": 0.05,
+            "expected_value_per_conversion": 1000,
+        }},
+    )
+    assert result["basis"] == "business_input_commercial_path_analytics"
+    assert result["annual_digital_opportunity_pool"] == {"low": 600000, "high": 600000}
+    assert result["central_annual_exposure"] > 0
+    assert result["rounding_increment"] in {100, 500}
+
+
+def test_scenario_financial_exposure_avoids_false_hundred_dollar_precision():
+    leak = {
+        "rule_key": "core_web_vitals", "family": "performance",
+        "economic_severity": 2.0, "final_score_loss": 1.0, "confidence": "high",
+        "severity_factor": 0.7, "substitution_factor": 1.0,
+    }
+    result = RevenueScorer._revenue_exposure("lead_quote", [leak], {"score": 90}, {"context_tags": []})
+    assert result["basis"] == "journey_scenario"
+    assert result["rounding_increment"] >= 500
+    assert result["min"] % result["rounding_increment"] == 0
+    assert result["max"] % result["rounding_increment"] == 0
+    assert result["confidence"] == "SCENARIO"
+    assert result["confidence_score"] is None
+    assert result["economic_input_confidence"] == "SCENARIO_PRIOR"
+    assert "not universal empirical" in result["causal_calibration_note"].lower()
+
+
+def test_admin_auth_module_roundtrip_without_storing_plain_otp(monkeypatch):
+    import re
+    import admin_auth as authmod
+
+    monkeypatch.setenv("ADMIN_EMAIL", "owner@example.com")
+    monkeypatch.setenv("RESEND_API_KEY", "test-resend-key")
+    monkeypatch.setenv("TRILLOKA_ADMIN_SESSION_SECRET", "test-session-secret-that-is-long-enough-for-hmac")
+    captured = {}
+
+    class Resp:
+        status_code = 202
+        text = "ok"
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["payload"] = dict(json or {})
+        return Resp()
+
+    monkeypatch.setattr(authmod.requests, "post", fake_post)
+    manager = authmod.AdminAuthManager()
+    assert manager.configured is True
+    challenge = manager.request_code("127.0.0.1")
+    assert "@example.com" in challenge.destination
+    html = captured["payload"]["html"]
+    code = re.search(r">(\d{6})<", html).group(1)
+    # The signed browser challenge contains only the HMAC of the OTP, never the plain code.
+    assert code not in challenge.token
+    session = manager.verify_code(code, challenge.token, "127.0.0.1")
+    assert manager.validate_session(session.token) is True
+    assert manager.session_status(session.token)["authenticated"] is True
+    manager.revoke_session(session.token)
+    assert manager.validate_session(session.token) is False

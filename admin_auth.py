@@ -1,21 +1,34 @@
-"""Private owner one-time-password authentication for Trilloka V6.
+"""Owner-only OTP authentication for the Trilloka administration endpoints.
 
-Human admin access is locked to exactly one owner email address. The browser never
-supplies or chooses that address. A six-digit code is emailed with Resend, expires
-quickly, is single-use, and is tied to the browser challenge that requested it.
-Successful verification creates a short-lived HttpOnly admin session.
+This module is deliberately small and self-contained:
+- the owner address is fixed by environment configuration; clients never submit an email;
+- OTP challenge and admin-session tokens are HMAC signed;
+- raw OTPs are never stored or logged;
+- OTP delivery uses the same Resend account already used by the report engine;
+- request cooldown/rate limits and bounded verification attempts reduce brute-force abuse;
+- browser cookies remain HttpOnly/Secure/Strict through ``main.py``.
 
-No scanner/checkpoint/scorer/report logic lives here.
+Required production configuration:
+    ADMIN_EMAIL or TRILLOKA_ADMIN_EMAIL
+    RESEND_API_KEY
+Optional:
+    TRILLOKA_ADMIN_SESSION_SECRET  (recommended; otherwise a stable key is derived
+                                    from the Resend key and owner email)
+    FROM_EMAIL / TRILLOKA_ADMIN_FROM_EMAIL
+    TRILLOKA_ADMIN_OTP_TTL_SECONDS       default 600
+    TRILLOKA_ADMIN_SESSION_TTL_SECONDS   default 1800
+    TRILLOKA_ADMIN_OTP_COOLDOWN_SECONDS  default 60
+    TRILLOKA_ADMIN_OTP_MAX_PER_HOUR      default 5
+    TRILLOKA_ADMIN_OTP_MAX_ATTEMPTS      default 5
 """
-
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
-import html
+import json
 import os
 import secrets
-import sqlite3
 import threading
 import time
 from dataclasses import dataclass
@@ -24,11 +37,24 @@ from typing import Any, Dict, Optional
 import requests
 
 
-LOCKED_OWNER_EMAIL = "onlyonearpit@gmail.com"
+def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        return max(minimum, min(maximum, int(os.environ.get(name, str(default)))))
+    except Exception:
+        return default
+
+
+def _b64e(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+
+def _b64d(value: str) -> bytes:
+    value = str(value or "")
+    return base64.urlsafe_b64decode(value + ("=" * (-len(value) % 4)))
 
 
 class AdminAuthError(RuntimeError):
-    def __init__(self, message: str, *, reason: str, retry_after: Optional[int] = None):
+    def __init__(self, message: str, reason: str = "ADMIN_AUTH_FAILED", retry_after: Optional[int] = None):
         super().__init__(message)
         self.reason = reason
         self.retry_after = retry_after
@@ -37,8 +63,8 @@ class AdminAuthError(RuntimeError):
 @dataclass(frozen=True)
 class AdminChallenge:
     token: str
-    expires_at: int
     destination: str
+    expires_at: int
 
 
 @dataclass(frozen=True)
@@ -48,330 +74,213 @@ class AdminSession:
 
 
 class AdminAuthManager:
-    def __init__(self, db_path: Optional[str] = None):
-        self.db_path = db_path or os.environ.get("SCAN_ACCESS_DB_PATH", "./trilloka_scan_access.sqlite3")
+    cookie_name = "trilloka_admin_session"
+    challenge_cookie_name = "trilloka_admin_challenge"
 
-        # Intentionally locked. There is no request field or browser setting that can
-        # redirect owner codes to another address.
-        configured = os.environ.get("TRILLOKA_ADMIN_LOGIN_EMAIL", LOCKED_OWNER_EMAIL).strip().lower()
-        if configured and configured != LOCKED_OWNER_EMAIL:
-            raise RuntimeError(
-                "TRILLOKA_ADMIN_LOGIN_EMAIL does not match the owner email locked into this build"
-            )
-        self.admin_email = LOCKED_OWNER_EMAIL
-
+    def __init__(self) -> None:
+        self.owner_email = (os.environ.get("TRILLOKA_ADMIN_EMAIL") or os.environ.get("ADMIN_EMAIL") or "").strip().lower()
         self.resend_api_key = os.environ.get("RESEND_API_KEY", "").strip()
-        self.from_email = os.environ.get(
-            "ADMIN_OTP_FROM_EMAIL", os.environ.get("FROM_EMAIL", "alerts@trilloka.com")
-        ).strip()
-        self.otp_ttl_seconds = max(120, int(os.environ.get("ADMIN_OTP_TTL_SECONDS", "1800")))
-        self.session_ttl_seconds = max(120, int(os.environ.get("ADMIN_SESSION_TTL_SECONDS", "900")))
-        self.request_cooldown_seconds = max(15, int(os.environ.get("ADMIN_OTP_REQUEST_COOLDOWN_SECONDS", "60")))
-        self.max_requests_per_hour = max(1, int(os.environ.get("ADMIN_OTP_MAX_REQUESTS_PER_HOUR", "5")))
-        self.max_global_requests_per_hour = max(
-            self.max_requests_per_hour,
-            int(os.environ.get("ADMIN_OTP_MAX_GLOBAL_REQUESTS_PER_HOUR", "10")),
-        )
-        self.max_attempts = max(3, int(os.environ.get("ADMIN_OTP_MAX_ATTEMPTS", "5")))
-        self.bind_request_ip = self._env_bool("ADMIN_OTP_BIND_REQUEST_IP", True)
+        self.from_email = (os.environ.get("TRILLOKA_ADMIN_FROM_EMAIL") or os.environ.get("FROM_EMAIL") or "alerts@trilloka.com").strip()
+        explicit_secret = os.environ.get("TRILLOKA_ADMIN_SESSION_SECRET", "").strip()
+        if explicit_secret:
+            secret_material = explicit_secret.encode("utf-8")
+        elif self.resend_api_key and self.owner_email:
+            # Stable fallback so existing deployments do not require a new variable immediately.
+            # A dedicated TRILLOKA_ADMIN_SESSION_SECRET remains the preferred production setup.
+            secret_material = hashlib.sha256(
+                ("trilloka-admin-v1|" + self.owner_email + "|" + self.resend_api_key).encode("utf-8")
+            ).digest()
+        else:
+            secret_material = b""
+        self._secret = hashlib.sha256(secret_material).digest() if secret_material else b""
 
-        self.cookie_name = os.environ.get("ADMIN_SESSION_COOKIE_NAME", "trilloka_admin_session").strip() or "trilloka_admin_session"
-        self.challenge_cookie_name = os.environ.get(
-            "ADMIN_CHALLENGE_COOKIE_NAME", "trilloka_admin_challenge"
-        ).strip() or "trilloka_admin_challenge"
-        self.cookie_secure = self._env_bool("ADMIN_COOKIE_SECURE", self._env_bool("SCAN_COOKIE_SECURE", True))
+        self.otp_ttl_seconds = _env_int("TRILLOKA_ADMIN_OTP_TTL_SECONDS", 600, 120, 1800)
+        self.session_ttl_seconds = _env_int("TRILLOKA_ADMIN_SESSION_TTL_SECONDS", 1800, 300, 43200)
+        self.otp_cooldown_seconds = _env_int("TRILLOKA_ADMIN_OTP_COOLDOWN_SECONDS", 60, 15, 600)
+        self.otp_max_per_hour = _env_int("TRILLOKA_ADMIN_OTP_MAX_PER_HOUR", 5, 2, 20)
+        self.otp_max_attempts = _env_int("TRILLOKA_ADMIN_OTP_MAX_ATTEMPTS", 5, 3, 10)
+        self.cookie_secure = os.environ.get("TRILLOKA_ADMIN_COOKIE_SECURE", "true").strip().lower() in {"1", "true", "yes", "on"}
 
         self._lock = threading.RLock()
-        self._secret = self._load_secret()
-        self._init_db()
-
-    @staticmethod
-    def _env_bool(name: str, default: bool) -> bool:
-        raw = os.environ.get(name)
-        if raw is None:
-            return default
-        return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-    def _load_secret(self) -> bytes:
-        configured = os.environ.get("ADMIN_AUTH_SECRET", "").strip() or os.environ.get("SCAN_ACCESS_SECRET", "").strip()
-        if configured:
-            return configured.encode("utf-8")
-        # Development-only fallback. Production docs require a persistent random secret.
-        return secrets.token_bytes(48)
-
-    def _connect(self) -> sqlite3.Connection:
-        parent = os.path.dirname(os.path.abspath(self.db_path))
-        os.makedirs(parent, exist_ok=True)
-        conn = sqlite3.connect(self.db_path, timeout=10.0, isolation_level=None)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA busy_timeout=5000")
-        return conn
-
-    @staticmethod
-    def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
-        return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
-
-    def _init_db(self) -> None:
-        with self._lock, self._connect() as conn:
-            conn.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS admin_otp_codes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    code_hash TEXT NOT NULL,
-                    challenge_hash TEXT,
-                    requested_at INTEGER NOT NULL,
-                    expires_at INTEGER NOT NULL,
-                    consumed_at INTEGER,
-                    attempts INTEGER NOT NULL DEFAULT 0,
-                    requester_hash TEXT
-                );
-                CREATE INDEX IF NOT EXISTS idx_admin_otp_requested ON admin_otp_codes(requested_at);
-
-                CREATE TABLE IF NOT EXISTS admin_sessions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    token_hash TEXT NOT NULL UNIQUE,
-                    created_at INTEGER NOT NULL,
-                    expires_at INTEGER NOT NULL,
-                    revoked_at INTEGER,
-                    requester_hash TEXT
-                );
-                CREATE INDEX IF NOT EXISTS idx_admin_sessions_expiry ON admin_sessions(expires_at);
-                """
-            )
-            # Safe migration from the immediately previous OTP draft, if it was ever deployed.
-            if "challenge_hash" not in self._columns(conn, "admin_otp_codes"):
-                conn.execute("ALTER TABLE admin_otp_codes ADD COLUMN challenge_hash TEXT")
-
-    def _hash(self, namespace: str, value: str, *, normalize: bool = False) -> str:
-        data = (value or "").strip()
-        if normalize:
-            data = data.lower()
-        return hmac.new(
-            self._secret,
-            f"{namespace}:{data}".encode("utf-8"),
-            hashlib.sha256,
-        ).hexdigest()
-
-    def requester_hash(self, requester_ip: str) -> str:
-        return self._hash("admin-ip", requester_ip or "unknown", normalize=True)
+        self._request_times: Dict[str, list[float]] = {}
+        self._attempts: Dict[str, int] = {}
+        self._used_challenges: Dict[str, int] = {}
+        self._revoked_sessions: Dict[str, int] = {}
 
     @property
     def configured(self) -> bool:
-        return bool(self.admin_email and self.resend_api_key and self.from_email)
+        return bool(self.owner_email and self.resend_api_key and self._secret)
 
-    def masked_admin_email(self) -> str:
-        local, domain = self.admin_email.split("@", 1)
+    def _sign(self, payload: bytes) -> str:
+        return _b64e(hmac.new(self._secret, payload, hashlib.sha256).digest())
+
+    def _encode_token(self, data: Dict[str, Any]) -> str:
+        payload = json.dumps(data, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        return _b64e(payload) + "." + self._sign(payload)
+
+    def _decode_token(self, token: Optional[str], expected_type: str) -> Dict[str, Any]:
+        if not token or not self._secret:
+            raise AdminAuthError("Authentication token is missing or invalid", "ADMIN_AUTH_INVALID")
+        try:
+            payload_part, sig = str(token).split(".", 1)
+            payload = _b64d(payload_part)
+            if not hmac.compare_digest(sig, self._sign(payload)):
+                raise ValueError("signature")
+            data = json.loads(payload.decode("utf-8"))
+            if not isinstance(data, dict) or data.get("typ") != expected_type:
+                raise ValueError("type")
+            if int(data.get("exp") or 0) <= int(time.time()):
+                raise AdminAuthError("Authentication token has expired", "ADMIN_AUTH_EXPIRED")
+            return data
+        except AdminAuthError:
+            raise
+        except Exception as exc:
+            raise AdminAuthError("Authentication token is invalid", "ADMIN_AUTH_INVALID") from exc
+
+    @staticmethod
+    def _client_fingerprint(client_ip: str) -> str:
+        return hashlib.sha256(str(client_ip or "unknown").strip().encode("utf-8")).hexdigest()[:24]
+
+    @staticmethod
+    def _masked_email(email: str) -> str:
+        local, _, domain = str(email or "").partition("@")
+        if not domain:
+            return "configured owner email"
         if len(local) <= 2:
-            masked = local[:1] + "*"
+            visible = local[:1] + "*"
         else:
-            masked = local[:2] + "*" * max(2, len(local) - 3) + local[-1:]
-        return f"{masked}@{domain}"
+            visible = local[:2] + ("*" * min(6, len(local) - 2))
+        return f"{visible}@{domain}"
 
-    def _prune(self, conn: sqlite3.Connection, now: int) -> None:
-        conn.execute("DELETE FROM admin_otp_codes WHERE requested_at < ?", (now - 86400,))
-        conn.execute("DELETE FROM admin_sessions WHERE expires_at < ?", (now - 86400,))
+    def _cleanup(self, now: int) -> None:
+        self._used_challenges = {k: exp for k, exp in self._used_challenges.items() if exp > now}
+        self._revoked_sessions = {k: exp for k, exp in self._revoked_sessions.items() if exp > now}
+        cutoff = now - 3600
+        for key in list(self._request_times):
+            vals = [t for t in self._request_times[key] if t > cutoff]
+            if vals:
+                self._request_times[key] = vals
+            else:
+                self._request_times.pop(key, None)
 
-    def _send_code_email(self, code: str) -> None:
-        if not self.resend_api_key:
-            raise AdminAuthError("Resend API key is not configured", reason="OTP_EMAIL_NOT_CONFIGURED")
-        if not self.from_email:
-            raise AdminAuthError("OTP sender email is not configured", reason="OTP_EMAIL_NOT_CONFIGURED")
+    def request_code(self, client_ip: str) -> AdminChallenge:
+        if not self.owner_email:
+            raise AdminAuthError("Owner email is not configured", "ADMIN_EMAIL_NOT_CONFIGURED")
+        if not self.resend_api_key or not self._secret:
+            raise AdminAuthError("Owner OTP email authentication is not configured", "OTP_EMAIL_NOT_CONFIGURED")
 
-        ttl_minutes = max(1, round(self.otp_ttl_seconds / 60))
-        safe_email = html.escape(self.admin_email)
-        body = f"""
-        <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:28px">
-          <h2 style="margin:0 0 16px">Trilloka Owner Sign-in</h2>
-          <p>A sign-in code was requested for the private Trilloka owner console.</p>
-          <div style="font-size:34px;font-weight:700;letter-spacing:8px;margin:26px 0">{code}</div>
-          <p>This code expires in {ttl_minutes} minutes and can be used once.</p>
-          <p style="font-size:13px;color:#666">Sent only to {safe_email}. If you did not request it, ignore this email.</p>
-        </div>
-        """
-        response = requests.post(
-            "https://api.resend.com/emails",
-            headers={
-                "Authorization": f"Bearer {self.resend_api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "from": self.from_email,
-                "to": [self.admin_email],
-                "subject": "Your Trilloka admin sign-in code",
-                "html": body,
-            },
-            timeout=15,
-        )
-        if response.status_code not in (200, 201, 202):
-            raise AdminAuthError("Unable to deliver admin sign-in code", reason="OTP_EMAIL_DELIVERY_FAILED")
-
-    def request_code(self, requester_ip: str) -> AdminChallenge:
         now = int(time.time())
-        requester = self.requester_hash(requester_ip)
-
-        with self._lock, self._connect() as conn:
-            self._prune(conn, now)
-            latest = conn.execute(
-                "SELECT requested_at FROM admin_otp_codes ORDER BY requested_at DESC LIMIT 1"
-            ).fetchone()
-            if latest:
-                wait = self.request_cooldown_seconds - (now - int(latest["requested_at"]))
-                if wait > 0:
-                    raise AdminAuthError(
-                        "Please wait before requesting another code",
-                        reason="OTP_COOLDOWN",
-                        retry_after=wait,
-                    )
-
-            hourly_for_requester = int(
-                conn.execute(
-                    "SELECT COUNT(*) AS c FROM admin_otp_codes WHERE requester_hash=? AND requested_at>=?",
-                    (requester, now - 3600),
-                ).fetchone()["c"]
-            )
-            hourly_global = int(
-                conn.execute(
-                    "SELECT COUNT(*) AS c FROM admin_otp_codes WHERE requested_at>=?",
-                    (now - 3600,),
-                ).fetchone()["c"]
-            )
-            if hourly_for_requester >= self.max_requests_per_hour or hourly_global >= self.max_global_requests_per_hour:
-                raise AdminAuthError(
-                    "Too many sign-in code requests. Try again later.",
-                    reason="OTP_RATE_LIMIT",
-                    retry_after=3600,
-                )
+        fingerprint = self._client_fingerprint(client_ip)
+        with self._lock:
+            self._cleanup(now)
+            history = self._request_times.setdefault(fingerprint, [])
+            if history and (now - history[-1]) < self.otp_cooldown_seconds:
+                retry = self.otp_cooldown_seconds - (now - int(history[-1]))
+                raise AdminAuthError("Please wait before requesting another owner code", "OTP_COOLDOWN", max(1, retry))
+            if len(history) >= self.otp_max_per_hour:
+                retry = max(60, 3600 - (now - int(history[0])))
+                raise AdminAuthError("Owner code request limit reached", "OTP_RATE_LIMIT", retry)
 
         code = f"{secrets.randbelow(1_000_000):06d}"
-        challenge_token = secrets.token_urlsafe(32)
-        code_hash = self._hash("admin-otp", code)
-        challenge_hash = self._hash("admin-challenge", challenge_token)
+        nonce = secrets.token_urlsafe(18)
+        exp = now + self.otp_ttl_seconds
+        code_hash = hmac.new(self._secret, f"otp|{nonce}|{code}".encode("utf-8"), hashlib.sha256).hexdigest()
+        token = self._encode_token({"typ": "otp", "iat": now, "exp": exp, "nonce": nonce, "ip": fingerprint, "code": code_hash})
 
-        # Delivery must succeed before the code becomes valid.
-        self._send_code_email(code)
-
-        with self._lock, self._connect() as conn:
-            # Only the newest code can work.
-            conn.execute("UPDATE admin_otp_codes SET consumed_at=? WHERE consumed_at IS NULL", (now,))
-            conn.execute(
-                """
-                INSERT INTO admin_otp_codes(
-                    code_hash,challenge_hash,requested_at,expires_at,requester_hash
-                ) VALUES(?,?,?,?,?)
-                """,
-                (code_hash, challenge_hash, now, now + self.otp_ttl_seconds, requester),
+        try:
+            response = requests.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {self.resend_api_key}", "Content-Type": "application/json"},
+                json={
+                    "from": self.from_email,
+                    "to": self.owner_email,
+                    "subject": "Your Trilloka owner sign-in code",
+                    "html": (
+                        "<div style='font-family:Arial,sans-serif;max-width:560px'>"
+                        "<h2>Trilloka owner sign-in</h2>"
+                        f"<p>Your one-time code is <strong style='font-size:26px;letter-spacing:4px'>{code}</strong></p>"
+                        f"<p>This code expires in {max(1, round(self.otp_ttl_seconds/60))} minutes. If you did not request it, ignore this email.</p>"
+                        "</div>"
+                    ),
+                },
+                timeout=12,
             )
+            if response.status_code not in {200, 201, 202}:
+                raise RuntimeError(f"Resend HTTP {response.status_code}")
+        except Exception as exc:
+            raise AdminAuthError("Owner sign-in code could not be delivered", "OTP_EMAIL_DELIVERY_FAILED") from exc
 
-        return AdminChallenge(
-            token=challenge_token,
-            expires_at=now + self.otp_ttl_seconds,
-            destination=self.masked_admin_email(),
-        )
+        with self._lock:
+            self._request_times.setdefault(fingerprint, []).append(float(now))
+            self._attempts[nonce] = 0
+        return AdminChallenge(token=token, destination=self._masked_email(self.owner_email), expires_at=exp)
 
-    def verify_code(
-        self,
-        code: str,
-        challenge_token: Optional[str],
-        requester_ip: str,
-    ) -> AdminSession:
-        candidate = (code or "").strip()
-        challenge = (challenge_token or "").strip()
-        if len(candidate) != 6 or not candidate.isdigit():
-            raise AdminAuthError("Invalid sign-in code", reason="OTP_INVALID")
-        if not challenge:
-            raise AdminAuthError("Sign-in challenge missing. Request a new code.", reason="OTP_CHALLENGE_MISSING")
-
+    def verify_code(self, code: str, challenge_token: Optional[str], client_ip: str) -> AdminSession:
+        data = self._decode_token(challenge_token, "otp")
         now = int(time.time())
-        requester = self.requester_hash(requester_ip)
-        candidate_hash = self._hash("admin-otp", candidate)
-        challenge_hash = self._hash("admin-challenge", challenge)
+        nonce = str(data.get("nonce") or "")
+        fingerprint = self._client_fingerprint(client_ip)
+        if not hmac.compare_digest(str(data.get("ip") or ""), fingerprint):
+            raise AdminAuthError("Owner code must be verified from the requesting client", "ADMIN_AUTH_INVALID")
+        clean_code = "".join(ch for ch in str(code or "") if ch.isdigit())
+        if len(clean_code) != 6:
+            raise AdminAuthError("Enter the 6-digit owner code", "OTP_INVALID")
 
-        with self._lock, self._connect() as conn:
-            self._prune(conn, now)
-            row = conn.execute(
-                "SELECT * FROM admin_otp_codes WHERE consumed_at IS NULL ORDER BY id DESC LIMIT 1"
-            ).fetchone()
-            if not row:
-                raise AdminAuthError("No active sign-in code. Request a new code.", reason="OTP_NOT_FOUND")
-            if int(row["expires_at"]) <= now:
-                conn.execute("UPDATE admin_otp_codes SET consumed_at=? WHERE id=?", (now, int(row["id"])))
-                raise AdminAuthError("Sign-in code expired. Request a new code.", reason="OTP_EXPIRED")
-            if not row["challenge_hash"] or not hmac.compare_digest(str(row["challenge_hash"]), challenge_hash):
-                raise AdminAuthError("This code belongs to a different browser sign-in request.", reason="OTP_CHALLENGE_INVALID")
-            if self.bind_request_ip and row["requester_hash"] and not hmac.compare_digest(str(row["requester_hash"]), requester):
-                raise AdminAuthError("Sign-in request changed network. Request a new code.", reason="OTP_REQUESTER_CHANGED")
+        with self._lock:
+            self._cleanup(now)
+            if nonce in self._used_challenges:
+                raise AdminAuthError("This owner code has already been used", "OTP_INVALID")
+            attempts = int(self._attempts.get(nonce, 0))
+            if attempts >= self.otp_max_attempts:
+                raise AdminAuthError("Too many invalid code attempts; request a new code", "OTP_RATE_LIMIT", self.otp_cooldown_seconds)
 
-            attempts = int(row["attempts"] or 0)
-            if attempts >= self.max_attempts:
-                conn.execute("UPDATE admin_otp_codes SET consumed_at=? WHERE id=?", (now, int(row["id"])))
-                raise AdminAuthError("Too many incorrect attempts. Request a new code.", reason="OTP_ATTEMPTS_EXCEEDED")
-            if not hmac.compare_digest(str(row["code_hash"]), candidate_hash):
-                attempts += 1
-                conn.execute(
-                    "UPDATE admin_otp_codes SET attempts=?, consumed_at=? WHERE id=?",
-                    (attempts, now if attempts >= self.max_attempts else None, int(row["id"])),
-                )
-                raise AdminAuthError("Invalid sign-in code", reason="OTP_INVALID")
+        expected = str(data.get("code") or "")
+        supplied = hmac.new(self._secret, f"otp|{nonce}|{clean_code}".encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, supplied):
+            with self._lock:
+                self._attempts[nonce] = int(self._attempts.get(nonce, 0)) + 1
+            raise AdminAuthError("Owner code is incorrect", "OTP_INVALID")
 
-            conn.execute("UPDATE admin_otp_codes SET consumed_at=? WHERE id=?", (now, int(row["id"])))
-            token = secrets.token_urlsafe(40)
-            token_hash = self._hash("admin-session", token)
-            expires_at = now + self.session_ttl_seconds
-            conn.execute(
-                "INSERT INTO admin_sessions(token_hash,created_at,expires_at,requester_hash) VALUES(?,?,?,?)",
-                (token_hash, now, expires_at, requester),
-            )
-            return AdminSession(token=token, expires_at=expires_at)
+        session_nonce = secrets.token_urlsafe(24)
+        exp = now + self.session_ttl_seconds
+        token = self._encode_token({"typ": "session", "iat": now, "exp": exp, "nonce": session_nonce})
+        with self._lock:
+            self._used_challenges[nonce] = int(data.get("exp") or now)
+            self._attempts.pop(nonce, None)
+        return AdminSession(token=token, expires_at=exp)
 
     def validate_session(self, token: Optional[str]) -> bool:
-        raw = (token or "").strip()
-        if not raw:
+        try:
+            data = self._decode_token(token, "session")
+            token_id = hashlib.sha256(str(token).encode("utf-8")).hexdigest()
+            with self._lock:
+                self._cleanup(int(time.time()))
+                return token_id not in self._revoked_sessions
+        except AdminAuthError:
             return False
-        now = int(time.time())
-        token_hash = self._hash("admin-session", raw)
-        with self._lock, self._connect() as conn:
-            row = conn.execute(
-                "SELECT expires_at,revoked_at FROM admin_sessions WHERE token_hash=? LIMIT 1",
-                (token_hash,),
-            ).fetchone()
-            return bool(row and row["revoked_at"] is None and int(row["expires_at"]) > now)
 
     def session_status(self, token: Optional[str]) -> Dict[str, Any]:
-        raw = (token or "").strip()
-        if not raw:
-            return {"authenticated": False}
-        now = int(time.time())
-        token_hash = self._hash("admin-session", raw)
-        with self._lock, self._connect() as conn:
-            row = conn.execute(
-                "SELECT created_at,expires_at,revoked_at FROM admin_sessions WHERE token_hash=? LIMIT 1",
-                (token_hash,),
-            ).fetchone()
-            if not row or row["revoked_at"] is not None or int(row["expires_at"]) <= now:
-                return {"authenticated": False}
-            return {
-                "authenticated": True,
-                "expires_at": int(row["expires_at"]),
-                "expires_in_seconds": max(0, int(row["expires_at"]) - now),
-                "destination": self.masked_admin_email(),
-            }
+        try:
+            data = self._decode_token(token, "session")
+            token_id = hashlib.sha256(str(token).encode("utf-8")).hexdigest()
+            now = int(time.time())
+            with self._lock:
+                self._cleanup(now)
+                if token_id in self._revoked_sessions:
+                    return {"success": True, "authenticated": False, "configured": self.configured, "expires_in_seconds": 0}
+            exp = int(data.get("exp") or 0)
+            return {"success": True, "authenticated": True, "configured": self.configured, "expires_at": exp, "expires_in_seconds": max(0, exp - now)}
+        except AdminAuthError:
+            return {"success": True, "authenticated": False, "configured": self.configured, "expires_in_seconds": 0}
 
     def revoke_session(self, token: Optional[str]) -> None:
-        raw = (token or "").strip()
-        if not raw:
+        if not token:
             return
-        now = int(time.time())
-        token_hash = self._hash("admin-session", raw)
-        with self._lock, self._connect() as conn:
-            conn.execute("UPDATE admin_sessions SET revoked_at=? WHERE token_hash=?", (now, token_hash))
-
-    def revoke_all_sessions(self) -> int:
-        now = int(time.time())
-        with self._lock, self._connect() as conn:
-            cur = conn.execute(
-                "UPDATE admin_sessions SET revoked_at=? WHERE revoked_at IS NULL AND expires_at>?",
-                (now, now),
-            )
-            return int(cur.rowcount or 0)
+        try:
+            data = self._decode_token(token, "session")
+            exp = int(data.get("exp") or int(time.time()))
+        except AdminAuthError:
+            return
+        token_id = hashlib.sha256(str(token).encode("utf-8")).hexdigest()
+        with self._lock:
+            self._revoked_sessions[token_id] = exp

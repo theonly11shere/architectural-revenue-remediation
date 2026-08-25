@@ -1,4 +1,4 @@
-"""Trilloka Journey + Context architecture model (v7.0).
+"""Trilloka Journey + Context architecture model (v7.1).
 
 The scanner deliberately avoids an endlessly-growing industry taxonomy.  It infers:
 1) how a public website appears to convert a visitor (journey model), and

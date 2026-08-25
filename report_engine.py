@@ -1,6 +1,6 @@
 """Trilloka report/vault engine.
 
-V7.0: reports a universal Common Foundation layer plus adaptive Journey + Context architecture.
+V7.1: reports a universal Common Foundation layer plus adaptive Journey + Context architecture.
 It exposes score scope, Evidence Confidence and maturity-band eligibility so a high
 Revenue Readiness number cannot be mistaken for product-market fit, sales performance or revenue.
 
@@ -95,6 +95,7 @@ class ReportGenerator:
             "vault_id": audit.get("vault_id", ""),
             "estimated_revenue_leak": revenue_display,
             "revenue_exposure": audit.get("revenue_leak") or {},
+            "financial_exposure": audit.get("financial_exposure") or audit.get("revenue_leak") or {},
             "scoring_methodology": self._build_scoring_methodology_explanation(audit),
             "score_level_impact": (
                 self._build_score_level_impact_explanation(float(overall), audit)
@@ -335,9 +336,10 @@ class ReportGenerator:
             "core_philosophy": "Trilloka measures observable website Revenue Readiness, not literal conversion percentage, product-market fit, demand, sales-team performance or actual revenue. Readiness is earned across three unequal layers—Foundation, Revenue/User Architecture and Elite Architecture—while verified leaks retain separate score impact, severity and evidence confidence.",
             "graded_continuum": "Every deduction is scaled by implementation severity, evidence confidence and journey/context relevance. Unknown telemetry earns no strength and creates no penalty. Severe deductions require independent confirmation or corroboration.",
             "architecture_model": f"Primary customer journey: {journey}. Context tags: {contexts}. Legacy industry selections are only weak hints; the score is driven by observed customer actions and context evidence.",
-            "two_layer_model": "Three earned layers are used: Common Foundation (22 points), Revenue/User Architecture (60 points), and Elite Architecture (18 points). Foundation covers universal HTTPS, SEO/search structure, performance, mobile and accessibility basics; Revenue/User Architecture adapts to the observed customer journey and context; Elite requires advanced verified maturity.",
+            "two_layer_model": "Three earned layers are used: Common Foundation (22 points), Revenue/User Architecture (60 points), and Elite Architecture (18 points). The 60-point Revenue/User layer is split into fixed conversion-execution, trust/decision-support, measurement/policy and supporting-experience pillars so low-value content/SEO passes cannot compensate for a weak primary customer path. Elite points require strong verified core architecture first.",
             "vertical_weighting": "Journey + Context weighting replaces broad industry scoring. The same technical condition can have different commercial importance depending on the verified customer action, substitution paths and contextual obligations; legacy industry labels are weak hints only.",
-            "hygiene_gatekeeping": "Verified conversion friction and customer-path blockers are prioritized ahead of ordinary SEO hygiene. Ecommerce checkout weighting is Baymard-informed only when purchase-context evidence exists and does not claim full Baymard certification; primary journeys/forms use usability research, while measured performance uses Google/web.dev evidence. Research percentages are never copied directly into site-specific deductions.",
+            "hygiene_gatekeeping": "Verified conversion friction and customer-path blockers are prioritized ahead of ordinary SEO hygiene. Ecommerce checkout weighting is Baymard-informed only when purchase-context evidence exists and does not claim full Baymard certification; measured performance uses Google/web.dev evidence. Research percentages are never copied directly into site-specific deductions.",
+            "financial_exposure_model": "Potential commercial exposure uses an expected-value scenario: annual digital opportunity pool × combined verified path impairment. Overlapping findings are compounded by family instead of added blindly, alternate conversion paths reduce exposure, and score deductions are never converted directly into dollars. Business-supplied economic inputs replace scenario priors when available.",
         }
 
     @staticmethod
@@ -1148,8 +1150,9 @@ class ReportGenerator:
     {foundation_notice}
 
     <div style="background:rgba(200,90,90,0.08); border:1px solid rgba(200,90,90,0.25); border-radius:12px; padding:20px; margin:16px 0; text-align:center;">
-        <p style="font-family:Inter,sans-serif; font-size:11px; color:#C85A5A; text-transform:uppercase; letter-spacing:1.5px; margin:0 0 6px 0; font-weight:700;">REVENUE EXPOSURE</p>
+        <p style="font-family:Inter,sans-serif; font-size:11px; color:#C85A5A; text-transform:uppercase; letter-spacing:1.5px; margin:0 0 6px 0; font-weight:700;">MODELED COMMERCIAL EXPOSURE</p>
         <p style="font-family:Georgia,serif; font-size:28px; color:#C85A5A; margin:0; font-weight:700;">{revenue_exposure}</p>
+        <p style="font-family:Inter,sans-serif; font-size:10px; color:#6B7280; margin:7px 0 0 0; line-height:1.45;">Scenario estimate from verified customer-journey issues and explicit economic assumptions; not measured accounting loss or guaranteed uplift.</p>
     </div>
 
     <div style="margin:24px 0 28px 0; padding:0 4px;"><p style="font-family:Georgia,serif; font-size:14px; font-style:italic; color:#333333; margin:0; line-height:1.6;">According to the Architect, these are the strongest evidence-backed ways to address the verified issues from technical, conversion and operational angles. Unknown telemetry is not treated as failure.</p></div>

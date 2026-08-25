@@ -1,4 +1,4 @@
-"""Trilloka V7 completed-scanner integrity runner.
+"""Trilloka V7.1 real-world scanner integrity runner.
 
 Runs the current Journey + Context scanner/scorer regression suite and targeted
 calibration/hardening checks.  Everything here is passive and offline: it performs
@@ -17,7 +17,7 @@ from checkpoint_engine import FAIL, UNKNOWN, build_50_checkpoints, build_foundat
 from hybrid_scanner import HybridScanner
 from report_engine import ReportGenerator
 from scorer import RevenueScorer
-from test_regressions import base_scan, valmont_fixture
+from test_regressions import base_scan, valmont_fixture, _resolved_lead_fixture
 
 ROOT = Path(__file__).resolve().parent
 CORE_FILES = (
@@ -28,6 +28,9 @@ CORE_FILES = (
     "scorer.py",
     "report_engine.py",
     "main.py",
+    "admin_auth.py",
+    "scan_access.py",
+    "scraper.py",
 )
 
 
@@ -64,6 +67,15 @@ def test_pytest_regressions() -> None:
     if proc.returncode:
         raise AssertionError((proc.stdout + "\n" + proc.stderr).strip())
     print("       " + proc.stdout.strip().replace("\n", "\n       "))
+
+
+
+def test_main_runtime_import() -> None:
+    import main as gateway
+    assert gateway.app.version == "7.1.0"
+    assert gateway.scanner.ENGINE_VERSION == "v7.1"
+    assert gateway.PLAN_CATALOG["essential_350"]["remediation_limit"] == 4
+    assert gateway.PLAN_CATALOG["advanced_550"]["remediation_limit"] == 8
 
 
 def test_formula_reproducible() -> None:
@@ -303,13 +315,98 @@ def test_conversion_priority_over_minor_hygiene() -> None:
     assert major_drop > minor_drop * 4
 
 
+
+def test_non_compensatory_pillars_and_stricter_earning() -> None:
+    audit = RevenueScorer().audit_and_score(_resolved_lead_fixture(), business_type="auto")
+    detail = audit["analysis_layers"]["adaptive_architecture"]["weighted_checkpoint_detail"]
+    pillars = detail["pillars"]
+    assert round(sum(float(x["max"]) for x in pillars.values()), 2) == 60.0
+    assert pillars["conversion_execution"]["max"] == 32.0
+    assert pillars["trust_decision_support"]["max"] == 16.0
+    assert pillars["measurement_policy"]["max"] == 8.0
+    assert pillars["supporting_experience"]["max"] == 4.0
+    assert audit["overall_score"] < 80.0
+
+
+def test_provisional_journey_cannot_overearn() -> None:
+    audit = RevenueScorer().audit_and_score(base_scan(), business_type="auto")
+    detail = audit["analysis_layers"]["adaptive_architecture"]["weighted_checkpoint_detail"]
+    assert audit["business_profile"].get("provisional") is True
+    assert detail["journey_resolution_factor"] < 1.0
+    assert audit["overall_score"] < 75.0
+    assert audit["surface_metrics"]["conversion_path_readiness"] <= 85.0
+
+
+def test_hasler_style_calibration() -> None:
+    scan = _resolved_lead_fixture()
+    scan.update({
+        "performance_score": 45.0,
+        "mobile_sticky_cta_present": False,
+        "mobile_cta_types": ["contact"],
+        "forms_present": False,
+        "form_action_valid": None,
+        "form_functional_status": "NOT_APPLICABLE",
+        "journey_pages_verified": 5,
+        "h1_tags": ["Vancouver Custom Home Builder", "Vancouver Custom Home Builder"],
+        "h1_dom_count": 2,
+        "missing_alt_images": 1,
+        "images_with_alt": 2,
+        "image_count": 3,
+        "total_images": 3,
+    })
+    audit = RevenueScorer().audit_and_score(scan, business_type="auto")
+    assert 55.0 <= audit["overall_score"] < 65.0
+    assert audit["analysis_layers"]["elite_architecture"]["layer_score"] == 0
+    cp50 = next(cp for cp in audit["full_50_checkpoint_basis"] if cp["id"] == 50)
+    assert cp50["status"] == UNKNOWN and cp50["unknown_reason_code"] == "SAFE_SUBMISSION_LIMIT"
+
+
+def test_commercial_exposure_expected_value_model() -> None:
+    leak = {
+        "rule_key": "conversion_path_error", "family": "conversion_execution",
+        "economic_severity": 4.0, "intrinsic_severity_score": 4.0,
+        "final_score_loss": 1.0, "confidence": "high",
+        "severity_factor": 1.0, "substitution_factor": 1.0,
+    }
+    evidence = {"score": 95}
+    result = RevenueScorer._revenue_exposure(
+        "lead_quote", [leak], evidence, {"context_tags": []},
+        {"economic_inputs": {"monthly_commercial_path_sessions": 1000, "expected_conversion_rate": 0.05, "expected_value_per_conversion": 1000}},
+    )
+    changed = dict(leak); changed["final_score_loss"] = 9.0
+    changed_result = RevenueScorer._revenue_exposure(
+        "lead_quote", [changed], evidence, {"context_tags": []},
+        {"economic_inputs": {"monthly_commercial_path_sessions": 1000, "expected_conversion_rate": 0.05, "expected_value_per_conversion": 1000}},
+    )
+    assert result["model_version"] == "commercial_exposure_v2"
+    assert result["basis"] == "business_input_commercial_path_analytics"
+    assert result["annual_digital_opportunity_pool"] == {"low": 600000, "high": 600000}
+    assert result["combined_path_impairment_pct"] == changed_result["combined_path_impairment_pct"]
+    assert result["central_annual_exposure"] == changed_result["central_annual_exposure"]
+
+
+def test_competitor_probe_identity_guard() -> None:
+    competitor = {"name": "Example Construction", "primary_type": "general_contractor", "place_types": ["general_contractor", "service"]}
+    signals = {
+        "title": "Vancouver Physiotherapy Clinic",
+        "meta_description": "Book physiotherapy rehabilitation treatment",
+        "h1_tags": ["Physiotherapy & Sports Rehab"],
+        "page_text": "Our physiotherapists treat patients with injuries and rehabilitation plans.",
+    }
+    profile = {"journey_model": "appointment_consultation", "context_tags": ["regulated_high_trust"]}
+    result = HybridScanner._competitor_probe_identity_check(competitor, signals, profile)
+    assert result["conflict"] is True
+    assert result["expected_category"] == "construction_trades"
+    assert result["observed_category"] == "healthcare"
+
 def main() -> int:
     print("=" * 70)
-    print(" TRILLOKA V7 COMPLETED SCANNER INTEGRITY SUITE ")
+    print(" TRILLOKA V7.1 REAL-WORLD SCANNER INTEGRITY SUITE ")
     print("=" * 70)
     checks = (
         ("Core Python compile + warnings-as-errors", test_compile),
         ("Full regression suite", test_pytest_regressions),
+        ("API gateway imports with complete runtime dependencies", test_main_runtime_import),
         ("Canonical 3-layer score reproducibility", test_formula_reproducible),
         ("Explicit general remains provisional general", test_explicit_general),
         ("Restaurant click/sticky + overlap", test_restaurant_mobile_and_overlap),
@@ -325,6 +422,11 @@ def main() -> int:
         ("Financial exposure remains decoupled from score loss", test_revenue_exposure_decoupling),
         ("Foundation omission signal stays separate and non-disclosing", test_foundation_signal_separation),
         ("Revenue-path failures outweigh minor search hygiene", test_conversion_priority_over_minor_hygiene),
+        ("60-point architecture uses non-compensatory commercial pillars", test_non_compensatory_pillars_and_stricter_earning),
+        ("Provisional journeys cannot over-earn readiness", test_provisional_journey_cannot_overearn),
+        ("Hasler-style good-looking site calibrates below easy Good band", test_hasler_style_calibration),
+        ("Commercial exposure uses expected-value inputs, not score points", test_commercial_exposure_expected_value_model),
+        ("Competitor probe rejects business/content identity conflicts", test_competitor_probe_identity_guard),
     )
     passed = sum(check(name, fn) for name, fn in checks)
     print("=" * 70)

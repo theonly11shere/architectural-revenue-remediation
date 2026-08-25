@@ -1,6 +1,6 @@
 """Trilloka production scanning engine.
 
-V7.0 Journey + Context architecture:
+V7.1 Journey + Context architecture:
 - Infers the observable customer journey instead of expanding an industry/subtype taxonomy.
 - Adds independent context tags for regulated/high-trust, local, commerce, sensitive-data,
   enterprise/considered-purchase and hospitality/event requirements.
@@ -245,7 +245,7 @@ class _StaticHTMLProbe(HTMLParser):
 
 
 class HybridScanner:
-    ENGINE_VERSION = "v7.0"
+    ENGINE_VERSION = "v7.1"
     """Three-phase scanner with evidence confidence and business context."""
 
     def __init__(self, google_api_key: Optional[str] = None):
@@ -933,25 +933,114 @@ class HybridScanner:
             score += 3.0
         return round(min(100.0, score), 1)
 
-    def _probe_competitor_website(self, website_uri: str, target_profile: Dict[str, Any]) -> Dict[str, Any]:
-        url = str(website_uri or "").strip()
+    @staticmethod
+    def _coarse_business_category_from_place(primary_type: str, place_types: Optional[List[str]] = None) -> str:
+        text = " ".join([str(primary_type or "")] + [str(x or "") for x in (place_types or [])]).lower().replace("_", " ")
+        groups = {
+            "construction_trades": ("contractor", "construction", "roofer", "roofing", "electrician", "plumber", "plumbing", "carpenter", "painter", "home builder", "remodel", "renovation"),
+            "healthcare": ("physio", "physiotherapist", "medical", "doctor", "dentist", "dental", "chiropr", "clinic", "health", "therapy", "therapist"),
+            "legal": ("lawyer", "attorney", "law firm", "legal service"),
+            "hospitality_event": ("restaurant", "hotel", "lodging", "cater", "wedding", "event venue", "tour", "charter", "travel agency"),
+            "retail_commerce": ("store", "retail", "shopping", "clothing", "furniture", "jewelry", "supermarket"),
+            "technology_telecom": ("software", "telecommunication", "internet service", "computer", "it service", "technology"),
+            "finance_insurance": ("bank", "insurance", "financial", "accounting", "accountant", "mortgage"),
+        }
+        for category, terms in groups.items():
+            if any(term in text for term in terms):
+                return category
+        return "unknown"
+
+    @staticmethod
+    def _coarse_business_category_from_content(signals: Dict[str, Any], profile: Dict[str, Any]) -> str:
+        title = str(signals.get("title") or "")
+        meta = str(signals.get("meta_description") or "")
+        h1 = " ".join(str(x) for x in (signals.get("h1_tags") or []) if x)
+        page = str(signals.get("page_text") or "")[:12000]
+        text = f"{title} {meta} {h1} {page}".lower()
+        weighted = {
+            "construction_trades": ("general contractor", "construction", "renovation", "custom home", "home builder", "roofing", "electrician", "plumbing", "remodel"),
+            "healthcare": ("physiotherapy", "physiotherapist", "dental clinic", "dentist", "medical clinic", "chiropractic", "patient", "therapy clinic"),
+            "legal": ("law firm", "lawyer", "attorney", "legal services", "immigration law"),
+            "hospitality_event": ("restaurant", "wedding venue", "event venue", "hotel", "catering", "charter", "cruise", "reservation"),
+            "retail_commerce": ("shop now", "add to cart", "checkout", "online store", "shipping", "buy now"),
+            "technology_telecom": ("software platform", "saas", "telecommunications", "internet provider", "managed it", "cloud services"),
+            "finance_insurance": ("insurance", "financial advisor", "accounting firm", "accountant", "mortgage broker"),
+        }
+        scores: Dict[str, int] = {}
+        for category, terms in weighted.items():
+            scores[category] = sum(1 for term in terms if term in text)
+        category, score = max(scores.items(), key=lambda kv: kv[1])
+        if score >= 2:
+            return category
+
+        # A resolved high-confidence journey can support a coarse category only when its signals
+        # are category-specific enough. This is deliberately conservative.
+        model = str((profile or {}).get("journey_model") or "")
+        tags = {str(x) for x in ((profile or {}).get("context_tags") or []) if x}
+        if "regulated_high_trust" in tags and any(x in text for x in ("physio", "dental", "medical", "patient")):
+            return "healthcare"
+        if model == "direct_purchase" and any(x in text for x in ("add to cart", "checkout", "shop now")):
+            return "retail_commerce"
+        if model == "reservation_event" and any(x in text for x in ("restaurant", "wedding", "venue", "charter", "hotel")):
+            return "hospitality_event"
+        return "unknown"
+
+    @classmethod
+    def _competitor_probe_identity_check(cls, competitor: Dict[str, Any], signals: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
+        expected = cls._coarse_business_category_from_place(
+            str((competitor or {}).get("primary_type") or ""),
+            list((competitor or {}).get("place_types") or []),
+        )
+        observed = cls._coarse_business_category_from_content(signals, profile)
+        conflict = bool(expected != "unknown" and observed != "unknown" and expected != observed)
+        return {
+            "expected_category": expected,
+            "observed_category": observed,
+            "conflict": conflict,
+            "reason": (
+                f"Google Places category '{expected}' conflicts with probed website content category '{observed}'. "
+                "The website probe is excluded from the benchmark because the fetched content may be stale, compromised, redirected or otherwise not representative."
+                if conflict else ""
+            ),
+        }
+
+    def _probe_competitor_website(self, competitor: Dict[str, Any], target_profile: Dict[str, Any]) -> Dict[str, Any]:
+        url = str((competitor or {}).get("website") or "").strip()
         if not url:
             return {"website_probed": False, "commercial_score": None, "probe_reason": "No website URL"}
         try:
             response = requests.get(
                 self._normalize_url(url), timeout=(3, 7), allow_redirects=True,
-                headers={"User-Agent": "TrillokaBot/3.0 Local Benchmark Probe"},
+                headers={"User-Agent": "TrillokaBot/3.1 Local Benchmark Probe"},
             )
             if not (200 <= response.status_code < 400):
                 return {"website_probed": False, "commercial_score": None, "probe_reason": f"HTTP {response.status_code}"}
             html_text = (response.text or "")[:750_000]
             signals = self._extract_static_html_evidence(html_text, response.url, verified=True)
             profile = infer_architecture_profile(signals, "auto")
+            identity_check = self._competitor_probe_identity_check(competitor, signals, profile)
+            if identity_check.get("conflict"):
+                return {
+                    "website_probed": False,
+                    "commercial_score": None,
+                    "architecture_profile": profile,
+                    "probe_identity_check": identity_check,
+                    "probe_reason": "PROBE_CONTENT_MISMATCH: " + str(identity_check.get("reason") or "category conflict"),
+                    "commercial_features": {
+                        "actions": list(signals.get("mobile_cta_types") or []),
+                        "forms": bool(signals.get("forms_present")),
+                        "click_to_call": bool(signals.get("click_to_call_present")),
+                        "pricing": bool(signals.get("pricing_linked")),
+                        "social_proof": bool(signals.get("reviews_visible") or signals.get("social_proof_present")),
+                        "mobile_viewport": bool(signals.get("mobile_viewport_configured")),
+                    },
+                }
             commercial = self._competitor_commercial_score(signals, str(profile.get("journey_model") or "general"), list(profile.get("context_tags") or []))
             return {
                 "website_probed": bool(signals.get("static_html_verified")),
                 "commercial_score": commercial,
                 "architecture_profile": profile,
+                "probe_identity_check": identity_check,
                 "commercial_features": {
                     "actions": list(signals.get("mobile_cta_types") or []),
                     "forms": bool(signals.get("forms_present")),
@@ -1091,19 +1180,36 @@ class HybridScanner:
         # Nearby type filtering is excellent when Google exposes a specific type, but generic
         # types such as ``service`` create noisy peer sets and are intentionally not used.
         if primary_type and primary_type not in generic_place_types:
-            body["includedTypes"] = [primary_type]
+            body["includedPrimaryTypes"] = [primary_type]
 
         nearby_places: List[Dict[str, Any]] = []
         nearby_status = "not_attempted"
+        nearby_retry_status = "not_needed"
+        nearby_error_detail = ""
         try:
             response = self.session.post(endpoint, json=body, headers=headers, timeout=(4, 12))
             nearby_status = f"http_{response.status_code}"
             if response.status_code == 200:
                 nearby_places = response.json().get("places") or []
             else:
-                print(f"[Hybrid Scanner] Nearby competitor search HTTP {response.status_code}; evaluating text fallback")
+                try:
+                    nearby_error_detail = str((response.json().get("error") or {}).get("message") or "")[:240]
+                except Exception:
+                    nearby_error_detail = str(response.text or "")[:240]
+                # Google type tables evolve and a Places primaryType can occasionally be returned
+                # even when it is not accepted as a Nearby filter in the caller's API version.
+                # Retry once without the type restriction before falling back to Text Search.
+                if response.status_code == 400 and "includedPrimaryTypes" in body:
+                    retry_body = dict(body)
+                    retry_body.pop("includedPrimaryTypes", None)
+                    retry = self.session.post(endpoint, json=retry_body, headers=headers, timeout=(4, 12))
+                    nearby_retry_status = f"http_{retry.status_code}"
+                    if retry.status_code == 200:
+                        nearby_places = retry.json().get("places") or []
+                print(f"[Hybrid Scanner] Nearby competitor search HTTP {response.status_code}; evaluating retry/text fallback")
         except Exception as exc:
             nearby_status = "error"
+            nearby_error_detail = str(exc)[:240]
             print(f"[Hybrid Scanner] Nearby competitor search error: {exc}")
 
         # Text search is used when Nearby is empty, the Google type is generic, too few candidates
@@ -1183,7 +1289,7 @@ class HybridScanner:
         probe_indices = [i for i, comp in enumerate(competitors) if comp.get("website")][:5]
         if probe_indices:
             with ThreadPoolExecutor(max_workers=min(4, len(probe_indices))) as pool:
-                futures = {pool.submit(self._probe_competitor_website, competitors[i]["website"], architecture_profile): i for i in probe_indices}
+                futures = {pool.submit(self._probe_competitor_website, competitors[i], architecture_profile): i for i in probe_indices}
                 for future in as_completed(futures):
                     i = futures[future]
                     try:
@@ -1239,6 +1345,8 @@ class HybridScanner:
             "competitor_search_query": search_query,
             "target_google_primary_type": primary_type or None,
             "nearby_search_status": nearby_status,
+            "nearby_retry_status": nearby_retry_status,
+            "nearby_error_detail": nearby_error_detail or None,
             "text_search_status": text_status,
             "target_place_name": target_place.get("place_display_name") or "",
             "target_address": str(target_place.get("place_formatted_address") or ""),
