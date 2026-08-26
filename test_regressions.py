@@ -1476,3 +1476,112 @@ def test_blueprint_ratings_match_requested_public_bands():
     ]
     for score, label in expected:
         assert RevenueScorer._get_score_rating(score, {}, 0.0, {}, {}) == label
+
+
+def test_multiservice_b2b_primary_surface_outranks_secondary_medical_service_words():
+    from architecture_model import infer_architecture_profile
+
+    scan = {
+        "title": "Remote Alaskan Services",
+        "h1_tags": ["We've Got You Covered"],
+        "meta_description": "Remote support services for exploration and production operations.",
+        "page_text": (
+            "support services oil and gas industry exploration production activities remote operations "
+            "logistics drilling aviation project support clients remote medical services remote medical clinic sets "
+            "contact headquarters phone"
+        ),
+        # Deliberately contaminate the bounded journey sample with a medical service line.
+        "journey_text_sample": (
+            "remote medical services medical clinic consultation occupational health technician "
+            "drug alcohol testing logistics drilling support contact"
+        ),
+        "forms_present": False,
+        "phone_number_visible": True,
+        "mobile_cta_types": ["contact"],
+        "booking_provider_links": [],
+        "booking_action_present": False,
+        "reservation_present": False,
+    }
+    profile = infer_architecture_profile(scan, "auto")
+
+    assert profile["journey_model"] == "lead_quote"
+    assert profile["provisional"] is False
+    assert profile["score_candidates"]["lead_quote"] > profile["score_candidates"]["appointment_consultation"]
+    assert profile["classification_guardrails"]["diversified_b2b_pattern"] is True
+    assert profile["classification_guardrails"]["secondary_service_suppression_applied"] is True
+    assert "enterprise_considered_purchase" in profile["context_tags"]
+    assert "regulated_high_trust" not in profile["context_tags"]
+
+
+def test_genuine_primary_clinic_still_classifies_as_appointment_after_multiservice_guardrail():
+    from architecture_model import infer_architecture_profile
+
+    scan = {
+        "title": "Vancouver Physiotherapy Clinic",
+        "h1_tags": ["Physiotherapy & Sports Rehabilitation"],
+        "meta_description": "Book an appointment with a physiotherapist.",
+        "page_text": "new patient physiotherapy treatment schedule appointment clinic team contact",
+        "journey_text_sample": "book appointment patient intake physiotherapy consultation",
+        "forms_present": True,
+        "phone_number_visible": True,
+        "mobile_cta_types": ["book", "contact"],
+        "booking_action_present": True,
+        "booking_provider_links": ["https://booking.example.com/"],
+    }
+    profile = infer_architecture_profile(scan, "auto")
+
+    assert profile["journey_model"] == "appointment_consultation"
+    assert "regulated_high_trust" in profile["context_tags"]
+    assert profile["classification_guardrails"]["verified_booking_action"] is True
+
+
+def test_fairweather_style_lead_scenario_uses_b2b_financial_priors_not_appointment_priors():
+    leaks = [
+        {
+            "rule_key": "privacy_terms_missing", "family": "trust_policy",
+            "economic_severity": 0.89, "intrinsic_severity_score": 0.89,
+            "final_score_loss": 0.89, "confidence": "high",
+            "severity_factor": 0.50, "substitution_factor": 1.0,
+        },
+        {
+            "rule_key": "structured_data_missing", "family": "search_structure",
+            "economic_severity": 0.25, "intrinsic_severity_score": 0.25,
+            "final_score_loss": 0.18, "confidence": "high",
+            "severity_factor": 0.45, "substitution_factor": 1.0,
+        },
+        {
+            "rule_key": "meta_description_length", "family": "search_snippet",
+            "economic_severity": 0.04, "intrinsic_severity_score": 0.04,
+            "final_score_loss": 0.04, "confidence": "high",
+            "severity_factor": 0.30, "substitution_factor": 1.0,
+        },
+    ]
+    profile = {
+        "journey_model": "lead_quote",
+        "journey_label": "Lead / Quote",
+        "context_tags": ["enterprise_considered_purchase", "local_location_dependent"],
+    }
+    result = RevenueScorer._revenue_exposure(
+        "lead_quote", leaks, {"score": 70.6}, profile,
+        {"crux_available": True, "real_user_speed_grade": "GOOD"},
+    )
+
+    assert result["journey_model"] == "lead_quote"
+    assert result["journey_label"] == "Lead / Quote"
+    assert result["annual_digital_opportunity_pool"] == {"low": 18750, "high": 324000}
+    assert result["economic_context_multiplier"] == 1.25
+    assert result["economic_context_tags"] == ["enterprise_considered_purchase"]
+    assert result["combined_path_impairment_pct"] == 4.4
+    assert result["central_annual_exposure"] == 7500
+    assert result["display"] == "$500 – $16,500 / year — LOW scenario exposure"
+
+
+def test_privacy_finding_copy_does_not_assume_healthcare_when_tracking_is_the_basis():
+    title, copy = RevenueScorer._checkpoint_failure_copy({
+        "rule_key": "privacy_terms_missing",
+        "check": "Privacy Policy Linked for Data Collection",
+        "evidence": {"requirement": "privacy_only", "privacy_policy_linked": None, "terms_linked": None},
+    })
+    assert title == "Privacy Policy Trust Gap"
+    assert "measurement/tracking" in copy
+    assert "healthcare context" not in copy.lower()

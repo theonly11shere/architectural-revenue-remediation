@@ -1,4 +1,4 @@
-"""Trilloka V7.2.0 real-world scanner integrity runner.
+"""Trilloka V7.2.1 real-world scanner integrity runner.
 
 Runs the current Journey + Context scanner/scorer regression suite and targeted
 calibration/hardening checks.  Everything here is passive and offline: it performs
@@ -73,8 +73,8 @@ def test_pytest_regressions() -> None:
 
 def test_main_runtime_import() -> None:
     import main as gateway
-    assert gateway.app.version == "7.2.0"
-    assert gateway.scanner.ENGINE_VERSION == "v7.2.0"
+    assert gateway.app.version == "7.2.1"
+    assert gateway.scanner.ENGINE_VERSION == "v7.2.1"
     assert gateway.PLAN_CATALOG["essential_350"]["remediation_limit"] == 4
     assert gateway.PLAN_CATALOG["advanced_550"]["remediation_limit"] == 8
 
@@ -487,9 +487,44 @@ def test_full_synthetic_blueprint_matrix() -> None:
     assert len({row["journey"] for row in rows}) == 6
     assert len({row["synthetic_level"] for row in rows}) == 6
 
+
+def test_multiservice_b2b_journey_and_financial_guardrail() -> None:
+    profile = infer_architecture_profile({
+        "title": "Remote Alaskan Services",
+        "h1_tags": ["We've Got You Covered"],
+        "meta_description": "Remote support services for exploration and production operations.",
+        "page_text": (
+            "support services oil and gas industry exploration production activities remote operations "
+            "logistics drilling aviation project support clients remote medical services remote medical clinic sets contact"
+        ),
+        "journey_text_sample": "remote medical services medical clinic consultation occupational health logistics drilling support contact",
+        "forms_present": False,
+        "phone_number_visible": True,
+        "mobile_cta_types": ["contact"],
+        "booking_provider_links": [],
+        "booking_action_present": False,
+        "reservation_present": False,
+    }, "auto")
+    assert profile["journey_model"] == "lead_quote"
+    assert "enterprise_considered_purchase" in profile["context_tags"]
+    assert "regulated_high_trust" not in profile["context_tags"]
+
+    leaks = [
+        {"rule_key": "privacy_terms_missing", "family": "trust_policy", "economic_severity": 0.89, "intrinsic_severity_score": 0.89, "final_score_loss": 0.89, "confidence": "high", "severity_factor": 0.50, "substitution_factor": 1.0},
+        {"rule_key": "structured_data_missing", "family": "search_structure", "economic_severity": 0.25, "intrinsic_severity_score": 0.25, "final_score_loss": 0.18, "confidence": "high", "severity_factor": 0.45, "substitution_factor": 1.0},
+        {"rule_key": "meta_description_length", "family": "search_snippet", "economic_severity": 0.04, "intrinsic_severity_score": 0.04, "final_score_loss": 0.04, "confidence": "high", "severity_factor": 0.30, "substitution_factor": 1.0},
+    ]
+    exposure = RevenueScorer._revenue_exposure(
+        "lead_quote", leaks, {"score": 70.6}, profile,
+        {"crux_available": True, "real_user_speed_grade": "GOOD"},
+    )
+    assert exposure["journey_model"] == "lead_quote"
+    assert exposure["annual_digital_opportunity_pool"] == {"low": 18750, "high": 324000}
+    assert exposure["display"] == "$500 – $16,500 / year — LOW scenario exposure"
+
 def main() -> int:
     print("=" * 70)
-    print(" TRILLOKA V7.2 BLUEPRINT90 REAL-WORLD + NETWORK SECURITY INTEGRITY SUITE ")
+    print(" TRILLOKA V7.2.1 BLUEPRINT90 REAL-WORLD + NETWORK SECURITY INTEGRITY SUITE ")
     print("=" * 70)
     checks = (
         ("Core Python compile + warnings-as-errors", test_compile),
@@ -520,6 +555,7 @@ def main() -> int:
         ("Blueprint 0-90 public score bands are reproducible", test_blueprint90_score_bands),
         ("Safe completion + CrUX/financial edge cases are enforced", test_safe_completion_and_field_performance_edges),
         ("36-case synthetic blueprint matrix differentiates all six journeys", test_full_synthetic_blueprint_matrix),
+        ("Diversified B2B service lines cannot hijack journey or financial priors", test_multiservice_b2b_journey_and_financial_guardrail),
         ("Competitor probe rejects business/content identity conflicts", test_competitor_probe_identity_guard),
     )
     passed = sum(check(name, fn) for name, fn in checks)

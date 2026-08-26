@@ -1,6 +1,6 @@
 """Trilloka evidence-weighted Revenue Readiness scorer.
 
-V7.2 real-world Journey + Context score-calibration guardrails:
+V7.2.1 real-world Journey + Context score-calibration guardrails:
 - High score bands are gated by verified commercial maturity; ordinary strengths cannot accumulate into high-readiness bands by themselves.
 - Evidence Confidence is published separately from website quality.
 - Revenue Readiness explicitly excludes demand, product-market fit, traffic quality, pricing and sales-team execution.
@@ -2047,7 +2047,10 @@ class RevenueScorer:
         evidence = checkpoint.get("evidence") if isinstance(checkpoint.get("evidence"), dict) else {}
         if rule_key == "privacy_terms_missing":
             if evidence.get("requirement") == "privacy_only":
-                return ("Privacy Policy Trust Gap", "A Privacy policy link was not detected even though the verified site context collects data or operates in a sensitive professional/healthcare context. Terms are not being required by this finding.")
+                return (
+                    "Privacy Policy Trust Gap",
+                    "A Privacy policy link was not detected even though verified site evidence made a privacy policy applicable through data collection, measurement/tracking, commerce, regulated or sensitive-data context. Terms are not being required by this finding.",
+                )
             return ("Policy Trust Gap", "Privacy and Terms links were not both detected where transaction/account or checkout context makes both policies applicable.")
         copy_map = {
             "https_redirect": ("HTTPS Redirect Gap", "The secure site is available, but HTTP-to-HTTPS enforcement was not verified as correctly implemented."),
@@ -2890,6 +2893,8 @@ class RevenueScorer:
         return {
             "model_version": "commercial_exposure_v2",
             "basis": basis,
+            "journey_model": biz_type,
+            "journey_label": str(profile.get("journey_label") or biz_type),
             "level": level,
             "min": annual_min,
             "max": annual_max,

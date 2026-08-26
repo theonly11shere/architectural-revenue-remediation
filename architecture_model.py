@@ -1,4 +1,4 @@
-"""Trilloka Journey + Context architecture model (v7.2).
+"""Trilloka Journey + Context architecture model (v7.2.1).
 
 The scanner deliberately avoids an endlessly-growing industry taxonomy.  It infers:
 1) how a public website appears to convert a visitor (journey model), and
@@ -186,6 +186,27 @@ LOCAL_TERMS = (
 ENTERPRISE_TERMS = (
     "enterprise", "corporate", "commercial", "industrial", "manufacturer", "manufacturing", "wholesale",
     "procurement", "custom project", "custom home", "request a quote", "case study", "case studies",
+    "oil and gas", "exploration", "production activities", "remote operations", "project support",
+    "support services", "business services",
+)
+
+# Company-level B2B/service language is intentionally separate from appointment/vertical terms.
+# A multi-service operator can legitimately mention clinics, medical teams, rentals, events, etc.
+# on secondary service pages without those words defining the *customer journey of the company*.
+B2B_SERVICE_TERMS = (
+    "enterprise", "corporate", "commercial", "industrial", "industry", "oil and gas", "exploration",
+    "production", "operations", "operational", "project", "projects", "project support", "support services",
+    "logistics", "drilling", "aviation", "procurement", "contract", "contractor", "clients", "customers",
+)
+
+# These are strong appointment/consumer-service indicators only when they appear on the primary
+# company surface (hero/meta/homepage) or are backed by a real booking action/provider. Merely
+# crawling a secondary page containing "medical clinic" must not turn a diversified B2B company
+# into an appointment business.
+APPOINTMENT_PRIMARY_TERMS = (
+    "book appointment", "schedule appointment", "appointments", "new patient", "patient portal",
+    "book a consultation", "schedule a consultation", "physiotherapy", "physiotherapist", "dentist",
+    "dental clinic", "chiropractic", "medical clinic", "med spa", "medspa", "law firm", "lawyer",
 )
 HOSPITALITY_EVENT_TERMS = (
     "event", "wedding", "venue", "cruise", "charter", "yacht", "tour", "reservation", "reserve",
@@ -231,6 +252,9 @@ def _text_surfaces(data: Mapping[str, Any]) -> Dict[str, str]:
     return {
         "hero": f"{title} {h1}".lower(),
         "meta": meta.lower(),
+        "home_body": page.lower(),
+        "journey": journey.lower(),
+        "schema": schema.lower(),
         "body": f"{page} {journey} {schema}".lower(),
         "all": f"{title} {h1} {meta} {page} {journey} {schema}".lower(),
     }
@@ -246,9 +270,18 @@ def _add_phrase_scores(scores: Dict[str, float], signals: Dict[str, List[str]], 
             elif phrase in surfaces["meta"]:
                 scores[model] += weight * 1.35
                 signals[model].append(f"meta:{phrase}")
-            elif phrase in surfaces["body"]:
+            elif phrase in surfaces.get("home_body", ""):
                 scores[model] += weight
                 signals[model].append(phrase)
+            elif phrase in surfaces.get("journey", ""):
+                # Journey-page text is selected *after* an initial model guess and can contain a
+                # secondary service line.  It is corroborating evidence, not company-level truth.
+                # Keep it useful, but prevent the crawl from self-confirming a weak first guess.
+                scores[model] += weight * 0.55
+                signals[model].append(f"journey:{phrase}")
+            elif phrase in surfaces.get("schema", ""):
+                scores[model] += weight * 0.35
+                signals[model].append(f"schema:{phrase}")
 
 
 def _phrase_hits(text: str, terms: Iterable[str]) -> List[str]:
@@ -275,6 +308,7 @@ def infer_context_tags(data: Mapping[str, Any], journey_model: str = "general") 
     surfaces = _text_surfaces(data)
     text = surfaces["all"]
     hero_meta = f"{surfaces['hero']} {surfaces['meta']}"
+    primary_company_text = f"{hero_meta} {surfaces.get('home_body', '')}"
     # ``journey_text_sample`` is intended to contain customer-path/proof pages, not policy boilerplate.
     # Older callers may not provide it, so body remains a fallback but receives stricter thresholds.
     journey_text = str(data.get("journey_text_sample") or "").lower()
@@ -288,7 +322,24 @@ def infer_context_tags(data: Mapping[str, Any], journey_model: str = "general") 
             tags.append(tag)
             reasons[tag] = vals[:8]
 
-    regulated_hits = _phrase_hits(text, REGULATED_TERMS)
+    # Regulated/high-trust context must be supported by the primary company surface or by the
+    # resolved customer journey. A secondary service page alone is insufficient; otherwise a
+    # diversified B2B operator with one medical/legal service line is mislabeled company-wide.
+    regulated_hero_meta = _phrase_hits(hero_meta, REGULATED_TERMS)
+    regulated_home = _phrase_hits(surfaces.get("home_body", ""), REGULATED_TERMS)
+    regulated_journey = _phrase_hits(journey_text, REGULATED_TERMS) if journey_text else []
+    regulated_hits: List[str] = list(regulated_hero_meta)
+    if journey_model == "appointment_consultation":
+        regulated_hits.extend(regulated_home[:4])
+        regulated_hits.extend(regulated_journey[:4])
+    elif regulated_hero_meta:
+        regulated_hits.extend(regulated_home[:3])
+    elif len(set(regulated_home)) >= 2:
+        # Multiple independent homepage regulated-service signals can establish context even when
+        # the title is brand-led. A single navigation/service-menu mention cannot.
+        regulated_hits.extend(regulated_home[:4])
+    if len(set(regulated_hits)) >= 2:
+        regulated_hits.extend(regulated_journey[:3])
     mark("regulated_high_trust", regulated_hits)
 
     # A city name in the footer/title does not by itself make an online/enterprise site location-dependent.
@@ -340,11 +391,14 @@ def infer_context_tags(data: Mapping[str, Any], journey_model: str = "general") 
     # Considered-purchase/enterprise context should come from deliberate page/journey language rather
     # than policy boilerplate. A strong hero/meta hit is enough; body-only evidence needs corroboration.
     enterprise_primary = _phrase_hits(hero_meta, ENTERPRISE_TERMS)
+    enterprise_home = _phrase_hits(surfaces.get("home_body", ""), ENTERPRISE_TERMS)
     enterprise_journey = _phrase_hits(journey_text, ENTERPRISE_TERMS) if journey_text else []
     enterprise_body = _phrase_hits(body_text, ENTERPRISE_TERMS)
     enterprise_hits: List[str] = list(enterprise_primary)
-    if enterprise_journey:
-        enterprise_hits.extend(enterprise_journey)
+    if len(enterprise_home) >= 2:
+        enterprise_hits.extend(enterprise_home[:6])
+    elif enterprise_journey:
+        enterprise_hits.extend(enterprise_journey[:4])
     elif len(enterprise_body) >= 2:
         enterprise_hits.extend(enterprise_body[:4])
     if journey_model == "demo_sales":
@@ -427,6 +481,59 @@ def infer_architecture_profile(data: Mapping[str, Any], requested_hint: Any = "a
     if data.get("forms_present") and any(token in surfaces["all"] for token in ("quote", "estimate", "enquiry", "inquiry")):
         scores["lead_quote"] += 4.0
 
+    # Primary-surface precedence / diversified-company guardrail.
+    #
+    # The bounded journey crawl is intentionally driven by the first-pass model. Without this
+    # guardrail, a weak initial "medical clinic" or "consultation" hit can select a medical
+    # secondary page, which then self-confirms Appointment / Consultation even when the company
+    # actually sells broad B2B project/support services. Company-level proposition + global action
+    # therefore outrank incidental secondary-service vocabulary.
+    primary_company_text = f"{surfaces['hero']} {surfaces['meta']} {surfaces.get('home_body', '')}"
+    b2b_primary_hits = _phrase_hits(primary_company_text, B2B_SERVICE_TERMS)
+    appointment_primary_hits = _phrase_hits(
+        f"{surfaces['hero']} {surfaces['meta']}", APPOINTMENT_PRIMARY_TERMS
+    )
+    appointment_home_action_hits = _phrase_hits(
+        surfaces.get("home_body", ""),
+        ("book appointment", "schedule appointment", "new patient", "patient portal", "book a consultation", "schedule a consultation"),
+    )
+    appointment_primary_hits.extend(appointment_home_action_hits)
+    verified_booking = bool(data.get("booking_provider_links") or data.get("booking_action_present") or "book" in actions)
+    verified_reservation = bool(data.get("reservation_present") or "reserve" in actions)
+    normal_b2b_contact = bool(
+        "contact" in actions or "quote" in actions or data.get("forms_present")
+        or data.get("phone_number_visible") is True or data.get("click_to_call_present") is True
+    )
+    diversified_b2b_pattern = bool(len(set(b2b_primary_hits)) >= 2 and normal_b2b_contact)
+    secondary_service_suppression = False
+    if diversified_b2b_pattern:
+        # Broad project/operations/service language plus a corporate contact path is itself a
+        # meaningful lead-generation signal even when the site never says "request a quote".
+        b2b_boost = min(8.0, 4.0 + 0.75 * len(set(b2b_primary_hits)))
+        scores["lead_quote"] += b2b_boost
+        signals["lead_quote"].extend(f"primary_b2b:{x}" for x in list(dict.fromkeys(b2b_primary_hits))[:6])
+
+        # Do not suppress a genuine appointment/reservation business when its primary surface or
+        # actual action architecture corroborates that journey. Suppression applies only when the
+        # competing signal is coming from secondary/service-page language.
+        if not appointment_primary_hits and not verified_booking:
+            scores["appointment_consultation"] *= 0.45
+            secondary_service_suppression = True
+        if not verified_reservation:
+            scores["reservation_event"] *= 0.55
+            secondary_service_suppression = True
+
+    # Appointment requires stronger corroboration than an isolated service-line term. A genuine
+    # clinic/law/consultation homepage still qualifies through primary terms, while a secondary
+    # medical page on a B2B company does not.
+    if scores["appointment_consultation"] >= 5.0 and not (appointment_primary_hits or verified_booking):
+        appointment_journey_only = any(
+            str(sig).startswith("journey:") for sig in signals["appointment_consultation"]
+        )
+        if appointment_journey_only:
+            scores["appointment_consultation"] *= 0.70
+            secondary_service_suppression = True
+
     hint = _normalize_hint(requested_hint)
     if hint in scores:
         # A direct V7 journey selection is an operator/user hint strong enough to resolve a close
@@ -478,6 +585,15 @@ def infer_architecture_profile(data: Mapping[str, Any], requested_hint: Any = "a
         "legacy_business_hint": hint if hint not in scores else "",
         "legacy_hint_used_only_as_tiebreaker": bool(hint not in {"auto", "general"} and hint not in scores),
         "score_candidates": {k: round(v, 2) for k, v in ranked},
+        "classification_guardrails": {
+            "primary_surface_precedence": True,
+            "diversified_b2b_pattern": diversified_b2b_pattern,
+            "secondary_service_suppression_applied": secondary_service_suppression,
+            "primary_b2b_signals": list(dict.fromkeys(b2b_primary_hits))[:8],
+            "primary_appointment_signals": list(dict.fromkeys(appointment_primary_hits))[:8],
+            "verified_booking_action": verified_booking,
+            "verified_reservation_action": verified_reservation,
+        },
         # Legacy keys retained so older report/frontend code does not break.  They now describe
         # journey architecture rather than an asserted industry taxonomy.
         "vertical": journey_model,

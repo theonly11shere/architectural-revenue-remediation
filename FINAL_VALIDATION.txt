@@ -1,26 +1,47 @@
-TRILLOKA V7.2.0 BLUEPRINT90 — FINAL VALIDATION
-================================================
+TRILLOKA V7.2.1 JOURNEY + FINANCIAL CORRECTION — FINAL VALIDATION
+=================================================================
 
-Runtime: FastAPI 7.2.0 / scanner v7.2.0
+Runtime: FastAPI 7.2.1 / scanner v7.2.1
 Score method: real_world_v3_blueprint90
 Public score ceiling: 90
 Canonical architecture: 22 Foundation + 60 Revenue/User + 18 Elite = 100 canonical strength
 
-Warnings-as-errors compile: PASS
+Changes in this patch:
+- Primary company/homepage proposition outranks secondary service-page vocabulary.
+- Journey-page text remains usable but is down-weighted as corroborating evidence.
+- Diversified B2B/project/service patterns reinforce Lead / Quote when global contact/call evidence supports it.
+- Appointment / Consultation requires primary appointment/service evidence or verified booking corroboration when competing B2B signals exist.
+- A single secondary regulated service phrase cannot create a company-wide regulated/high-trust context.
+- Enterprise/considered-purchase context recognizes project/operations/support-service language.
+- Financial scenario output now exposes the journey model/label used.
+- Privacy Policy Trust Gap copy no longer assumes healthcare; it states the actual applicable data/tracking/commerce/regulated/sensitive-data basis.
+- Blueprint90 scoring architecture, UNKNOWN policy, safe-submission behavior, CrUX override, competitor safeguards and SSRF/network hardening are preserved.
 
-Regression suite:
-[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m [ 93%]
-[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m                                                                    [100%][0m
-[32m[32m[1m77 passed[0m[32m in 0.43s[0m[0m
+Fairweather-style regression replay:
+- Corrected journey: Lead / Quote
+- Corrected context: Enterprise / Considered Purchase (+ local contact context where observed)
+- Secondary medical service vocabulary does not hijack the company-level journey.
+- Reusing the original scan's three verified financial finding families:
+  annual opportunity scenario: $18,750–$324,000
+  combined modeled impairment: 4.4%
+  central modeled exposure: $7,500/year
+  displayed range: $500–$16,500/year — LOW scenario exposure
+  confidence: SCENARIO / SCENARIO_PRIOR
+- This is a model replay against the original verified findings, not a fresh live network scan.
 
-Integrity suite:
+Validation:
+
+[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m [ 88%]
+[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m                                                                [100%][0m
+[32m[32m[1m81 passed[0m[32m in 0.73s[0m[0m
+
 ======================================================================
- TRILLOKA V7.2 BLUEPRINT90 REAL-WORLD + NETWORK SECURITY INTEGRITY SUITE 
+ TRILLOKA V7.2.1 BLUEPRINT90 REAL-WORLD + NETWORK SECURITY INTEGRITY SUITE 
 ======================================================================
 [PASS] Core Python compile + warnings-as-errors
-       [32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m [ 93%]
-       [0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m                                                                    [100%][0m
-       [32m[32m[1m77 passed[0m[32m in 0.33s[0m[0m
+       [32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m [ 88%]
+       [0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m                                                                [100%][0m
+       [32m[32m[1m81 passed[0m[32m in 0.65s[0m[0m
 [PASS] Full regression suite
 [PASS] API gateway imports with complete runtime dependencies
 [PASS] Deployment manifest includes EmailStr dependency
@@ -48,32 +69,15 @@ Integrity suite:
 [PASS] Blueprint 0-90 public score bands are reproducible
 [PASS] Safe completion + CrUX/financial edge cases are enforced
 [PASS] 36-case synthetic blueprint matrix differentiates all six journeys
+[PASS] Diversified B2B service lines cannot hijack journey or financial priors
 [PASS] Competitor probe rejects business/content identity conflicts
 ======================================================================
- RESULT: 29/29 checks passed
+ RESULT: 30/30 checks passed
 ======================================================================
 
-Synthetic blueprint matrix:
-- 36/36 controlled synthetic cases passed
-- 6 customer-journey models
-- 6 maturity bands
-- Broken: 27.1–30.8
-- Material: 41.4–43.9
-- Functional: 48.8–57.2
-- Strong: 59.7–66.1
-- Exceptional: 71.0–71.4
-- Near-perfect: 86.3–86.8
+Synthetic matrix:
+PASS: 36 synthetic cases across 6 journeys and 6 score bands
+Saved: /mnt/data/trilloka_v7_2_1_journeyfix_complete/SYNTHETIC_BLUEPRINT_RESULTS.csv
 
-Edge-case fixes verified:
-- Ecommerce/subscription checkpoint 50 is UNKNOWN / SAFE_SUBMISSION_LIMIT when live completion is intentionally unsubmitted.
-- Explicit non-destructive/business-supplied completion evidence can make checkpoint 50 PASS.
-- SAFE_SUBMISSION_LIMIT UNKNOWN earns no completion points and is not weighted like a verified path failure.
-- CrUX GOOD reduces the causal financial impairment of a weak Lighthouse lab score without hiding the performance finding.
-- Elite eligibility requires >=80% Foundation and >=85% Revenue/User architecture.
-- Public score is a transparent monotonic mapping; no percentile curve or forced distribution is used.
-- SSRF/network target protections from V7.1.1 remain included and regression-tested.
-
-Scope:
-This validates the exact local package. Live Google API behavior, production DNS/networking,
-Chromium installation, hosting environment variables, frontend display wiring and real-world
-customer sites still require deployment smoke testing.
+Warnings-as-errors compile: PASS
+Runtime import: PASS — 7.2.1 v7.2.1

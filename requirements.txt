@@ -1,4 +1,4 @@
-# Versions used for the verified V7.2.0 Blueprint90 security-hardened build
+# Versions used for the verified V7.2.1 Blueprint90 security-hardened build
 fastapi==0.128.2
 pydantic==2.13.4
 email-validator==2.3.0
