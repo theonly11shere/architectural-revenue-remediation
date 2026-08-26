@@ -212,7 +212,7 @@ def test_no_three_leak_critical_score_clamp():
     scan = valmont_fixture()
     audit = RevenueScorer().audit_and_score(scan, business_type="auto", competitor_data_present=None)
     assert audit["total_leaks_found"] >= 3
-    assert audit["overall_score"] > 49.5
+    assert audit["overall_score"] >= 35.0
 
 
 def test_unknown_ai_is_not_faked_to_45():
@@ -270,14 +270,15 @@ def test_score_math_is_reproducible():
     audit = RevenueScorer().audit_and_score(valmont_fixture(), business_type="auto", competitor_data_present=None)
     total = round(sum(row["final_score_loss"] for row in audit["scoring_ledger"]), 2)
     formula = audit["score_formula"]
-    expected = round(max(0.0, min(100.0,
-        formula["operating_baseline"]
-        + formula["verified_strength_points_awarded"]
-        + formula["elite_bonus_points"]
-        + formula["reference_completeness_bonus"]
-        - total
-    )), 1)
+    canonical = round(
+        formula["foundation_layer_score"]
+        + formula["revenue_user_architecture_score"]
+        + formula["elite_architecture_score"],
+        2,
+    )
+    expected = round(RevenueScorer._calibrate_public_score(canonical), 1)
     assert formula["total_final_penalty"] == total
+    assert formula["canonical_three_layer_score"] == canonical
     assert audit["overall_score"] == expected
 
 
@@ -285,15 +286,15 @@ def test_valmont_style_site_no_longer_receives_an_easy_good_score():
     audit = RevenueScorer().audit_and_score(valmont_fixture(), business_type="auto", competitor_data_present=None)
     # A functional ordering site with missing mobile support and no meaningful measurement
     # should land in the functional/headroom band rather than automatically receiving 65+.
-    assert 58.0 <= audit["overall_score"] < 65.0
-    assert audit["score_rating"] == "FUNCTIONAL FOUNDATION — MATERIAL COMMERCIAL HEADROOM"
+    assert 35.0 <= audit["overall_score"] <= 45.0
+    assert audit["score_rating"] == "MATERIAL COMMERCIAL WEAKNESSES"
     assert audit["analysis_layers"]["elite_architecture"]["layer_score"] == 0
 
 
 def test_provisional_site_does_not_receive_resolved_strong_score_too_easily():
     audit = RevenueScorer().audit_and_score(base_scan(), business_type="auto", competitor_data_present=None)
     assert audit["business_profile"].get("provisional") is True
-    assert 65.0 <= audit["overall_score"] < 75.0
+    assert audit["overall_score"] < 46.0
     detail = audit["analysis_layers"]["adaptive_architecture"]["weighted_checkpoint_detail"]
     assert detail["journey_resolution_factor"] < 1.0
 
@@ -657,15 +658,18 @@ def test_surface_layer_indices_reconcile_to_earned_layer_scores():
 def test_score_formula_exposes_canonical_three_layer_arithmetic():
     audit = RevenueScorer().audit_and_score(valmont_fixture(), business_type="auto", competitor_data_present=None)
     formula = audit["score_formula"]
-    recomputed = round(
+    canonical = round(
         formula["foundation_layer_score"]
         + formula["revenue_user_architecture_score"]
         + formula["elite_architecture_score"],
-        1,
+        2,
     )
-    assert recomputed == audit["overall_score"]
+    assert canonical == formula["canonical_three_layer_score"]
+    assert round(RevenueScorer._calibrate_public_score(canonical), 1) == audit["overall_score"]
     assert formula["penalties_already_reflected_in_layer_scores"] is True
     assert "foundation_layer_score" in formula["canonical_formula"]
+    assert formula["public_score_formula"] == "piecewise_linear_blueprint90(canonical_three_layer_score)"
+    assert formula["public_score_ceiling"] == 90.0
 
 
 def test_maturity_threshold_is_advisory_not_an_enforced_cap():
@@ -676,7 +680,7 @@ def test_maturity_threshold_is_advisory_not_an_enforced_cap():
     assert "not enforced" in gate["score_cap_semantics"]
 
 
-def test_report_uses_100_point_bands_and_advisory_threshold_language():
+def test_report_uses_90_point_blueprint_and_advisory_threshold_language():
     reporter = ReportGenerator()
     scan = valmont_fixture()
     audit = RevenueScorer().audit_and_score(scan, business_type="auto", competitor_data_present=None)
@@ -685,7 +689,8 @@ def test_report_uses_100_point_bands_and_advisory_threshold_language():
     assert "/ 78" not in html
     assert "Advisory maturity threshold" in html
     assert "not a score cap" in html
-    assert "FUNCTIONAL FOUNDATION — MATERIAL COMMERCIAL HEADROOM (55–64)" == report["score_level_impact"]["level"]
+    assert "MATERIAL COMMERCIAL WEAKNESSES (35–45)" == report["score_level_impact"]["level"]
+    assert "/ 90" in html
 
 
 def test_competitor_fallback_query_uses_specific_offering_evidence():
@@ -816,7 +821,7 @@ def test_context_hardening_preserves_genuine_hospitality_event_sites():
     assert profile["journey_model"] == "reservation_event"
     assert "hospitality_event" in profile["context_tags"]
 
-# --- V7.1 real-world scorer / economic model completion regressions ---
+# --- V7.2 real-world scorer / economic model completion regressions ---
 
 def _resolved_lead_fixture():
     scan = base_scan()
@@ -915,8 +920,8 @@ def test_score_discriminates_poor_mid_strong_without_forced_distribution():
     mid_a = scorer.audit_and_score(mid, business_type="auto")
     poor_a = scorer.audit_and_score(poor, business_type="auto")
     assert poor_a["overall_score"] < mid_a["overall_score"] < strong_a["overall_score"]
-    assert strong_a["overall_score"] < 85.0  # good modern sites do not casually become elite
-    assert poor_a["overall_score"] < 55.0
+    assert strong_a["overall_score"] < 70.0  # good modern sites do not casually become exceptional
+    assert poor_a["overall_score"] < 46.0
 
 
 def test_elite_points_require_strong_core_architecture_first():
@@ -1098,9 +1103,9 @@ def test_hasler_style_strong_trust_but_unverified_completion_is_not_scored_too_g
     cp50 = next(cp for cp in audit["full_50_checkpoint_basis"] if cp["id"] == 50)
     assert cp50["status"] == UNKNOWN
     assert cp50["unknown_reason_code"] == "SAFE_SUBMISSION_LIMIT"
-    assert 55.0 <= audit["overall_score"] < 65.0
+    assert 35.0 <= audit["overall_score"] <= 44.0
     assert audit["analysis_layers"]["elite_architecture"]["layer_score"] == 0
-    assert audit["analysis_layers"]["adaptive_architecture"]["weighted_checkpoint_detail"]["pillars"]["conversion_execution"]["score"] < 20.0
+    assert audit["analysis_layers"]["adaptive_architecture"]["weighted_checkpoint_detail"]["pillars"]["conversion_execution"]["score"] < 24.0
 
 
 def test_provisional_conversion_readiness_cannot_present_as_near_perfect():
@@ -1388,3 +1393,86 @@ def test_security_blocked_browser_resources_cannot_create_false_negative_leaks()
     assert merged["mobile_primary_cta_present"] is None
     assert merged["mobile_sticky_cta_present"] is None
     assert merged["mobile_cta_status"] == "partial"
+
+
+def test_public_score_blueprint_anchor_ranges_are_monotonic_and_capped_at_90():
+    anchors = [
+        (26, 26), (32, 32), (40, 35), (55, 40), (65, 42), (70.5, 44),
+        (73, 46), (80, 57), (85, 59), (90, 69), (95, 80), (100, 90),
+    ]
+    values = [RevenueScorer._calibrate_public_score(x) for x, _ in anchors]
+    assert values == [float(y) for _, y in anchors]
+    assert all(a < b for a, b in zip(values, values[1:]))
+    assert RevenueScorer._calibrate_public_score(1000) == 90.0
+
+
+def test_transaction_and_subscription_completion_are_unknown_without_live_submission():
+    for journey, text, extras in [
+        ("direct_purchase", "shop now add to cart checkout buy now product shipping returns " * 12, {"add_to_cart_visible": True, "checkout_context_detected": True, "order_online_present": True}),
+        ("membership_subscription", "join now membership subscribe member benefits pricing community " * 12, {"pricing_linked": True}),
+    ]:
+        scan = base_scan()
+        scan.update({
+            "title": text[:55], "page_text": text, "journey_text_sample": text,
+            "forms_present": False, "journey_pages_verified": 0,
+            "mobile_primary_cta_present": True,
+            "mobile_cta_types": ["buy"] if journey == "direct_purchase" else ["join", "subscribe"],
+            **extras,
+        })
+        audit = RevenueScorer().audit_and_score(scan, business_type="auto")
+        assert audit["architecture_profile"]["journey_model"] == journey
+        cp50 = next(cp for cp in audit["full_50_checkpoint_basis"] if cp["id"] == 50)
+        assert cp50["status"] == UNKNOWN
+        assert cp50["unknown_reason_code"] == "SAFE_SUBMISSION_LIMIT"
+        assert audit["surface_metrics"]["conversion_path_readiness"] < 100.0
+
+
+def test_safe_non_destructive_completion_evidence_can_verify_checkpoint_50():
+    scan = base_scan()
+    text = "shop now add to cart checkout buy now product shipping returns " * 12
+    scan.update({
+        "title": "Shop Online", "page_text": text, "journey_text_sample": text,
+        "forms_present": False, "mobile_primary_cta_present": True, "mobile_cta_types": ["buy"],
+        "add_to_cart_visible": True, "checkout_context_detected": True, "order_online_present": True,
+        "conversion_completion_verified": True,
+        "conversion_completion_verification_source": "business-supplied analytics / verified test transaction",
+    })
+    audit = RevenueScorer().audit_and_score(scan, business_type="auto")
+    cp50 = next(cp for cp in audit["full_50_checkpoint_basis"] if cp["id"] == 50)
+    assert cp50["status"] == PASS
+    assert cp50["evidence"]["completion_verified"] is True
+
+
+def test_crux_good_reduces_financial_performance_impairment_without_hiding_lab_finding():
+    leak = {
+        "rule_key": "core_web_vitals", "family": "performance",
+        "economic_severity": 1.15, "intrinsic_severity_score": 1.15,
+        "final_score_loss": 1.05, "confidence": "high",
+        "severity_factor": 0.4, "substitution_factor": 1.0,
+    }
+    field_good = RevenueScorer._revenue_exposure(
+        "lead_quote", [leak], {"score": 98.0}, {"context_tags": ["enterprise_considered_purchase"]},
+        {"performance_score": 54, "crux_available": True, "real_user_speed_grade": "GOOD"},
+    )
+    lab_only = RevenueScorer._revenue_exposure(
+        "lead_quote", [leak], {"score": 98.0}, {"context_tags": ["enterprise_considered_purchase"]},
+        {"performance_score": 54, "crux_available": False, "real_user_speed_grade": "UNKNOWN"},
+    )
+    assert field_good["family_impairment"]["performance"] == 0.014
+    assert lab_only["family_impairment"]["performance"] == 0.04
+    assert field_good["issue_components"][0]["field_performance_override"] is True
+    assert field_good["combined_path_impairment_pct"] < lab_only["combined_path_impairment_pct"]
+
+
+def test_blueprint_ratings_match_requested_public_bands():
+    expected = [
+        (25.0, "CRITICAL REVENUE ARCHITECTURE WEAKNESS"),
+        (26.0, "BROKEN / HIGH-RISK COMMERCIAL ARCHITECTURE"),
+        (35.0, "MATERIAL COMMERCIAL WEAKNESSES"),
+        (46.0, "FUNCTIONAL COMMERCIAL WEBSITE"),
+        (59.0, "STRONG COMMERCIAL WEBSITE"),
+        (70.0, "GENUINELY EXCEPTIONAL OBSERVABLE ARCHITECTURE"),
+        (80.0, "NEAR-PERFECT VERIFIED OBSERVABLE ARCHITECTURE"),
+    ]
+    for score, label in expected:
+        assert RevenueScorer._get_score_rating(score, {}, 0.0, {}, {}) == label

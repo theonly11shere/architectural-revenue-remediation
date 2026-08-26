@@ -1,24 +1,26 @@
-TRILLOKA V7.1.1 SECURE COMPLETE VALIDATION
-==========================================
+TRILLOKA V7.2.0 BLUEPRINT90 — FINAL VALIDATION
+================================================
 
-Network/SSRF hardening: INCLUDED
-Pinned server-side HTTP transport: INCLUDED
-Redirect revalidation: INCLUDED
-Private/link-local/metadata blocking: INCLUDED
-Browser target pinning + request guard: INCLUDED
-Browser WebSocket guard: INCLUDED
-Service-worker/WebRTC/WebTransport hardening: INCLUDED
-Security-blocked negative evidence downgraded to UNKNOWN/PARTIAL: INCLUDED
+Runtime: FastAPI 7.2.0 / scanner v7.2.0
+Score method: real_world_v3_blueprint90
+Public score ceiling: 90
+Canonical architecture: 22 Foundation + 60 Revenue/User + 18 Elite = 100 canonical strength
 
-[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m [100%][0m
-[32m[32m[1m72 passed[0m[32m in 0.58s[0m[0m
+Warnings-as-errors compile: PASS
 
+Regression suite:
+[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m [ 93%]
+[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m                                                                    [100%][0m
+[32m[32m[1m77 passed[0m[32m in 0.43s[0m[0m
+
+Integrity suite:
 ======================================================================
- TRILLOKA V7.1.1 REAL-WORLD + NETWORK SECURITY INTEGRITY SUITE 
+ TRILLOKA V7.2 BLUEPRINT90 REAL-WORLD + NETWORK SECURITY INTEGRITY SUITE 
 ======================================================================
 [PASS] Core Python compile + warnings-as-errors
-       [32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m [100%][0m
-       [32m[32m[1m72 passed[0m[32m in 0.45s[0m[0m
+       [32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m [ 93%]
+       [0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m                                                                    [100%][0m
+       [32m[32m[1m77 passed[0m[32m in 0.33s[0m[0m
 [PASS] Full regression suite
 [PASS] API gateway imports with complete runtime dependencies
 [PASS] Deployment manifest includes EmailStr dependency
@@ -33,7 +35,7 @@ Security-blocked negative evidence downgraded to UNKNOWN/PARTIAL: INCLUDED
 [PASS] Context boilerplate false-positive filtering
 [PASS] Conversion readiness calibration
 [PASS] Surface metrics reconcile to earned layers
-[PASS] Maturity thresholds advisory + 100-point report scale
+[PASS] Maturity thresholds advisory + public 0-90 blueprint scale
 [PASS] Competitor query uses specific offering evidence
 [PASS] High-impact confirmation targets revenue path
 [PASS] Financial exposure remains decoupled from score loss
@@ -43,12 +45,35 @@ Security-blocked negative evidence downgraded to UNKNOWN/PARTIAL: INCLUDED
 [PASS] Provisional journeys cannot over-earn readiness
 [PASS] Hasler-style good-looking site calibrates below easy Good band
 [PASS] Commercial exposure uses expected-value inputs, not score points
+[PASS] Blueprint 0-90 public score bands are reproducible
+[PASS] Safe completion + CrUX/financial edge cases are enforced
+[PASS] 36-case synthetic blueprint matrix differentiates all six journeys
 [PASS] Competitor probe rejects business/content identity conflicts
 ======================================================================
- RESULT: 26/26 checks passed
+ RESULT: 29/29 checks passed
 ======================================================================
 
-Warnings-as-errors compile: PASS
-Runtime import: PASS — 7.1.1 v7.1.1
+Synthetic blueprint matrix:
+- 36/36 controlled synthetic cases passed
+- 6 customer-journey models
+- 6 maturity bands
+- Broken: 27.1–30.8
+- Material: 41.4–43.9
+- Functional: 48.8–57.2
+- Strong: 59.7–66.1
+- Exceptional: 71.0–71.4
+- Near-perfect: 86.3–86.8
 
-Scope: exact local package validated offline. Live hosting credentials, Google APIs, production DNS/networking and installed Chromium still require post-deploy smoke testing.
+Edge-case fixes verified:
+- Ecommerce/subscription checkpoint 50 is UNKNOWN / SAFE_SUBMISSION_LIMIT when live completion is intentionally unsubmitted.
+- Explicit non-destructive/business-supplied completion evidence can make checkpoint 50 PASS.
+- SAFE_SUBMISSION_LIMIT UNKNOWN earns no completion points and is not weighted like a verified path failure.
+- CrUX GOOD reduces the causal financial impairment of a weak Lighthouse lab score without hiding the performance finding.
+- Elite eligibility requires >=80% Foundation and >=85% Revenue/User architecture.
+- Public score is a transparent monotonic mapping; no percentile curve or forced distribution is used.
+- SSRF/network target protections from V7.1.1 remain included and regression-tested.
+
+Scope:
+This validates the exact local package. Live Google API behavior, production DNS/networking,
+Chromium installation, hosting environment variables, frontend display wiring and real-world
+customer sites still require deployment smoke testing.

@@ -1,6 +1,6 @@
 """Trilloka production scanning engine.
 
-V7.1 Journey + Context architecture:
+V7.2 Journey + Context architecture:
 - Infers the observable customer journey instead of expanding an industry/subtype taxonomy.
 - Adds independent context tags for regulated/high-trust, local, commerce, sensitive-data,
   enterprise/considered-purchase and hospitality/event requirements.
@@ -250,7 +250,7 @@ class _StaticHTMLProbe(HTMLParser):
 
 
 class HybridScanner:
-    ENGINE_VERSION = "v7.1.1"
+    ENGINE_VERSION = "v7.2.0"
     """Three-phase scanner with evidence confidence and business context."""
 
     def __init__(self, google_api_key: Optional[str] = None):

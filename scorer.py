@@ -1,6 +1,6 @@
 """Trilloka evidence-weighted Revenue Readiness scorer.
 
-V7.1 real-world Journey + Context score-calibration guardrails:
+V7.2 real-world Journey + Context score-calibration guardrails:
 - High score bands are gated by verified commercial maturity; ordinary strengths cannot accumulate into high-readiness bands by themselves.
 - Evidence Confidence is published separately from website quality.
 - Revenue Readiness explicitly excludes demand, product-market fit, traffic quality, pricing and sales-team execution.
@@ -17,7 +17,7 @@ Scoring philosophy:
 - Unknown evidence is neutral: it is never a failure, but unverified evidence cannot manufacture earned readiness points.
 - Score impact, intrinsic severity, evidence confidence and financial exposure are distinct outputs.
 - Business/journey relevance changes checkpoint importance; basic SEO hygiene cannot outweigh a verified conversion-path failure.
-- No target distribution or forced average is used. Sites earn whatever score their verified architecture supports.
+- No target distribution or forced average is used. Sites earn a canonical three-layer strength score, then a transparent monotonic public calibration maps that strength onto the 0–90 commercial-readiness blueprint so 80–90 is reserved for near-perfect observable architecture.
 
 This score is a Revenue Readiness INDEX, NOT a literal visitor conversion percentage or revenue forecast.
 """
@@ -281,7 +281,26 @@ TIER_PREFIXES = {
 FOUNDATION_LAYER_MAX = 22.0
 REVENUE_ARCHITECTURE_LAYER_MAX = 60.0
 ELITE_BONUS_CAP = 18.0
-MAX_REVENUE_READINESS_SCORE = 100.0
+CANONICAL_REVENUE_READINESS_MAX = 100.0
+# Public/customer score uses a stricter 0–90 commercial-readiness blueprint. The
+# underlying 22/60/18 earned-strength architecture is unchanged and is exposed in
+# score_formula so the mapping remains reproducible rather than becoming a hidden cap.
+MAX_REVENUE_READINESS_SCORE = 90.0
+PUBLIC_SCORE_BLUEPRINT_ANCHORS = (
+    (0.0, 0.0),
+    (26.0, 26.0),   # broken/high-risk architecture
+    (32.0, 32.0),
+    (40.0, 35.0),   # material weaknesses begin
+    (55.0, 40.0),
+    (65.0, 42.0),
+    (70.5, 44.0),   # Hasler-like polished/material-headroom ceiling
+    (73.0, 46.0),   # functional commercial architecture begins
+    (80.0, 57.0),
+    (85.0, 59.0),   # strong commercial website begins
+    (90.0, 69.0),
+    (95.0, 80.0),   # exceptional / near-perfect boundary
+    (100.0, 90.0),  # theoretical perfect observable architecture
+)
 
 # The adaptive 60-point layer is intentionally non-compensatory.  A site cannot
 # make up for a weak/broken conversion path by collecting dozens of low-value
@@ -319,16 +338,16 @@ COMMON_FOUNDATION_STRENGTH_CAP = FOUNDATION_LAYER_MAX
 ADAPTIVE_ARCHITECTURE_STRENGTH_CAP = REVENUE_ARCHITECTURE_LAYER_MAX
 COMMON_FOUNDATION_PENALTY_CAP = 8.0
 REFERENCE_COMPLETENESS_BONUS = 0.0
-SOFT_CEILING_START_SCORE = 100.0
+SOFT_CEILING_START_SCORE = 90.0
 SOFT_CEILING_SCALE = 10.0
 
 # Maturity thresholds describe evidence/readiness eligibility but do not clamp the earned score.
 # They are retained as diagnostic bands and compatibility constants only.
-PROVISIONAL_JOURNEY_CAP = 64.0
-FOUNDATIONAL_MATURITY_CAP = 78.0
-STRONG_MATURITY_CAP = 90.0
-EXCEPTIONAL_MATURITY_CAP = 96.0
-REFERENCE_MATURITY_CAP = 100.0
+PROVISIONAL_JOURNEY_CAP = 45.0
+FOUNDATIONAL_MATURITY_CAP = 58.0
+STRONG_MATURITY_CAP = 70.0
+EXCEPTIONAL_MATURITY_CAP = 80.0
+REFERENCE_MATURITY_CAP = 90.0
 
 LEAK_FAMILY = {
     "click_to_call": "mobile_direct_action",
@@ -516,7 +535,7 @@ class RevenueScorer:
 
         # Three unequal point banks: Foundation 22, Revenue/User Architecture 60, Elite 18.
         # The existing strength ledger is retained for diagnostics/maturity evidence, but the
-        # public score is now earned from weighted checkpoint outcomes rather than a 50-point baseline.
+        # canonical score is earned from weighted checkpoint outcomes rather than a 50-point baseline; the public score is then monotonically calibrated onto the 0–90 blueprint.
         strength_ledger = self._evaluate_strengths(scan_data, biz_type, profile)
         raw_common_strength = round(sum(float(item.get("points") or 0.0) for item in strength_ledger if item.get("analysis_layer") == "common_foundation"), 2)
         raw_adaptive_strength = round(sum(float(item.get("points") or 0.0) for item in strength_ledger if item.get("analysis_layer") != "common_foundation"), 2)
@@ -590,8 +609,8 @@ class RevenueScorer:
         reference_bonus = 0.0
 
         pre_clamp = foundation_score + revenue_architecture_score + elite_bonus
-        raw_readiness = max(0.0, min(MAX_REVENUE_READINESS_SCORE, pre_clamp))
-        preliminary_public_score = round(raw_readiness, 3)
+        canonical_readiness = max(0.0, min(CANONICAL_REVENUE_READINESS_MAX, pre_clamp))
+        preliminary_public_score = self._calibrate_public_score(canonical_readiness)
         maturity_gate = self._evaluate_maturity_gate(
             scan_data=scan_data,
             biz_type=biz_type,
@@ -651,7 +670,7 @@ class RevenueScorer:
             competitor_gap_kind = "MEASURED_LOCAL_COMPETITOR_GAP"
         else:
             competitor_gap = max(0, round(MAX_REVENUE_READINESS_SCORE - overall))
-            competitor_gap_kind = "MODELED_READINESS_GAP_PROXY"
+            competitor_gap_kind = "MODELED_READINESS_HEADROOM_PROXY"
 
         conversion_readiness = self._conversion_path_readiness_index(checkpoints, scan_data, biz_type, profile)
         foundation_index = round(100.0 * foundation_score / FOUNDATION_LAYER_MAX, 1) if FOUNDATION_LAYER_MAX else None
@@ -816,10 +835,10 @@ class RevenueScorer:
             "elite_strength_ledger": elite_ledger,
             "overlap_adjustments": overlap_adjustments,
             "score_semantics": "Revenue Readiness index for observable website architecture; not a literal visitor conversion percentage, sales forecast or business-quality score.",
-            "score_method_version": "real_world_v2",
+            "score_method_version": "real_world_v3_blueprint90",
             "score_scope_exclusions": ["product-market fit", "market demand", "traffic quality", "pricing", "sales-team execution", "offline operations", "actual revenue"],
             "score_ceiling": MAX_REVENUE_READINESS_SCORE,
-            "score_ceiling_note": "100/100 is theoretically available only by earning all three layers; the score is not a visitor conversion percentage.",
+            "score_ceiling_note": "The public Revenue Readiness Index is calibrated to a 0–90 blueprint. 90/90 is theoretically available only from perfect canonical 22/60/18 strength; the score is not a visitor conversion percentage.",
             "research_calibration": {
                 "model": "mixed-evidence commercial-priority calibration",
                 "baymard_basis": "Ecommerce checkout only: relative weights are normalized against the mean of Baymard's current avoidable abandonment reasons; survey percentages are never copied directly into deductions.",
@@ -829,7 +848,7 @@ class RevenueScorer:
                 "guardrail": "Research changes relative priority only after the scanner verifies a site-specific condition. Unknown evidence remains neutral.",
             },
             "score_formula": {
-                "method": "three_unequal_earned_layers_non_compensatory_v2",
+                "method": "three_unequal_earned_layers_non_compensatory_v3_blueprint90",
                 "operating_baseline": 0.0,
                 "foundation_layer_score": foundation_score,
                 "foundation_layer_max": FOUNDATION_LAYER_MAX,
@@ -848,21 +867,25 @@ class RevenueScorer:
                 "common_foundation_penalty": common_loss,
                 "adaptive_architecture_penalty": adaptive_loss,
                 "pre_clamp_score": round(pre_clamp, 2),
-                "raw_pre_ceiling_score": round(raw_readiness, 2),
+                "canonical_three_layer_score": round(canonical_readiness, 2),
+                "raw_pre_ceiling_score": round(canonical_readiness, 2),
                 "pre_maturity_gate_public_score": round(preliminary_public_score, 2),
                 "canonical_formula": "foundation_layer_score + revenue_user_architecture_score + elite_architecture_score",
+                "public_score_formula": "piecewise_linear_blueprint90(canonical_three_layer_score)",
+                "public_score_blueprint_anchors": [list(pair) for pair in PUBLIC_SCORE_BLUEPRINT_ANCHORS],
                 "adaptive_pillars": {key: {"max_points": float(spec["max_points"]), "checkpoint_ids": sorted(spec["checkpoint_ids"])} for key, spec in ADAPTIVE_ARCHITECTURE_PILLARS.items()},
                 "unknown_policy": "UNKNOWN is never a failure or deduction, but unverified evidence does not earn readiness points.",
                 "penalties_already_reflected_in_layer_scores": True,
-                "legacy_reproducibility_formula": "operating_baseline + verified_strength_points_awarded + elite_bonus_points + reference_completeness_bonus - total_final_penalty",
+                "legacy_reproducibility_formula": "canonical_three_layer_score before public blueprint calibration",
                 "maturity_advisory_threshold": maturity_gate.get("advisory_score_threshold", maturity_gate.get("score_cap")),
                 "maturity_band_cap": maturity_gate.get("advisory_score_threshold", maturity_gate.get("score_cap")),  # legacy alias
                 "maturity_band": maturity_gate.get("band"),
                 "maturity_cap_applied": False,
                 "maturity_cap_enforced": False,
+                "canonical_score_ceiling": CANONICAL_REVENUE_READINESS_MAX,
                 "public_score_ceiling": MAX_REVENUE_READINESS_SCORE,
                 "soft_ceiling_starts_at": SOFT_CEILING_START_SCORE,
-                "ceiling_method": "three independently earned point banks; maturity thresholds are advisory diagnostics and do not clamp the score; no forced mean or target distribution",
+                "ceiling_method": "three independently earned point banks feed a transparent monotonic 0–90 blueprint calibration; maturity thresholds are advisory diagnostics and no percentile/forced distribution is used",
                 "final_score": overall,
             },
         }
@@ -899,7 +922,16 @@ class RevenueScorer:
             layer_rules.add(rule)
             generic = max(0.25, float(cp.get("report_weight") or 0.0))
             journey_weight = self._get_base_weight(rule, biz_type) if rule in RULE_BASE_WEIGHTS else generic
-            weight = max(generic, min(12.0, journey_weight))
+            # A SAFE_SUBMISSION_LIMIT UNKNOWN is not the same evidentiary state as a verified
+            # conversion-path error. It earns zero points, but it only withholds the checkpoint's
+            # explicit completion-evidence weight instead of the full failure-severity weight.
+            # A verified FAIL still uses the high journey-specific conversion-path weight.
+            safe_completion_unknown = bool(
+                int(cp.get("id") or 0) == 50
+                and status == UNKNOWN
+                and str(cp.get("unknown_reason_code") or "") == "SAFE_SUBMISSION_LIMIT"
+            )
+            weight = generic if safe_completion_unknown else max(generic, min(12.0, journey_weight))
             applicable_weight += weight
             if status == PASS:
                 known_weight += weight
@@ -1323,8 +1355,8 @@ class RevenueScorer:
 
         eligibility_checks = {
             "resolved_customer_journey": not provisional,
-            "foundation_at_least_70_pct": foundation_ratio >= 0.70,
-            "revenue_user_layer_at_least_80_pct": revenue_ratio >= 0.80,
+            "foundation_at_least_80_pct": foundation_ratio >= 0.80,
+            "revenue_user_layer_at_least_85_pct": revenue_ratio >= 0.85,
             "evidence_confidence_at_least_85": evidence_score >= 85.0,
             "no_confirmed_major_leak": len(major_leaks) == 0,
         }
@@ -1366,10 +1398,10 @@ class RevenueScorer:
             if str(x.get("family") or "") == "conversion_execution"
         )
         passive_completion_limit = cp50_status == UNKNOWN and cp50_reason == "SAFE_SUBMISSION_LIMIT"
-        if conversion_score >= 86 and cp7_pass and passive_completion_limit and conversion_family_loss <= 0.25:
-            add("elite_passive_customer_journey", 4.0, {**conversion, "completion_checkpoint": "SAFE_SUBMISSION_LIMIT"}, "Verified passive conversion-path architecture")
-        elif conversion_score >= 90 and cp7_pass and cp50_status != FAIL and conversion_family_loss <= 1.0:
-            add("strong_customer_journey", 2.0, conversion, "Verified conversion-path architecture")
+        if conversion_score >= 95 and cp7_pass and cp50_status == PASS and conversion_family_loss <= 0.25:
+            add("elite_verified_customer_journey_completion", 4.0, {**conversion, "completion_checkpoint": "PASS"}, "Verified non-destructive/business-supplied completion evidence")
+        elif conversion_score >= 88 and cp7_pass and passive_completion_limit and conversion_family_loss <= 0.25:
+            add("strong_passive_customer_journey", 2.0, {**conversion, "completion_checkpoint": "SAFE_SUBMISSION_LIMIT"}, "Verified passive conversion-path architecture; live completion intentionally unsubmitted")
         elif conversion_score >= 82 and cp7_pass and cp50_status != FAIL:
             add("mature_customer_journey", 1.0, conversion, "Verified conversion-path architecture")
 
@@ -1536,9 +1568,15 @@ class RevenueScorer:
             rule = str(cp.get("rule_key") or "")
             generic = max(0.5, float(cp.get("report_weight") or 1.0))
             journey_weight = self._get_base_weight(rule, biz_type) if rule in RULE_BASE_WEIGHTS else generic
-            # Primary path/completion evidence deliberately carries more weight than generic trust/support.
-            weight = max(generic, min(12.0, journey_weight))
-            if int(cp.get("id") or 0) in {7, 50}:
+            safe_completion_unknown = bool(
+                int(cp.get("id") or 0) == 50
+                and status == UNKNOWN
+                and str(cp.get("unknown_reason_code") or "") == "SAFE_SUBMISSION_LIMIT"
+            )
+            # Primary path/completion evidence deliberately carries more weight than generic trust/support,
+            # but a passively unsubmitted checkout/form only withholds its explicit evidence weight.
+            weight = generic if safe_completion_unknown else max(generic, min(12.0, journey_weight))
+            if int(cp.get("id") or 0) == 7 or (int(cp.get("id") or 0) == 50 and not safe_completion_unknown):
                 weight *= 1.35
             applicable_weight += weight
             if status in {PASS, FAIL}:
@@ -2473,8 +2511,26 @@ class RevenueScorer:
         return {key: leak.get(key) for key in keys}
 
     @staticmethod
+    def _calibrate_public_score(canonical_score: float) -> float:
+        """Map canonical 0–100 earned strength to the stricter public 0–90 blueprint.
+
+        This is a monotonic piecewise-linear calibration, not a percentile curve and not a
+        forced distribution. The same three-layer evidence method still determines ordering;
+        the public scale simply reserves upper bands for unusually complete architecture.
+        """
+        x = max(0.0, min(CANONICAL_REVENUE_READINESS_MAX, float(canonical_score)))
+        anchors = PUBLIC_SCORE_BLUEPRINT_ANCHORS
+        for (x0, y0), (x1, y1) in zip(anchors, anchors[1:]):
+            if x <= x1:
+                if x1 <= x0:
+                    return round(y1, 3)
+                ratio = (x - x0) / (x1 - x0)
+                return round(y0 + ratio * (y1 - y0), 3)
+        return float(MAX_REVENUE_READINESS_SCORE)
+
+    @staticmethod
     def _apply_readiness_ceiling(raw_score: float) -> float:
-        """Compatibility helper: the three-layer model already has a natural 0-100 ceiling."""
+        """Compatibility helper for the public 0–90 blueprint ceiling."""
         return max(0.0, min(MAX_REVENUE_READINESS_SCORE, float(raw_score)))
 
     @staticmethod
@@ -2488,29 +2544,25 @@ class RevenueScorer:
         maturity_gate = maturity_gate or {}
         if bool(maturity_gate.get("journey_provisional")):
             return "PROVISIONAL READINESS — CUSTOMER JOURNEY NOT YET RESOLVED"
-        if score >= 90:
-            return "ELITE VERIFIED REVENUE ARCHITECTURE"
         if score >= 80:
-            return "EXCEPTIONAL VERIFIED WEBSITE READINESS"
-        if score >= 75:
-            return "STRONG REVENUE ARCHITECTURE"
-        if score >= 65:
-            return "GOOD — LEAKS REMAIN" if total_loss > 0 else "GOOD VERIFIED WEBSITE READINESS"
-        if score >= 55:
-            return "FUNCTIONAL FOUNDATION — MATERIAL COMMERCIAL HEADROOM"
-        if score >= 40:
-            return "MATERIAL REVENUE / EXPERIENCE WEAKNESSES"
-        if score >= 25:
-            return "SIGNIFICANT STRUCTURAL / CONVERSION RISK"
+            return "NEAR-PERFECT VERIFIED OBSERVABLE ARCHITECTURE"
+        if score >= 70:
+            return "GENUINELY EXCEPTIONAL OBSERVABLE ARCHITECTURE"
+        if score >= 59:
+            return "STRONG COMMERCIAL WEBSITE"
+        if score >= 46:
+            return "FUNCTIONAL COMMERCIAL WEBSITE"
+        if score >= 35:
+            return "MATERIAL COMMERCIAL WEAKNESSES"
+        if score >= 26:
+            return "BROKEN / HIGH-RISK COMMERCIAL ARCHITECTURE"
         return "CRITICAL REVENUE ARCHITECTURE WEAKNESS"
 
     def _get_vault_id(self, score: float) -> str:
-        if score >= 77:
+        if score >= 70:
             return self.generate_tier_id(10)
-        if score >= 72:
+        if score >= 59:
             return self.generate_tier_id(8)
-        if score >= 50:
-            return self.generate_tier_id(4)
         return self.generate_tier_id(4)
 
     @staticmethod
@@ -2631,6 +2683,16 @@ class RevenueScorer:
             confidence_weighted += max(intrinsic, 0.05) * conf
 
             base = float(rule_impairment.get(rule, family_impairment.get(family, 0.04)))
+            # Field Core Web Vitals outrank a single Lighthouse lab run economically. When CrUX
+            # is GOOD but Lighthouse is weak, keep the readiness/performance finding visible while
+            # shrinking only its causal dollar-exposure ceiling. This avoids treating a lab score
+            # as if it proved widespread real-user impairment.
+            field_perf_good = bool(
+                str(scan_data.get("real_user_speed_grade") or "UNKNOWN").upper() == "GOOD"
+                and bool(scan_data.get("crux_available"))
+            )
+            if rule == "core_web_vitals" and field_perf_good:
+                base = min(base, 0.035)
             substitution = max(0.20, min(1.0, float(leak.get("substitution_factor") or 1.0)))
             # Intrinsic severity is already evidence-independent; severity_factor expresses how much
             # of the rule's maximum causal impairment is present. Alternate paths reduce exposure.
@@ -2641,6 +2703,7 @@ class RevenueScorer:
                 "family": family,
                 "severity_factor": round(severity, 3),
                 "causal_impairment_ceiling": round(base, 3),
+                "field_performance_override": bool(rule == "core_web_vitals" and field_perf_good),
                 "substitution_factor": round(substitution, 3),
                 "modeled_path_impairment": round(fraction, 4),
                 "confidence": str(leak.get("confidence") or "unknown").lower(),

@@ -336,7 +336,7 @@ class ReportGenerator:
             "core_philosophy": "Trilloka measures observable website Revenue Readiness, not literal conversion percentage, product-market fit, demand, sales-team performance or actual revenue. Readiness is earned across three unequal layers—Foundation, Revenue/User Architecture and Elite Architecture—while verified leaks retain separate score impact, severity and evidence confidence.",
             "graded_continuum": "Every deduction is scaled by implementation severity, evidence confidence and journey/context relevance. Unknown telemetry earns no strength and creates no penalty. Severe deductions require independent confirmation or corroboration.",
             "architecture_model": f"Primary customer journey: {journey}. Context tags: {contexts}. Legacy industry selections are only weak hints; the score is driven by observed customer actions and context evidence.",
-            "two_layer_model": "Three earned layers are used: Common Foundation (22 points), Revenue/User Architecture (60 points), and Elite Architecture (18 points). The 60-point Revenue/User layer is split into fixed conversion-execution, trust/decision-support, measurement/policy and supporting-experience pillars so low-value content/SEO passes cannot compensate for a weak primary customer path. Elite points require strong verified core architecture first.",
+            "two_layer_model": "Three earned canonical layers are used: Common Foundation (22 points), Revenue/User Architecture (60 points), and Elite Architecture (18 points). The 60-point Revenue/User layer is split into fixed conversion-execution, trust/decision-support, measurement/policy and supporting-experience pillars so low-value content/SEO passes cannot compensate for a weak primary customer path. Elite points require strong verified core architecture first. The canonical 0–100 strength is then mapped monotonically onto the stricter public 0–90 commercial-readiness blueprint; this is not a percentile curve or forced distribution.",
             "vertical_weighting": "Journey + Context weighting replaces broad industry scoring. The same technical condition can have different commercial importance depending on the verified customer action, substitution paths and contextual obligations; legacy industry labels are weak hints only.",
             "hygiene_gatekeeping": "Verified conversion friction and customer-path blockers are prioritized ahead of ordinary SEO hygiene. Ecommerce checkout weighting is Baymard-informed only when purchase-context evidence exists and does not claim full Baymard certification; measured performance uses Google/web.dev evidence. Research percentages are never copied directly into site-specific deductions.",
             "financial_exposure_model": "Potential commercial exposure uses an expected-value scenario: annual digital opportunity pool × combined verified path impairment. Overlapping findings are compounded by family instead of added blindly, alternate conversion paths reduce exposure, and score deductions are never converted directly into dollars. Business-supplied economic inputs replace scenario priors when available.",
@@ -352,23 +352,21 @@ class ReportGenerator:
             return {
                 "level": rating or "PROVISIONAL READINESS — CUSTOMER JOURNEY NOT YET RESOLVED",
                 "impact_summary": "The scanner verified useful website evidence but has not resolved the primary customer journey strongly enough to present the result as a mature commercial model.",
-                "severity_behavior": f"Verified penalty burden is {penalty:.2f} points. UNKNOWN evidence remains neutral; the unresolved journey limits what can be earned, rather than creating a hidden deduction.",
+                "severity_behavior": f"Verified penalty burden is {penalty:.2f} canonical points. UNKNOWN evidence remains neutral; the unresolved journey limits what can be earned, rather than creating a hidden deduction.",
             }
-        if score >= 90:
-            return {"level":"ELITE VERIFIED REVENUE ARCHITECTURE (90–100)","impact_summary":"Exceptionally mature observable customer-journey, trust, performance and measurement architecture was verified. This remains a website-readiness assessment, not a claim about market demand or actual revenue.","severity_behavior":"Scores in this range require substantial Revenue/User Architecture plus difficult-to-earn Elite points; basic technical hygiene alone cannot reach this band."}
         if score >= 80:
-            return {"level":"EXCEPTIONAL VERIFIED WEBSITE READINESS (80–89)","impact_summary":"The observable customer journey is unusually complete and evidence-backed, with only limited architectural headroom.","severity_behavior":"The result is earned across the 22/60/18 layers; maturity thresholds are advisory diagnostics and do not silently cap or inflate the score."}
-        if score >= 75:
-            return {"level":"STRONG REVENUE ARCHITECTURE (75–79)","impact_summary":"The website shows strong commercial architecture, while remaining verified weaknesses or maturity gaps still prevent an exceptional score.","severity_behavior":f"Verified penalty burden is {penalty:.2f} points; score separation primarily comes from what was earned in the Revenue/User and Elite layers."}
-        if score >= 65:
-            return {"level":"GOOD — LEAKS REMAIN (65–74)","impact_summary":"The site has credible foundations and customer-path strengths, but meaningful commercial or maturity headroom remains.","severity_behavior":"Good technical hygiene can support this band, but it cannot substitute for customer-journey, trust, completion and measurement evidence."}
-        if score >= 55:
-            return {"level":"FUNCTIONAL FOUNDATION — MATERIAL COMMERCIAL HEADROOM (55–64)","impact_summary":"The website is functional, but the observable revenue/user architecture is not yet strong enough to be considered commercially mature.","severity_behavior":f"The result reflects both earned-layer limits and {penalty:.2f} points of verified finding impact; missing evidence is not counted as failure."}
-        if score >= 40:
-            return {"level":"MATERIAL REVENUE / EXPERIENCE WEAKNESSES (40–54)","impact_summary":"Multiple verified weaknesses or missing high-value strengths materially constrain the public customer journey.","severity_behavior":"The rating comes from weighted journey/context evidence rather than the volume of generic SEO findings."}
-        if score >= 25:
-            return {"level":"SIGNIFICANT STRUCTURAL / CONVERSION RISK (25–39)","impact_summary":"The site has significant observable customer-path, trust, performance or conversion architecture risk.","severity_behavior":"A low score requires weak earned architecture and/or verified high-impact findings; the engine does not force sites into a target distribution."}
-        return {"level":"CRITICAL REVENUE ARCHITECTURE WEAKNESS (0–24)","impact_summary":"Severe observable architecture weaknesses materially compromise the website's ability to support a dependable customer journey.","severity_behavior":"The score is earned from zero across the three layers; there is no operating baseline protecting a weak site from a genuinely low result."}
+            return {"level":"NEAR-PERFECT VERIFIED OBSERVABLE ARCHITECTURE (80–90)","impact_summary":"The observable customer journey, trust, measurement and supporting architecture are near-complete, with almost no verified commercial leakage. The score still does not claim 100% visitor conversion or guaranteed revenue performance.","severity_behavior":"This band is reserved for near-perfect canonical 22/60/18 strength after the transparent 0–90 blueprint calibration; ordinary technical hygiene cannot reach it."}
+        if score >= 70:
+            return {"level":"GENUINELY EXCEPTIONAL OBSERVABLE ARCHITECTURE (70–79)","impact_summary":"The website demonstrates unusually complete, evidence-backed commercial architecture with only limited observable headroom.","severity_behavior":"Exceptional scores require strong Revenue/User Architecture plus difficult-to-earn Elite evidence; UNKNOWN completion evidence still withholds readiness points."}
+        if score >= 59:
+            return {"level":"STRONG COMMERCIAL WEBSITE (59–69)","impact_summary":"The website supports its primary customer journey well, with strong commercial architecture and only bounded material headroom.","severity_behavior":f"Verified penalty burden is {penalty:.2f} canonical points; score separation comes primarily from what was earned in conversion execution, trust, measurement and Elite maturity."}
+        if score >= 46:
+            return {"level":"FUNCTIONAL COMMERCIAL WEBSITE (46–58)","impact_summary":"The website is commercially functional and supports a usable customer path, but enough journey, trust, measurement, performance or completion evidence is missing to call it strong.","severity_behavior":"Functional sites can pass many basics, but the non-compensatory commercial pillars prevent those basics from manufacturing a strong score."}
+        if score >= 35:
+            return {"level":"MATERIAL COMMERCIAL WEAKNESSES (35–45)","impact_summary":"The website may look polished or credible, but material observable weaknesses remain in the revenue/user architecture.","severity_behavior":"This is the intended band for Hasler-like polished sites whose technical/trust surface is stronger than their verified end-to-end commercial readiness."}
+        if score >= 26:
+            return {"level":"BROKEN / HIGH-RISK COMMERCIAL ARCHITECTURE (26–34)","impact_summary":"The customer path has substantial structural, conversion, trust, performance or measurement weakness and cannot be considered reliably commercial-ready.","severity_behavior":"A score in this range requires weak earned architecture and/or verified customer-path failures; the engine does not force sites into a target distribution."}
+        return {"level":"CRITICAL REVENUE ARCHITECTURE WEAKNESS (0–25)","impact_summary":"Severe observable architecture weaknesses materially compromise the website's ability to support a dependable customer journey.","severity_behavior":"The canonical score is earned from zero across the three layers and then mapped to the 0–90 public blueprint; there is no operating baseline protecting a severely weak site."}
 
     def _build_3_angle_solutions(
         self,
@@ -995,7 +993,7 @@ class ReportGenerator:
         corroborated_count = sum(1 for x in confirmation_results.values() if isinstance(x, dict) and str(x.get("status") or "").upper() == "CORROBORATED")
         unresolved_count = sum(1 for x in confirmation_results.values() if isinstance(x, dict) and str(x.get("status") or "").upper() in {"DISPUTED", "UNCONFIRMED", ""})
 
-        score_color = "#22C55E" if score >= 75 else "#D8B66A" if score >= 50 else "#EF4444"
+        score_color = "#22C55E" if score >= 70 else "#D8B66A" if score >= 46 else "#EF4444"
         findings = report.get("top_10_financial_leaks") or report.get("top_6_financial_leaks") or []
         findings_count = len([item for item in findings if isinstance(item, dict)])
         leaks_html = ""
@@ -1121,13 +1119,13 @@ class ReportGenerator:
 
     <div style="background:#121621; color:#F2F0E8; border-radius:12px; padding:24px; margin:20px 0; text-align:center;">
         <p style="font-family:Inter,sans-serif; font-size:12px; color:#A9A7A0; text-transform:uppercase; letter-spacing:2px; margin:0 0 8px 0;">Revenue Readiness Index</p>
-        <p style="font-family:Georgia,serif; font-size:48px; color:{score_color}; margin:0; line-height:1;">{score:.1f}</p>
+        <p style="font-family:Georgia,serif; font-size:48px; color:{score_color}; margin:0; line-height:1;">{score:.1f}<span style="font-size:20px;color:#A9A7A0;"> / 90</span></p>
         <p style="font-family:Inter,sans-serif; font-size:14px; color:#D8B66A; margin:8px 0 0 0; font-weight:600;">{rating}</p>
     </div>
 
     <div style="background:#F8FAFC;border:1px solid #DCE3EA;border-radius:12px;padding:16px;margin:16px 0;">
         <p style="font-family:Inter,sans-serif;font-size:11px;color:#5A7A9E;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px 0;font-weight:700;">Evidence & Score Scope</p>
-        <p style="font-family:Inter,sans-serif;font-size:12px;color:#374151;margin:0;line-height:1.6;"><strong>Evidence Confidence:</strong> {evidence_level} ({html.escape(evidence_score_text)})<br><strong>Maturity Band:</strong> {maturity_band}<br><strong>Advisory maturity threshold:</strong> {html.escape(maturity_threshold_text)} / 100 <span style="color:#6B7280;">(not a score cap)</span><br><strong>Unmet gate(s) at next band:</strong> {failed_gate_text}</p>
+        <p style="font-family:Inter,sans-serif;font-size:12px;color:#374151;margin:0;line-height:1.6;"><strong>Evidence Confidence:</strong> {evidence_level} ({html.escape(evidence_score_text)})<br><strong>Maturity Band:</strong> {maturity_band}<br><strong>Advisory maturity threshold:</strong> {html.escape(maturity_threshold_text)} / 90 <span style="color:#6B7280;">(not a score cap)</span><br><strong>Unmet gate(s) at next band:</strong> {failed_gate_text}</p>
         <p style="font-family:Inter,sans-serif;font-size:10px;color:#6B7280;margin:8px 0 0 0;line-height:1.5;"><strong>Scope:</strong> {score_scope}</p>
     </div>
 

@@ -1,4 +1,4 @@
-"""Trilloka V7.1 server-side free-scan and paid-plan access controls.
+"""Trilloka V7.2 server-side free-scan and paid-plan access controls.
 
 The scanner itself is unchanged. This module controls who may run a fresh scan and how much
 customer-facing remediation is unlocked after a verified purchase.

@@ -1,4 +1,4 @@
-"""Trilloka V7.1.1 real-world scanner integrity runner.
+"""Trilloka V7.2.0 real-world scanner integrity runner.
 
 Runs the current Journey + Context scanner/scorer regression suite and targeted
 calibration/hardening checks.  Everything here is passive and offline: it performs
@@ -73,8 +73,8 @@ def test_pytest_regressions() -> None:
 
 def test_main_runtime_import() -> None:
     import main as gateway
-    assert gateway.app.version == "7.1.1"
-    assert gateway.scanner.ENGINE_VERSION == "v7.1.1"
+    assert gateway.app.version == "7.2.0"
+    assert gateway.scanner.ENGINE_VERSION == "v7.2.0"
     assert gateway.PLAN_CATALOG["essential_350"]["remediation_limit"] == 4
     assert gateway.PLAN_CATALOG["advanced_550"]["remediation_limit"] == 8
 
@@ -133,11 +133,13 @@ def test_formula_reproducible() -> None:
         float(formula["foundation_layer_score"])
         + float(formula["revenue_user_architecture_score"])
         + float(formula["elite_architecture_score"]),
-        1,
+        2,
     )
     assert formula["operating_baseline"] == 0
     assert formula["penalties_already_reflected_in_layer_scores"] is True
-    assert audit["overall_score"] == canonical
+    assert formula["canonical_three_layer_score"] == canonical
+    assert audit["overall_score"] == round(RevenueScorer._calibrate_public_score(canonical), 1)
+    assert formula["public_score_ceiling"] == 90.0
 
 
 def test_explicit_general() -> None:
@@ -403,7 +405,7 @@ def test_hasler_style_calibration() -> None:
         "total_images": 3,
     })
     audit = RevenueScorer().audit_and_score(scan, business_type="auto")
-    assert 55.0 <= audit["overall_score"] < 65.0
+    assert 35.0 <= audit["overall_score"] <= 44.0
     assert audit["analysis_layers"]["elite_architecture"]["layer_score"] == 0
     cp50 = next(cp for cp in audit["full_50_checkpoint_basis"] if cp["id"] == 50)
     assert cp50["status"] == UNKNOWN and cp50["unknown_reason_code"] == "SAFE_SUBMISSION_LIMIT"
@@ -447,9 +449,47 @@ def test_competitor_probe_identity_guard() -> None:
     assert result["expected_category"] == "construction_trades"
     assert result["observed_category"] == "healthcare"
 
+
+def test_blueprint90_score_bands() -> None:
+    expected = {26: 26.0, 32: 32.0, 40: 35.0, 55: 40.0, 65: 42.0, 70.5: 44.0, 73: 46.0, 80: 57.0, 85: 59.0, 90: 69.0, 95: 80.0, 100: 90.0}
+    assert {x: RevenueScorer._calibrate_public_score(x) for x in expected} == expected
+
+
+def test_safe_completion_and_field_performance_edges() -> None:
+    scan = base_scan()
+    text = "shop now add to cart checkout buy now product shipping returns " * 12
+    scan.update({
+        "title": "Shop Online", "page_text": text, "journey_text_sample": text,
+        "forms_present": False, "journey_pages_verified": 0,
+        "mobile_primary_cta_present": True, "mobile_cta_types": ["buy"],
+        "add_to_cart_visible": True, "checkout_context_detected": True, "order_online_present": True,
+    })
+    audit = RevenueScorer().audit_and_score(scan, business_type="auto")
+    cp50 = next(cp for cp in audit["full_50_checkpoint_basis"] if cp["id"] == 50)
+    assert cp50["status"] == UNKNOWN and cp50["unknown_reason_code"] == "SAFE_SUBMISSION_LIMIT"
+    assert audit["surface_metrics"]["conversion_path_readiness"] < 100.0
+
+    leak = {
+        "rule_key": "core_web_vitals", "family": "performance",
+        "economic_severity": 1.15, "intrinsic_severity_score": 1.15,
+        "final_score_loss": 1.05, "confidence": "high", "severity_factor": 0.4, "substitution_factor": 1.0,
+    }
+    good = RevenueScorer._revenue_exposure("lead_quote", [leak], {"score": 98}, {}, {"crux_available": True, "real_user_speed_grade": "GOOD", "performance_score": 54})
+    lab = RevenueScorer._revenue_exposure("lead_quote", [leak], {"score": 98}, {}, {"crux_available": False, "real_user_speed_grade": "UNKNOWN", "performance_score": 54})
+    assert good["combined_path_impairment_pct"] < lab["combined_path_impairment_pct"]
+    assert good["issue_components"][0]["field_performance_override"] is True
+
+
+def test_full_synthetic_blueprint_matrix() -> None:
+    from synthetic_blueprint_validation import run
+    rows = run()
+    assert len(rows) == 36
+    assert len({row["journey"] for row in rows}) == 6
+    assert len({row["synthetic_level"] for row in rows}) == 6
+
 def main() -> int:
     print("=" * 70)
-    print(" TRILLOKA V7.1.1 REAL-WORLD + NETWORK SECURITY INTEGRITY SUITE ")
+    print(" TRILLOKA V7.2 BLUEPRINT90 REAL-WORLD + NETWORK SECURITY INTEGRITY SUITE ")
     print("=" * 70)
     checks = (
         ("Core Python compile + warnings-as-errors", test_compile),
@@ -467,7 +507,7 @@ def main() -> int:
         ("Context boilerplate false-positive filtering", test_context_boilerplate_filtering),
         ("Conversion readiness calibration", test_conversion_readiness_calibration),
         ("Surface metrics reconcile to earned layers", test_surface_layer_reconciliation),
-        ("Maturity thresholds advisory + 100-point report scale", test_advisory_maturity_and_report_scale),
+        ("Maturity thresholds advisory + public 0-90 blueprint scale", test_advisory_maturity_and_report_scale),
         ("Competitor query uses specific offering evidence", test_competitor_query_specificity),
         ("High-impact confirmation targets revenue path", test_conversion_confirmation_routing),
         ("Financial exposure remains decoupled from score loss", test_revenue_exposure_decoupling),
@@ -477,6 +517,9 @@ def main() -> int:
         ("Provisional journeys cannot over-earn readiness", test_provisional_journey_cannot_overearn),
         ("Hasler-style good-looking site calibrates below easy Good band", test_hasler_style_calibration),
         ("Commercial exposure uses expected-value inputs, not score points", test_commercial_exposure_expected_value_model),
+        ("Blueprint 0-90 public score bands are reproducible", test_blueprint90_score_bands),
+        ("Safe completion + CrUX/financial edge cases are enforced", test_safe_completion_and_field_performance_edges),
+        ("36-case synthetic blueprint matrix differentiates all six journeys", test_full_synthetic_blueprint_matrix),
         ("Competitor probe rejects business/content identity conflicts", test_competitor_probe_identity_guard),
     )
     passed = sum(check(name, fn) for name, fn in checks)

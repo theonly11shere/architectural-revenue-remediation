@@ -260,7 +260,7 @@ def _unknown_reason(cp_id: int, scan: Dict[str, Any]) -> Dict[str, str]:
     if cp_id == 49:
         return {"code": "JURISDICTION_CONTEXT_REQUIRED", "customer_note": "Cookie-consent requirements depend on jurisdiction, tracking behavior and consent configuration. Absence is not automatically treated as failure."}
     if cp_id == 50:
-        return {"code": "SAFE_SUBMISSION_LIMIT", "customer_note": "The scanner avoids destructive or customer-facing live submissions. Form delivery remains unscored unless safely verifiable."}
+        return {"code": "SAFE_SUBMISSION_LIMIT", "customer_note": "The scanner avoids destructive or customer-facing live submissions. End-to-end form, checkout, booking or subscription completion remains unscored unless safely verifiable."}
     if cp_id in {28, 30, 32, 33}:
         return {"code": "GOOGLE_TELEMETRY_UNAVAILABLE", "customer_note": "The relevant Google/Lighthouse metric was unavailable in this scan. No deduction is applied."}
     return {"code": "PUBLIC_VERIFICATION_GAP", "customer_note": "This signal could not be independently verified from the public evidence available during the scan. It is not scored as a failure."}
@@ -601,21 +601,31 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
     add(49, "Cookie Consent / Preference Interface", cookie_status, "content_eeat", scan.get("cookie_banner_present"), cookie_reason)
 
     conversion_errors = list(scan.get("conversion_error_signals") or []) if isinstance(scan.get("conversion_error_signals"), list) else []
+    completion_verified = bool(
+        scan.get("conversion_completion_verified") is True
+        and str(scan.get("conversion_completion_verification_source") or "").strip()
+    )
+    transactional_or_subscription_journey = journey in {"direct_purchase", "membership_subscription"}
     if conversion_errors:
         completion_status = FAIL
         completion_reason = "A customer-visible error state was passively observed on a conversion page. No form was submitted and no customer data was mutated."
-    elif scan.get("forms_present") or (_safe_int(scan.get("journey_pages_verified"), 0) or 0) > 0:
+    elif completion_verified:
+        completion_status = PASS
+        completion_reason = "End-to-end completion was verified from explicit non-destructive/business-supplied evidence; the scanner itself did not place an order or create a live customer submission."
+    elif scan.get("forms_present") or (_safe_int(scan.get("journey_pages_verified"), 0) or 0) > 0 or transactional_or_subscription_journey:
         completion_status = UNKNOWN
-        completion_reason = "No destructive or customer-facing submission was performed. No customer-visible error was observed, but end-to-end delivery/completion is not claimed because the path is not destructively tested and the scanner does not submit live customer forms or orders."
+        completion_reason = "No destructive or customer-facing submission was performed. No customer-visible error was observed, but end-to-end delivery/completion is not claimed because the path is not destructively tested and the scanner does not submit live customer forms, orders or paid subscriptions."
     else:
         completion_status = NA
-        completion_reason = "No form/booking conversion path was verified in the bounded public evidence sample."
+        completion_reason = "No form/booking/checkout/subscription conversion path was verified in the bounded public evidence sample."
     add(50, "Customer Conversion Path Completion / Error State", completion_status, "content_eeat", {
         "error_signals": conversion_errors[:6],
         "form_payload_fired": scan.get("form_payload_fired"),
         "browser_journey_url": scan.get("browser_journey_url"),
         "browser_journey_rendered": scan.get("browser_journey_rendered"),
         "external_booking_provider_health": scan.get("external_booking_provider_health") or {},
+        "completion_verified": completion_verified,
+        "completion_verification_source": scan.get("conversion_completion_verification_source") if completion_verified else None,
     }, completion_reason)
 
     return checkpoints
