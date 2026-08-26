@@ -1,8 +1,9 @@
-# Versions used for the verified V7.1 validation build
+# Versions used for the verified V7.1.1 security-hardened build
 fastapi==0.128.2
 pydantic==2.13.4
 email-validator==2.3.0
 requests==2.32.5
+urllib3==2.7.0
 uvicorn==0.48.0
 playwright==1.57.0
 pytest==9.0.2

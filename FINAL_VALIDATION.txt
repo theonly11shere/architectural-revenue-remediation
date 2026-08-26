@@ -1,0 +1,54 @@
+TRILLOKA V7.1.1 SECURE COMPLETE VALIDATION
+==========================================
+
+Network/SSRF hardening: INCLUDED
+Pinned server-side HTTP transport: INCLUDED
+Redirect revalidation: INCLUDED
+Private/link-local/metadata blocking: INCLUDED
+Browser target pinning + request guard: INCLUDED
+Browser WebSocket guard: INCLUDED
+Service-worker/WebRTC/WebTransport hardening: INCLUDED
+Security-blocked negative evidence downgraded to UNKNOWN/PARTIAL: INCLUDED
+
+[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m [100%][0m
+[32m[32m[1m72 passed[0m[32m in 0.58s[0m[0m
+
+======================================================================
+ TRILLOKA V7.1.1 REAL-WORLD + NETWORK SECURITY INTEGRITY SUITE 
+======================================================================
+[PASS] Core Python compile + warnings-as-errors
+       [32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m [100%][0m
+       [32m[32m[1m72 passed[0m[32m in 0.45s[0m[0m
+[PASS] Full regression suite
+[PASS] API gateway imports with complete runtime dependencies
+[PASS] Deployment manifest includes EmailStr dependency
+[PASS] SSRF/network target hardening is enforced
+[PASS] Browser cross-origin network policy fails closed
+[PASS] Canonical 3-layer score reproducibility
+[PASS] Explicit general remains provisional general
+[PASS] Restaurant click/sticky + overlap
+[PASS] Static sticky checkpoint stays UNKNOWN
+[PASS] Report compatibility wording
+[PASS] Action intent false-positive hardening
+[PASS] Context boilerplate false-positive filtering
+[PASS] Conversion readiness calibration
+[PASS] Surface metrics reconcile to earned layers
+[PASS] Maturity thresholds advisory + 100-point report scale
+[PASS] Competitor query uses specific offering evidence
+[PASS] High-impact confirmation targets revenue path
+[PASS] Financial exposure remains decoupled from score loss
+[PASS] Foundation omission signal stays separate and non-disclosing
+[PASS] Revenue-path failures outweigh minor search hygiene
+[PASS] 60-point architecture uses non-compensatory commercial pillars
+[PASS] Provisional journeys cannot over-earn readiness
+[PASS] Hasler-style good-looking site calibrates below easy Good band
+[PASS] Commercial exposure uses expected-value inputs, not score points
+[PASS] Competitor probe rejects business/content identity conflicts
+======================================================================
+ RESULT: 26/26 checks passed
+======================================================================
+
+Warnings-as-errors compile: PASS
+Runtime import: PASS — 7.1.1 v7.1.1
+
+Scope: exact local package validated offline. Live hosting credentials, Google APIs, production DNS/networking and installed Chromium still require post-deploy smoke testing.

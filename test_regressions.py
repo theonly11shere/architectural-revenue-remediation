@@ -1179,3 +1179,212 @@ def test_admin_auth_module_roundtrip_without_storing_plain_otp(monkeypatch):
     assert manager.session_status(session.token)["authenticated"] is True
     manager.revoke_session(session.token)
     assert manager.validate_session(session.token) is False
+
+
+def test_requirements_include_email_validator_for_emailstr():
+    """Production requirements must include the dependency Pydantic EmailStr imports at model construction."""
+    from pathlib import Path
+    requirements = (Path(__file__).resolve().parent / "requirements.txt").read_text(encoding="utf-8").lower()
+    assert "email-validator" in requirements or "pydantic[email]" in requirements
+
+
+
+def test_network_security_blocks_classic_ssrf_targets(monkeypatch):
+    import socket
+    import pytest
+    import network_security as ns
+
+    blocked = [
+        "http://127.0.0.1/",
+        "http://127.1/",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://10.0.0.1/",
+        "http://192.168.1.10/",
+        "http://[::1]/",
+        "http://[::ffff:127.0.0.1]/",
+        "http://2130706433/",
+        "http://0x7f000001/",
+        "http://0177.0.0.1/",
+        "http://100.64.0.1/",
+        "http://224.0.0.1/",
+        "https://localhost/",
+        "https://service.local/",
+        "file:///etc/passwd",
+        "ftp://example.com/file",
+        "https://user:pass@example.com/",
+        "https://example.com:22/",
+    ]
+    for target in blocked:
+        with pytest.raises(ns.NetworkTargetError):
+            ns.validate_public_http_url(target)
+
+
+def test_network_security_rejects_hostname_that_dns_resolves_private(monkeypatch):
+    import socket
+    import pytest
+    import network_security as ns
+
+    def fake_getaddrinfo(host, port, family=0, type=0, proto=0):
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.23.4.5", port))]
+
+    monkeypatch.setattr(ns.socket, "getaddrinfo", fake_getaddrinfo)
+    with pytest.raises(ns.NetworkTargetError) as exc:
+        ns.validate_public_http_url("https://public-looking.example/")
+    assert exc.value.reason == "NON_PUBLIC_ADDRESS"
+
+
+def test_network_security_rejects_mixed_public_private_dns(monkeypatch):
+    import socket
+    import pytest
+    import network_security as ns
+
+    def fake_getaddrinfo(host, port, family=0, type=0, proto=0):
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", port)),
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("127.0.0.1", port)),
+        ]
+
+    monkeypatch.setattr(ns.socket, "getaddrinfo", fake_getaddrinfo)
+    with pytest.raises(ns.NetworkTargetError) as exc:
+        ns.validate_public_http_url("https://mixed.example/")
+    assert exc.value.reason == "NON_PUBLIC_ADDRESS"
+
+
+def test_safe_http_revalidates_redirect_before_following(monkeypatch):
+    import socket
+    import pytest
+    import network_security as ns
+
+    def fake_getaddrinfo(host, port, family=0, type=0, proto=0):
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", port))]
+
+    monkeypatch.setattr(ns.socket, "getaddrinfo", fake_getaddrinfo)
+
+    class FakeClient(ns.SafeHTTPClient):
+        def __init__(self):
+            super().__init__()
+            self.calls = 0
+        def _request_once(self, target, *, timeout, headers, max_bytes):
+            self.calls += 1
+            return ns.SafeHTTPResponse(
+                302,
+                target.url,
+                {"Location": "http://169.254.169.254/latest/meta-data/iam/security-credentials/"},
+                b"",
+            )
+
+    client = FakeClient()
+    with pytest.raises(ns.NetworkTargetError) as exc:
+        client.get("https://safe.example/")
+    assert exc.value.reason == "NON_PUBLIC_ADDRESS"
+    assert client.calls == 1
+
+
+def test_safe_http_connects_to_validated_ip_not_second_dns_lookup(monkeypatch):
+    import socket
+    import network_security as ns
+
+    def fake_getaddrinfo(host, port, family=0, type=0, proto=0):
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", port))]
+
+    monkeypatch.setattr(ns.socket, "getaddrinfo", fake_getaddrinfo)
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+        headers = {"Content-Type": "text/html; charset=utf-8"}
+        def read(self, amount, decode_content=True):
+            return b"<html>ok</html>"
+        def release_conn(self):
+            pass
+
+    class FakePool:
+        def __init__(self, **kwargs):
+            captured["pool"] = kwargs
+        def request(self, method, target, headers=None, **kwargs):
+            captured["method"] = method
+            captured["target"] = target
+            captured["headers"] = dict(headers or {})
+            return FakeResponse()
+        def close(self):
+            pass
+
+    monkeypatch.setattr(ns.urllib3, "HTTPSConnectionPool", FakePool)
+    response = ns.SafeHTTPClient().get("https://safe.example/path?q=1", allow_redirects=False)
+    assert response.status_code == 200
+    assert captured["pool"]["host"] == "93.184.216.34"
+    assert captured["pool"]["server_hostname"] == "safe.example"
+    assert captured["pool"]["assert_hostname"] == "safe.example"
+    assert captured["headers"]["Host"] == "safe.example"
+
+
+def test_websocket_network_guard_blocks_internal_targets():
+    import pytest
+    import network_security as ns
+
+    with pytest.raises(ns.NetworkTargetError):
+        ns.validate_public_websocket_url("ws://127.0.0.1:80/socket")
+    with pytest.raises(ns.NetworkTargetError):
+        ns.validate_public_websocket_url("wss://localhost/socket")
+
+
+def test_network_security_module_is_in_runtime_manifest():
+    from pathlib import Path
+    root = Path(__file__).resolve().parent
+    requirements = (root / "requirements.txt").read_text(encoding="utf-8").lower()
+    assert (root / "network_security.py").exists()
+    assert "urllib3" in requirements
+
+
+
+def test_browser_cross_origin_policy_blocks_attacker_controlled_hosts(monkeypatch):
+    import network_security as ns
+
+    monkeypatch.delenv("TRILLOKA_BROWSER_TRUSTED_HOSTS", raising=False)
+    assert ns.browser_cross_origin_host_allowed("www.target.example", "www.target.example") is True
+    assert ns.browser_cross_origin_host_allowed("fonts.gstatic.com", "www.target.example") is True
+    assert ns.browser_cross_origin_host_allowed("cdn.jsdelivr.net", "www.target.example") is True
+    assert ns.browser_cross_origin_host_allowed("rebind.attacker.example", "www.target.example") is False
+    assert ns.browser_cross_origin_host_allowed("internal.target.example", "www.target.example") is False
+
+
+def test_browser_cross_origin_policy_admin_extension_is_explicit(monkeypatch):
+    import network_security as ns
+
+    monkeypatch.setenv("TRILLOKA_BROWSER_TRUSTED_HOSTS", "assets.customer-cdn.example")
+    assert ns.browser_cross_origin_host_allowed("assets.customer-cdn.example", "www.target.example") is True
+    assert ns.browser_cross_origin_host_allowed("evil.assets.customer-cdn.example", "www.target.example") is True
+    assert ns.browser_cross_origin_host_allowed("customer-cdn.example.evil.test", "www.target.example") is False
+
+
+
+def test_security_blocked_browser_resources_cannot_create_false_negative_leaks():
+    from hybrid_scanner import HybridScanner
+
+    scanner = HybridScanner()
+    static = {
+        "static_html_verified": True,
+        "static_html_error": "",
+        "forms_present": False,
+        "mobile_cta_status": "unknown",
+    }
+    dom = {
+        "browser_loaded": True,
+        "dom_complete": True,
+        "page_text": "A rendered page with enough visible text for normal evidence collection.",
+        "bot_challenge_suspected": False,
+        "browser_blocked_request_count": 2,
+        "browser_network_restricted": True,
+        "forms_present": False,
+        "mobile_cta_status": "partial",
+        "mobile_primary_cta_present": None,
+        "mobile_sticky_cta_present": None,
+        "mobile_cta_visible": None,
+        "mobile_cta_types": [],
+    }
+    assert scanner._dom_evidence_complete(dom) is False
+    merged = scanner._merge_static_and_dom(static, dom)
+    assert merged["forms_present"] is None
+    assert merged["mobile_primary_cta_present"] is None
+    assert merged["mobile_sticky_cta_present"] is None
+    assert merged["mobile_cta_status"] == "partial"

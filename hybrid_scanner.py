@@ -40,6 +40,11 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 import requests
 from playwright.async_api import async_playwright
 
+from network_security import (
+    NetworkTargetError, SafeHTTPClient, browser_cross_origin_host_allowed, browser_non_network_scheme_allowed,
+    validate_public_http_url, validate_public_websocket_url,
+)
+
 from architecture_model import (
     JOURNEY_PAGE_TERMS, JOURNEY_PAGE_GUESSES,
     competitor_search_text as architecture_competitor_search_text,
@@ -245,7 +250,7 @@ class _StaticHTMLProbe(HTMLParser):
 
 
 class HybridScanner:
-    ENGINE_VERSION = "v7.1"
+    ENGINE_VERSION = "v7.1.1"
     """Three-phase scanner with evidence confidence and business context."""
 
     def __init__(self, google_api_key: Optional[str] = None):
@@ -264,11 +269,17 @@ class HybridScanner:
             or ""
         ).strip()
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": "TrillokaBot/2.0 Revenue Architecture Auditor"})
+        # Fixed Google API calls use this session. Disable environment proxy inheritance so
+        # deployment-level proxy variables cannot silently reroute security-sensitive traffic.
+        self.session.trust_env = False
+        self.session.headers.update({"User-Agent": "TrillokaBot/3.2 Secure Revenue Architecture Auditor"})
+        # Every user/page-derived destination goes through a DNS-validated, IP-pinned client.
+        self.safe_http = SafeHTTPClient(default_headers={"User-Agent": "TrillokaBot/3.2 Secure Revenue Architecture Auditor"})
 
     async def execute_hybrid_scan(self, target_domain: str, business_name: str = "", business_type: str = "auto") -> Dict[str, Any]:
         """Run HTTP, Google and mobile-browser evidence collection."""
-        url = self._normalize_url(target_domain)
+        # Resolve and reject unsafe destinations before any outbound scan work.
+        url = self.safe_http.normalize_target(target_domain)
         scan_started_at = self._utc_now()
 
         # Keep Playwright on this event loop while moving blocking requests work
@@ -410,12 +421,8 @@ class HybridScanner:
 
     @staticmethod
     def _normalize_url(target_domain: str) -> str:
-        value = (target_domain or "").strip()
-        if not value:
-            raise ValueError("Target domain is required")
-        if value.startswith(("http://", "https://")):
-            return value
-        return f"https://{value}"
+        """Backward-compatible normalizer with strict public-network validation."""
+        return validate_public_http_url(target_domain).url
 
     def _fast_http_preflight(self, url: str) -> Dict[str, Any]:
         preflight: Dict[str, Any] = {
@@ -434,7 +441,7 @@ class HybridScanner:
             "_http_html": "",
         }
         try:
-            response = self.session.get(url, timeout=(5, 12), allow_redirects=True)
+            response = self.safe_http.get(url, timeout=(5, 12), allow_redirects=True, max_bytes=1_600_000)
             history = [
                 {"status_code": r.status_code, "url": r.url, "location": r.headers.get("Location")}
                 for r in response.history
@@ -481,7 +488,7 @@ class HybridScanner:
             http_url = urllib.parse.urlunparse(
                 ("http", parsed.netloc, parsed.path or "/", parsed.params, parsed.query, "")
             )
-            response = self.session.get(http_url, timeout=(4, 8), allow_redirects=True)
+            response = self.safe_http.get(http_url, timeout=(4, 8), allow_redirects=True, max_bytes=180_000)
             final_scheme = urllib.parse.urlparse(response.url).scheme.lower()
             if final_scheme == "https":
                 return True
@@ -513,7 +520,7 @@ class HybridScanner:
 
         sitemap_candidates: List[str] = [f"{origin}/sitemap.xml"]
         try:
-            robots = self.session.get(f"{origin}/robots.txt", timeout=(4, 8), allow_redirects=True)
+            robots = self.safe_http.get(f"{origin}/robots.txt", timeout=(4, 8), allow_redirects=True, max_bytes=300_000)
             out["robots_status_code"] = robots.status_code
             if robots.status_code == 200 and (robots.text or "").strip():
                 out["robots_valid"] = True
@@ -529,7 +536,7 @@ class HybridScanner:
 
         for candidate in dict.fromkeys(sitemap_candidates):
             try:
-                sitemap = self.session.get(candidate, timeout=(4, 8), allow_redirects=True)
+                sitemap = self.safe_http.get(candidate, timeout=(4, 8), allow_redirects=True, max_bytes=500_000)
                 out["sitemap_status_code"] = sitemap.status_code
                 sample = (sitemap.text or "")[:2000].lower()
                 if sitemap.status_code == 200 and ("<urlset" in sample or "<sitemapindex" in sample):
@@ -1009,9 +1016,9 @@ class HybridScanner:
         if not url:
             return {"website_probed": False, "commercial_score": None, "probe_reason": "No website URL"}
         try:
-            response = requests.get(
-                self._normalize_url(url), timeout=(3, 7), allow_redirects=True,
-                headers={"User-Agent": "TrillokaBot/3.1 Local Benchmark Probe"},
+            response = self.safe_http.get(
+                self._normalize_url(url), timeout=(3, 7), allow_redirects=True, max_bytes=800_000,
+                headers={"User-Agent": "TrillokaBot/3.2 Secure Local Benchmark Probe"},
             )
             if not (200 <= response.status_code < 400):
                 return {"website_probed": False, "commercial_score": None, "probe_reason": f"HTTP {response.status_code}"}
@@ -1866,7 +1873,7 @@ class HybridScanner:
         }
         for url in urls:
             try:
-                response = self.session.get(url, timeout=(3, 7), allow_redirects=True)
+                response = self.safe_http.get(url, timeout=(3, 7), allow_redirects=True, max_bytes=800_000)
                 status = int(response.status_code)
                 if not (200 <= status < 400):
                     role = self._journey_role(url)
@@ -2070,7 +2077,7 @@ class HybridScanner:
                 "method": "passive external booking destination GET",
             }
             try:
-                response = self.session.get(url, timeout=(4, 10), allow_redirects=True)
+                response = self.safe_http.get(url, timeout=(4, 10), allow_redirects=True, max_bytes=250_000)
                 code = int(response.status_code)
                 result["status_code"] = code
                 result["final_url"] = self._safe_evidence_url(response.url)
@@ -2319,7 +2326,7 @@ class HybridScanner:
                     if isinstance(x, dict) and x.get("key")
                 }
             try:
-                r = await asyncio.to_thread(self.session.get, error_url, timeout=(4, 10), allow_redirects=True)
+                r = await asyncio.to_thread(self.safe_http.get, error_url, timeout=(4, 10), allow_redirects=True, max_bytes=800_000)
                 if 200 <= int(r.status_code) < 400:
                     second_error_static = self._extract_static_html_evidence((r.text or "")[:750000], r.url, verified=True)
                     second_error_static["status_code"] = int(r.status_code)
@@ -2349,7 +2356,7 @@ class HybridScanner:
         second_static_combined: Dict[str, Any] = {}
         if need_static:
             try:
-                r = await asyncio.to_thread(self.session.get, base_url, timeout=(4, 10), allow_redirects=True)
+                r = await asyncio.to_thread(self.safe_http.get, base_url, timeout=(4, 10), allow_redirects=True, max_bytes=800_000)
                 if 200 <= int(r.status_code) < 400:
                     second_static_combined = self._extract_static_html_evidence((r.text or "")[:750000], r.url, verified=True)
                     links = self._union_strings(scan_data.get("internal_links"), [str(x.get("url")) for x in scan_data.get("journey_pages_scanned", []) if isinstance(x, dict) and x.get("url")])
@@ -2707,6 +2714,7 @@ class HybridScanner:
             data.get("browser_loaded")
             and data.get("dom_complete")
             and not data.get("bot_challenge_suspected")
+            and int(data.get("browser_blocked_request_count") or 0) == 0
             and len(str(data.get("page_text") or "")) >= 20
         )
 
@@ -2856,17 +2864,29 @@ class HybridScanner:
         # Mobile CTA evidence must come from the mobile viewport. A desktop retry may recover
         # document evidence but must never masquerade as mobile sticky-CTA verification.
         mobile_attempt = first if first.get("browser_mode", "mobile") == "mobile" else second
-        if str(mobile_attempt.get("mobile_cta_status") or "unknown") == "verified":
+        mobile_status = str(mobile_attempt.get("mobile_cta_status") or "unknown").lower()
+        if mobile_status == "verified":
             for key in (
                 "mobile_cta_visible", "mobile_primary_cta_present", "mobile_sticky_cta_present",
                 "mobile_cta_status", "mobile_cta_type", "mobile_cta_types", "mobile_cta_evidence",
                 "add_to_cart_visible", "order_online_present", "reservation_present", "booking_action_present", "directions_present",
             ):
                 merged[key] = mobile_attempt.get(key)
+        elif mobile_status == "partial":
+            merged["mobile_cta_status"] = "partial"
+            merged["mobile_cta_types"] = list(mobile_attempt.get("mobile_cta_types") or [])
+            merged["mobile_cta_evidence"] = list(mobile_attempt.get("mobile_cta_evidence") or [])
+            merged["mobile_cta_type"] = mobile_attempt.get("mobile_cta_type") or "unknown"
+            for key in (
+                "mobile_cta_visible", "mobile_primary_cta_present", "mobile_sticky_cta_present",
+                "add_to_cart_visible", "order_online_present", "reservation_present", "booking_action_present", "directions_present",
+            ):
+                merged[key] = True if mobile_attempt.get(key) is True else None
         else:
             merged["mobile_cta_status"] = "unknown"
-            merged["mobile_sticky_cta_present"] = False
-            merged["mobile_cta_visible"] = False
+            merged["mobile_primary_cta_present"] = None
+            merged["mobile_sticky_cta_present"] = None
+            merged["mobile_cta_visible"] = None
 
         merged["browser_retry_used"] = True
         merged["browser_attempts"] = [first.get("browser_mode", "mobile"), second.get("browser_mode", "desktop")]
@@ -3092,13 +3112,26 @@ class HybridScanner:
         )
 
         # Mobile CTA evidence remains browser/mobile-only; raw HTML cannot prove visibility/stickiness.
-        if str(dom.get("mobile_cta_status") or "unknown") == "verified":
+        dom_mobile_status = str(dom.get("mobile_cta_status") or "unknown").lower()
+        if dom_mobile_status == "verified":
             for key in (
                 "mobile_cta_visible", "mobile_primary_cta_present", "mobile_sticky_cta_present",
                 "mobile_cta_status", "mobile_cta_type", "mobile_cta_types", "mobile_cta_evidence",
                 "add_to_cart_visible", "order_online_present", "reservation_present", "booking_action_present", "directions_present",
             ):
                 merged[key] = dom.get(key)
+        elif dom_mobile_status == "partial":
+            merged["mobile_cta_status"] = "partial"
+            merged["mobile_cta_types"] = self._union_strings(merged.get("mobile_cta_types"), dom.get("mobile_cta_types"))
+            merged["mobile_cta_evidence"] = list(dom.get("mobile_cta_evidence") or [])
+            for key in (
+                "mobile_cta_visible", "mobile_primary_cta_present", "mobile_sticky_cta_present",
+                "add_to_cart_visible", "order_online_present", "reservation_present", "booking_action_present", "directions_present",
+            ):
+                if dom.get(key) is True:
+                    merged[key] = True
+                elif merged.get(key) is not True:
+                    merged[key] = None
 
         # Images: rendered DOM is preferred when available; otherwise keep complete static evidence.
         if (self._to_int(dom.get("total_images"), 0) or 0) > 0 or (dom_complete and dom.get("missing_alt_images") is not None):
@@ -3290,6 +3323,24 @@ class HybridScanner:
         post_load_wait_ms: int = 0,
     ) -> Dict[str, Any]:
         results = self._empty_dom_meta()
+        # Validate the browser's top-level destination before Chromium is launched.  The
+        # validated IPv4 is pinned into Chromium's resolver so the socket cannot be switched
+        # to a private address between our DNS check and page navigation.  IPv6-only sites
+        # remain statically scannable rather than weakening the browser guardrail.
+        try:
+            browser_target = await asyncio.to_thread(validate_public_http_url, url)
+        except NetworkTargetError as exc:
+            results["browser_error"] = f"network target blocked: {exc}"
+            results["browser_security_status"] = "BLOCKED_UNSAFE_TARGET"
+            return results
+        pinned_ipv4 = browser_target.preferred_ipv4
+        if not pinned_ipv4:
+            results["browser_error"] = "Strict browser SSRF mode requires a validated public IPv4 target; static evidence remains available."
+            results["browser_security_status"] = "IPV6_ONLY_STATIC_FALLBACK"
+            return results
+        results["browser_security_status"] = "PUBLIC_TARGET_PINNED"
+        results["browser_blocked_request_count"] = 0
+        results["browser_blocked_requests"] = []
         audits = (psi_data.get("lighthouseResult") or {}).get("audits") or {}
         tap_items = ((audits.get("tap-targets") or {}).get("details") or {}).get("items")
         if isinstance(tap_items, list):
@@ -3302,7 +3353,12 @@ class HybridScanner:
         async with async_playwright() as playwright:
             launch_kwargs: Dict[str, Any] = {
                 "headless": True,
-                "args": ["--no-sandbox", "--disable-setuid-sandbox"],
+                "args": [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--no-proxy-server",
+                    f"--host-resolver-rules=MAP {browser_target.host} {pinned_ipv4}",
+                ],
             }
             chromium_executable = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE", "").strip()
             if chromium_executable:
@@ -3320,12 +3376,91 @@ class HybridScanner:
                     "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
                     "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
                 )
-            context = await browser.new_context(viewport=viewport, user_agent=user_agent)
+            context = await browser.new_context(
+                viewport=viewport,
+                user_agent=user_agent,
+                service_workers="block",
+            )
             results["browser_mode"] = mode
+            booking_trusted_hosts = tuple(
+                domain
+                for domains in BOOKING_PROVIDER_HOSTS.values()
+                for domain in domains
+            )
+            # WebRTC/WebTransport are unnecessary for passive website evidence and can create
+            # alternate network paths outside ordinary fetch/navigation interception.
+            await context.add_init_script(
+                """
+                (() => {
+                  try { Object.defineProperty(window, 'RTCPeerConnection', {value: undefined, configurable: false}); } catch(e) {}
+                  try { Object.defineProperty(window, 'webkitRTCPeerConnection', {value: undefined, configurable: false}); } catch(e) {}
+                  try { Object.defineProperty(window, 'WebTransport', {value: undefined, configurable: false}); } catch(e) {}
+                })();
+                """
+            )
             page = await context.new_page()
 
+            async def _record_blocked(request_url: str, reason: str) -> None:
+                results["browser_blocked_request_count"] = int(results.get("browser_blocked_request_count") or 0) + 1
+                items = results.setdefault("browser_blocked_requests", [])
+                if isinstance(items, list) and len(items) < 20:
+                    items.append({"url": self._safe_evidence_url(request_url), "reason": str(reason)[:120]})
+
+            async def _guard_route(route, request) -> None:
+                request_url = str(request.url or "")
+                try:
+                    parts = urllib.parse.urlsplit(request_url)
+                    scheme = str(parts.scheme or "").lower()
+                    if scheme in {"http", "https"}:
+                        checked = await asyncio.to_thread(validate_public_http_url, request_url)
+                        if not browser_cross_origin_host_allowed(
+                            checked.host, browser_target.host, extra_trusted_hosts=booking_trusted_hosts
+                        ):
+                            raise NetworkTargetError(
+                                "Untrusted cross-origin browser destination blocked",
+                                "UNTRUSTED_CROSS_ORIGIN",
+                            )
+                        # The top-level page is pinned.  Because the HTTP preflight has already
+                        # resolved redirects, a new cross-host main-frame navigation is unnecessary
+                        # for evidence collection and is blocked rather than giving an untrusted page
+                        # another unpinned navigation surface. Subresources still require public DNS.
+                        if request.is_navigation_request() and request.frame == page.main_frame and checked.host != browser_target.host:
+                            raise NetworkTargetError("Cross-host top-level browser navigation blocked", "CROSS_HOST_NAVIGATION")
+                        await route.continue_()
+                        return
+                    if browser_non_network_scheme_allowed(request_url):
+                        await route.continue_()
+                        return
+                    raise NetworkTargetError("Non-web browser network scheme blocked", "INVALID_SCHEME")
+                except Exception as exc:
+                    await _record_blocked(request_url, getattr(exc, "reason", str(exc)))
+                    await route.abort("blockedbyclient")
+
+            async def _guard_websocket(ws_route) -> None:
+                ws_url = str(ws_route.url or "")
+                try:
+                    checked_ws = await asyncio.to_thread(validate_public_websocket_url, ws_url)
+                    if not browser_cross_origin_host_allowed(
+                        checked_ws.host, browser_target.host, extra_trusted_hosts=booking_trusted_hosts
+                    ):
+                        raise NetworkTargetError(
+                            "Untrusted cross-origin WebSocket destination blocked",
+                            "UNTRUSTED_CROSS_ORIGIN",
+                        )
+                    await ws_route.connect_to_server()
+                except Exception as exc:
+                    await _record_blocked(ws_url, getattr(exc, "reason", str(exc)))
+                    try:
+                        await ws_route.close(code=1008, reason="Blocked by scanner network policy")
+                    except Exception:
+                        pass
+
+            await context.route("**/*", _guard_route)
+            if hasattr(context, "route_web_socket"):
+                await context.route_web_socket("**/*", _guard_websocket)
+
             try:
-                response = await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                response = await page.goto(browser_target.url, wait_until="domcontentloaded", timeout=20000)
                 results["browser_loaded"] = True
                 results["browser_status_code"] = response.status if response else None
 
@@ -3600,6 +3735,21 @@ class HybridScanner:
                 cms, cms_confidence = await self._detect_cms(page, content_lower)
                 results["cms_platform"] = cms
                 results["cms_confidence"] = cms_confidence
+
+                # Security-blocked third-party resources can make negative rendered-DOM
+                # observations incomplete. Keep every positive observation, but downgrade
+                # browser-only CTA absence to PARTIAL so security hardening cannot manufacture
+                # a false conversion leak. UNKNOWN earns no readiness points in the scorer.
+                if int(results.get("browser_blocked_request_count") or 0) > 0:
+                    results["browser_network_restricted"] = True
+                    results["mobile_cta_status"] = "partial"
+                    for key in (
+                        "mobile_primary_cta_present", "mobile_sticky_cta_present",
+                        "mobile_cta_visible", "add_to_cart_visible", "order_online_present",
+                        "reservation_present", "booking_action_present", "directions_present",
+                    ):
+                        if results.get(key) is False:
+                            results[key] = None
 
             except Exception as exc:
                 results["browser_error"] = str(exc)
@@ -4022,6 +4172,8 @@ class HybridScanner:
         challenge = bool(data.get("bot_challenge_suspected") or data.get("http_bot_challenge_suspected"))
         pagespeed_available = data.get("pagespeed_api_status") == "success"
         crux_available = bool(data.get("crux_available"))
+        browser_blocked_request_count = int(data.get("browser_blocked_request_count") or 0)
+        browser_network_restricted = browser_blocked_request_count > 0
 
         if browser_loaded and not challenge and (dom_complete or response_ok):
             confidence = "high" if response_ok and dom_complete else "medium"
@@ -4029,6 +4181,8 @@ class HybridScanner:
             confidence = "medium"
         else:
             confidence = "low"
+        if browser_network_restricted and confidence == "high":
+            confidence = "medium"
 
         return {
             "http_ok": response_ok,
@@ -4037,6 +4191,8 @@ class HybridScanner:
             "bot_challenge_suspected": challenge,
             "pagespeed_available": pagespeed_available,
             "crux_available": crux_available,
+            "browser_network_restricted": browser_network_restricted,
+            "browser_blocked_request_count": browser_blocked_request_count,
             "confidence": confidence,
         }
 

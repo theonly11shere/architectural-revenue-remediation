@@ -1,4 +1,4 @@
-"""Trilloka V7.1 real-world scanner integrity runner.
+"""Trilloka V7.1.1 real-world scanner integrity runner.
 
 Runs the current Journey + Context scanner/scorer regression suite and targeted
 calibration/hardening checks.  Everything here is passive and offline: it performs
@@ -31,6 +31,7 @@ CORE_FILES = (
     "admin_auth.py",
     "scan_access.py",
     "scraper.py",
+    "network_security.py",
 )
 
 
@@ -72,11 +73,58 @@ def test_pytest_regressions() -> None:
 
 def test_main_runtime_import() -> None:
     import main as gateway
-    assert gateway.app.version == "7.1.0"
-    assert gateway.scanner.ENGINE_VERSION == "v7.1"
+    assert gateway.app.version == "7.1.1"
+    assert gateway.scanner.ENGINE_VERSION == "v7.1.1"
     assert gateway.PLAN_CATALOG["essential_350"]["remediation_limit"] == 4
     assert gateway.PLAN_CATALOG["advanced_550"]["remediation_limit"] == 8
 
+
+
+def test_deployment_dependency_manifest() -> None:
+    requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8").lower()
+    if "email-validator" not in requirements and "pydantic[email]" not in requirements:
+        raise AssertionError(
+            "Pydantic EmailStr is used by main.py, but requirements.txt does not install email-validator"
+        )
+
+
+
+def test_network_target_ssrf_hardening() -> None:
+    from network_security import NetworkTargetError, validate_public_http_url
+
+    for target in (
+        "http://127.0.0.1/",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://10.0.0.1/",
+        "http://[::1]/",
+        "https://localhost/",
+        "https://service.local/",
+        "file:///etc/passwd",
+        "https://user:pass@example.com/",
+        "https://example.com:22/",
+    ):
+        try:
+            validate_public_http_url(target)
+        except NetworkTargetError:
+            continue
+        raise AssertionError(f"unsafe network target was accepted: {target}")
+
+    source = (ROOT / "hybrid_scanner.py").read_text(encoding="utf-8")
+    requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8").lower()
+    assert "self.safe_http.get" in source
+    assert 'service_workers="block"' in source
+    assert "host-resolver-rules" in source
+    assert "validate_public_websocket_url" in source
+    assert "urllib3" in requirements
+
+
+def test_browser_cross_origin_fail_closed() -> None:
+    from network_security import browser_cross_origin_host_allowed
+
+    assert browser_cross_origin_host_allowed("www.target.example", "www.target.example") is True
+    assert browser_cross_origin_host_allowed("fonts.gstatic.com", "www.target.example") is True
+    assert browser_cross_origin_host_allowed("rebind.attacker.example", "www.target.example") is False
+    assert browser_cross_origin_host_allowed("internal.target.example", "www.target.example") is False
 
 def test_formula_reproducible() -> None:
     audit = RevenueScorer().audit_and_score(valmont_fixture(), business_type="auto")
@@ -401,12 +449,15 @@ def test_competitor_probe_identity_guard() -> None:
 
 def main() -> int:
     print("=" * 70)
-    print(" TRILLOKA V7.1 REAL-WORLD SCANNER INTEGRITY SUITE ")
+    print(" TRILLOKA V7.1.1 REAL-WORLD + NETWORK SECURITY INTEGRITY SUITE ")
     print("=" * 70)
     checks = (
         ("Core Python compile + warnings-as-errors", test_compile),
         ("Full regression suite", test_pytest_regressions),
         ("API gateway imports with complete runtime dependencies", test_main_runtime_import),
+        ("Deployment manifest includes EmailStr dependency", test_deployment_dependency_manifest),
+        ("SSRF/network target hardening is enforced", test_network_target_ssrf_hardening),
+        ("Browser cross-origin network policy fails closed", test_browser_cross_origin_fail_closed),
         ("Canonical 3-layer score reproducibility", test_formula_reproducible),
         ("Explicit general remains provisional general", test_explicit_general),
         ("Restaurant click/sticky + overlap", test_restaurant_mobile_and_overlap),

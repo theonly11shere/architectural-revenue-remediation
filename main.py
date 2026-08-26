@@ -24,6 +24,7 @@ Commercial access
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import os
@@ -40,6 +41,7 @@ from pydantic import BaseModel, EmailStr
 
 from admin_auth import AdminAuthError, AdminAuthManager
 from hybrid_scanner import HybridScanner
+from network_security import NetworkTargetError, validate_public_http_url
 from scan_access import AccessDenied, AccessTicket, PLAN_CATALOG, ScanAccessManager
 from scorer import RevenueScorer
 
@@ -103,7 +105,7 @@ _PROTECTED_DOMAIN_ROOTS = tuple(
 app = FastAPI(
     title="Trilloka Architect Engine API",
     description="Evidence-weighted Revenue Readiness Diagnostic, local competitor benchmark & tiered report gateway",
-    version="7.1.0",
+    version="7.1.1",
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -412,7 +414,7 @@ def _build_self_snapshot(
         "snapshot_source": "owner_controlled_v7_self_scan",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "target_domain": target_domain,
-        "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.1"),
+        "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.1.1"),
         "overall_score": score,
         "score_rating": audit_results.get("score_rating", ""),
         "score_scope": audit_results.get("score_scope", "Observable website Revenue Readiness only."),
@@ -528,7 +530,7 @@ def handle_trilloka_guardrail(target_domain: str) -> Optional[Dict[str, Any]]:
 def health_check() -> Dict[str, Any]:
     return {
         "status": "online",
-        "system": "Trilloka Architect Engine v7.1.0",
+        "system": "Trilloka Architect Engine v7.1.1",
         "google_api_configured": bool(os.environ.get("PAGESPEED_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
         "places_api_configured": bool(os.environ.get("GOOGLE_PLACES_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("PAGESPEED_API_KEY")),
         "report_engine": REPORT_ENGINE_AVAILABLE,
@@ -1166,7 +1168,7 @@ def _base_success_payload(
         "verification_coverage_note": (admin_master_report or {}).get("verification_coverage_note", ""),
         # Kept in protected server cache. Free responses strip this; paid responses expose all 50.
         "full_50_checkpoint_basis": audit_results.get("full_50_checkpoint_basis", []),
-        "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.1"),
+        "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.1.1"),
         "evidence_receipts": audit_results.get("evidence_receipts", []),
         "high_impact_confirmation": audit_results.get("high_impact_confirmation", {}),
         "unconfirmed_high_impact_observations": audit_results.get("unconfirmed_high_impact_observations", []),
@@ -1415,7 +1417,18 @@ async def _run_audit_impl(
     if guardrail_response:
         return guardrail_response
 
-    domain_key = access_manager.normalize_domain(payload.domain)
+    # Reject SSRF/internal-network targets before quota reservation, cache lookup, Google
+    # API usage, HTTP probing or Chromium launch. DNS is resolved here for an early 400;
+    # the scanner revalidates and pins every actual server-side connection independently.
+    try:
+        validated_target = await asyncio.to_thread(validate_public_http_url, payload.domain)
+    except NetworkTargetError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsafe or invalid scan target ({exc.reason}): {exc}",
+        ) from exc
+
+    domain_key = access_manager.normalize_domain(validated_target.url)
     if not domain_key:
         raise HTTPException(status_code=400, detail="A valid target domain is required")
 
@@ -1507,7 +1520,7 @@ async def _run_audit_impl(
             )
 
     try:
-        scan_data = await _run_scan_async(payload.domain, payload.business_name or "", payload.business_type)
+        scan_data = await _run_scan_async(validated_target.url, payload.business_name or "", payload.business_type)
         if not scan_data.get("is_reachable"):
             raise HTTPException(
                 status_code=400,
