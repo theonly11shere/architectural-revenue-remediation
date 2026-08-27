@@ -1,4 +1,4 @@
-# Trilloka V7.2.1 — Final Revenue Readiness Blueprint
+# Trilloka V7.2.2 — Final Revenue Readiness Blueprint
 
 ## Architecture
 
@@ -46,8 +46,13 @@ The 0–90 Revenue Readiness Index is not a conversion-rate percentage. Even a s
 
 ## V7.2.1 diversified-service journey guardrail
 
-V7.2.1 adds primary-surface precedence for journey inference. Homepage/company proposition, global CTA/action evidence and repeated company-level B2B/project language outrank incidental terminology found only on a secondary service page. This prevents a diversified operator from being classified as Appointment / Consultation merely because one crawled service page contains terms such as `medical clinic` or `consultation`.
+V7.2.1 added primary-surface precedence for journey inference. Homepage/company proposition, global CTA/action evidence and repeated company-level B2B/project language outrank incidental terminology found only on a secondary service page. This prevents a diversified operator from being classified as Appointment / Consultation merely because one crawled service page contains terms such as `medical clinic` or `consultation`.
 
 Secondary journey-page language still contributes evidence, but at a reduced corroborating weight. A genuine clinic/legal/appointment business remains Appointment / Consultation when the primary surface or verified booking action/provider supports that path.
 
 The same corrected journey profile flows into the financial scenario model. Financial priors are never domain-specific overrides; they follow the resolved customer journey and context tags.
+
+
+## V7.2.2 launch-hardening semantics
+
+V7.2.2 preserves the scoring blueprint and makes three output/discovery corrections only: unsupported typed Nearby searches force specific Text Search peer discovery; verified missing image accessibility text can trigger the generic Foundation Omission Signal; and weak Lighthouse/PageSpeed lab performance is labeled `mobile_lab_performance` when field CrUX is not poor, reserving `core_web_vitals` for real-user field evidence. These changes do not alter the public score anchors.

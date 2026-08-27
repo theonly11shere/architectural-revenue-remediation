@@ -1,83 +1,45 @@
-TRILLOKA V7.2.1 JOURNEY + FINANCIAL CORRECTION — FINAL VALIDATION
-=================================================================
+TRILLOKA V7.2.2 LAUNCH CANDIDATE — FINAL LOCAL VALIDATION
+=========================================================
 
-Runtime: FastAPI 7.2.1 / scanner v7.2.1
+Runtime: FastAPI 7.2.2 / scanner v7.2.2
 Score method: real_world_v3_blueprint90
 Public score ceiling: 90
-Canonical architecture: 22 Foundation + 60 Revenue/User + 18 Elite = 100 canonical strength
+Canonical architecture: 22 Foundation + 60 Revenue/User + 18 Elite = 100 internal strength
 
-Changes in this patch:
-- Primary company/homepage proposition outranks secondary service-page vocabulary.
-- Journey-page text remains usable but is down-weighted as corroborating evidence.
-- Diversified B2B/project/service patterns reinforce Lead / Quote when global contact/call evidence supports it.
-- Appointment / Consultation requires primary appointment/service evidence or verified booking corroboration when competing B2B signals exist.
-- A single secondary regulated service phrase cannot create a company-wide regulated/high-trust context.
-- Enterprise/considered-purchase context recognizes project/operations/support-service language.
-- Financial scenario output now exposes the journey model/label used.
-- Privacy Policy Trust Gap copy no longer assumes healthcare; it states the actual applicable data/tracking/commerce/regulated/sensitive-data basis.
-- Blueprint90 scoring architecture, UNKNOWN policy, safe-submission behavior, CrUX override, competitor safeguards and SSRF/network hardening are preserved.
+V7.2.2 is a narrow launch-hardening patch. Blueprint90 calibration and the core Journey + Context scoring architecture were not re-tuned.
 
-Fairweather-style regression replay:
-- Corrected journey: Lead / Quote
-- Corrected context: Enterprise / Considered Purchase (+ local contact context where observed)
-- Secondary medical service vocabulary does not hijack the company-level journey.
-- Reusing the original scan's three verified financial finding families:
-  annual opportunity scenario: $18,750–$324,000
-  combined modeled impairment: 4.4%
-  central modeled exposure: $7,500/year
-  displayed range: $500–$16,500/year — LOW scenario exposure
-  confidence: SCENARIO / SCENARIO_PRIOR
-- This is a model replay against the original verified findings, not a fresh live network scan.
+Verified launch corrections:
+- Unsupported typed Nearby searches force a specific Text Search even when the untyped Nearby retry returns unrelated results.
+- Specific Text Search results are preferred for peer discovery after a rejected type filter.
+- Checkpoint 34 (verified missing image accessibility text) can trigger the generic non-disclosing Foundation Notice.
+- CrUX GOOD + weak PageSpeed uses `mobile_lab_performance` / "Mobile Lab Performance Headroom" rather than falsely labeling the lab score a Core Web Vitals failure.
+- `core_web_vitals` remains reserved for poor real-user CrUX evidence.
+- CrUX GOOD still reduces only the financial causal exposure of weak lab performance; the observable lab finding remains visible.
 
-Validation:
+Preserved behavior:
+- Journey/context architecture and V7.2.1 diversified-B2B guardrails.
+- Non-compensatory 22/60/18 score architecture and Blueprint90 mapping.
+- UNKNOWN is not FAIL and causes no deduction.
+- SAFE_SUBMISSION_LIMIT.
+- Elite eligibility gates.
+- Financial exposure decoupled from readiness score loss.
+- Competitor benchmark does not directly alter Revenue Readiness.
+- SSRF/network target hardening.
 
-[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m [ 88%]
-[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m                                                                [100%][0m
-[32m[32m[1m81 passed[0m[32m in 0.73s[0m[0m
+Exact-package validation:
+- 84/84 regression tests: PASS
+- 33/33 integrity checks: PASS
+- 36/36 synthetic cases across 6 journeys and 6 score bands: PASS
+- Python warnings-as-errors compile: PASS
+- Runtime version import: 7.2.2 / v7.2.2: PASS
 
-======================================================================
- TRILLOKA V7.2.1 BLUEPRINT90 REAL-WORLD + NETWORK SECURITY INTEGRITY SUITE 
-======================================================================
-[PASS] Core Python compile + warnings-as-errors
-       [32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m [ 88%]
-       [0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m                                                                [100%][0m
-       [32m[32m[1m81 passed[0m[32m in 0.65s[0m[0m
-[PASS] Full regression suite
-[PASS] API gateway imports with complete runtime dependencies
-[PASS] Deployment manifest includes EmailStr dependency
-[PASS] SSRF/network target hardening is enforced
-[PASS] Browser cross-origin network policy fails closed
-[PASS] Canonical 3-layer score reproducibility
-[PASS] Explicit general remains provisional general
-[PASS] Restaurant click/sticky + overlap
-[PASS] Static sticky checkpoint stays UNKNOWN
-[PASS] Report compatibility wording
-[PASS] Action intent false-positive hardening
-[PASS] Context boilerplate false-positive filtering
-[PASS] Conversion readiness calibration
-[PASS] Surface metrics reconcile to earned layers
-[PASS] Maturity thresholds advisory + public 0-90 blueprint scale
-[PASS] Competitor query uses specific offering evidence
-[PASS] High-impact confirmation targets revenue path
-[PASS] Financial exposure remains decoupled from score loss
-[PASS] Foundation omission signal stays separate and non-disclosing
-[PASS] Revenue-path failures outweigh minor search hygiene
-[PASS] 60-point architecture uses non-compensatory commercial pillars
-[PASS] Provisional journeys cannot over-earn readiness
-[PASS] Hasler-style good-looking site calibrates below easy Good band
-[PASS] Commercial exposure uses expected-value inputs, not score points
-[PASS] Blueprint 0-90 public score bands are reproducible
-[PASS] Safe completion + CrUX/financial edge cases are enforced
-[PASS] 36-case synthetic blueprint matrix differentiates all six journeys
-[PASS] Diversified B2B service lines cannot hijack journey or financial priors
-[PASS] Competitor probe rejects business/content identity conflicts
-======================================================================
- RESULT: 30/30 checks passed
-======================================================================
+Synthetic score differentiation remains within the Blueprint90 design:
+- Broken: approximately 27–31
+- Material: approximately 41–44
+- Functional: approximately 49–57
+- Strong: approximately 60–66
+- Exceptional: approximately 71
+- Near-perfect: approximately 86–87
 
-Synthetic matrix:
-PASS: 36 synthetic cases across 6 journeys and 6 score bands
-Saved: /mnt/data/trilloka_v7_2_1_journeyfix_complete/SYNTHETIC_BLUEPRINT_RESULTS.csv
-
-Warnings-as-errors compile: PASS
-Runtime import: PASS — 7.2.1 v7.2.1
+Production caveat:
+These checks validate the exact local package. A deployed smoke test is still required for live Google Places/PageSpeed behavior, production DNS/networking, Chromium, environment variables, and frontend/API wiring.

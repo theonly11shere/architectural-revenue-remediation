@@ -100,6 +100,7 @@ RULE_BASE_WEIGHTS: Dict[str, Dict[str, float]] = {
     # Major architectural blockers. Journey-specific weights are intentionally stronger than hygiene checks.
     "unsecured_ssl": {"default": 8.0},
     "core_web_vitals": {"default": 5.5, "direct_purchase": 7.0, "demo_sales": 6.0},
+    "mobile_lab_performance": {"default": 5.5, "direct_purchase": 7.0, "demo_sales": 6.0},
     "form_architecture": {
         "default": 6.0, "lead_quote": 8.0, "appointment_consultation": 8.5,
         "reservation_event": 8.0, "direct_purchase": 7.5, "demo_sales": 8.0, "membership_subscription": 6.0,
@@ -152,6 +153,7 @@ RULE_BASE_WEIGHTS: Dict[str, Dict[str, float]] = {
 RESEARCH_MULTIPLIER_BY_RULE: Dict[str, Any] = {
     "unsecured_ssl": 1.10,
     "core_web_vitals": 1.15,
+    "mobile_lab_performance": 1.15,
     "form_architecture": 1.15,
     "conversion_path_error": 1.00,
     "primary_conversion_path": 1.20,
@@ -233,7 +235,8 @@ RESEARCH_BASIS_BY_RULE: Dict[str, Dict[str, str]] = {
     "lead_form_friction": {"source": "Nielsen Norman Group", "class": "form usability / conversion research", "scope": "lead-generation forms"},
     "primary_conversion_path": {"source": "Nielsen Norman Group", "class": "conversion-event / task-success research", "scope": "business-specific primary action"},
     "b2b_pricing_transparency": {"source": "Nielsen Norman Group", "class": "B2B usability research", "scope": "B2B research journey"},
-    "core_web_vitals": {"source": "Google web.dev", "class": "real-world performance case studies", "scope": "measured user experience"},
+    "core_web_vitals": {"source": "Google CrUX / web.dev", "class": "field Core Web Vitals evidence", "scope": "measured real-user experience"},
+    "mobile_lab_performance": {"source": "Google Lighthouse / PageSpeed", "class": "controlled mobile lab performance diagnostic", "scope": "synthetic lab run; not field Core Web Vitals"},
     "pagespeed_below_60": {"source": "Google Lighthouse / web.dev", "class": "measured performance", "scope": "mobile performance"},
     "lcp_poor": {"source": "Google CrUX / web.dev", "class": "field/lab performance", "scope": "Core Web Vitals"},
     "inp_poor": {"source": "Google CrUX / web.dev", "class": "field performance", "scope": "Core Web Vitals"},
@@ -365,6 +368,7 @@ LEAK_FAMILY = {
     "b2b_pricing_transparency": "b2b_evaluation",
     "unsecured_ssl": "foundation_security",
     "core_web_vitals": "performance",
+    "mobile_lab_performance": "performance",
     "diluted_h1": "hero_clarity",
     "missing_alt_images": "accessibility_content",
     "favicon_present": "technical_hygiene",
@@ -1822,21 +1826,27 @@ class RevenueScorer:
 
         perf = self._safe_float(data.get("performance_score"))
         crux_grade = str(data.get("real_user_speed_grade") or "UNKNOWN").upper()
-        if data.get("pagespeed_api_status") == "success" and perf is not None and perf < 60:
-            severity = max(0.30, min(1.0, (60.0 - perf) / 40.0 + 0.25))
-            if crux_grade == "POOR":
-                severity = min(1.0, severity + 0.20)
-            leaks.append(self._build_leak(
-                "core_web_vitals", "Critical Mobile Performance Drag",
-                f"Google PageSpeed measured mobile performance at {perf:.0f}/100.", "seo_technical", biz_type,
-                severity, "high", 1.0, competitor_verified,
-                {"performance_score": perf, "crux_grade": crux_grade}, "Google PageSpeed / CrUX"))
-        elif crux_grade == "POOR":
+        if crux_grade == "POOR":
+            # Field telemetry is the authoritative Core Web Vitals signal. A weak lab run may
+            # corroborate it, but the finding is named for the real-user evidence rather than
+            # implying Lighthouse itself is a field CWV measurement.
             leaks.append(self._build_leak(
                 "core_web_vitals", "Poor Real-User Core Web Vitals",
-                "Google CrUX field telemetry indicates poor real-user Core Web Vitals.", "seo_technical", biz_type,
-                0.8, "high", 1.0, competitor_verified,
-                {"crux_lcp_ms": data.get("crux_lcp_ms"), "crux_inp_ms": data.get("crux_inp_ms"), "crux_cls": data.get("crux_cls")}, "Google CrUX"))
+                "Google CrUX field telemetry indicates poor real-user Core Web Vitals." +
+                (f" The same mobile URL also measured {perf:.0f}/100 in PageSpeed lab testing." if perf is not None and data.get("pagespeed_api_status") == "success" else ""),
+                "seo_technical", biz_type,
+                min(1.0, max(0.8, ((60.0 - perf) / 40.0 + 0.45) if perf is not None and perf < 60 else 0.8)),
+                "high", 1.0, competitor_verified,
+                {"performance_score": perf, "crux_grade": crux_grade, "crux_lcp_ms": data.get("crux_lcp_ms"), "crux_inp_ms": data.get("crux_inp_ms"), "crux_cls": data.get("crux_cls")},
+                "Google CrUX / PageSpeed"))
+        elif data.get("pagespeed_api_status") == "success" and perf is not None and perf < 60:
+            severity = max(0.30, min(1.0, (60.0 - perf) / 40.0 + 0.25))
+            field_note = " CrUX field data is GOOD, so this is treated as lab-performance headroom rather than a Core Web Vitals failure." if crux_grade == "GOOD" else " No poor field-CWV conclusion is made from the lab score alone."
+            leaks.append(self._build_leak(
+                "mobile_lab_performance", "Mobile Lab Performance Headroom",
+                f"Google PageSpeed measured mobile lab performance at {perf:.0f}/100." + field_note,
+                "seo_technical", biz_type, severity, "high", 1.0, competitor_verified,
+                {"performance_score": perf, "crux_grade": crux_grade}, "Google PageSpeed / CrUX"))
 
         # Journey-supporting call action only when local direct contact is a normal path.  Legacy
         # restaurant/cafe sites may have a direct-purchase/order-online primary journey while calling
@@ -2120,10 +2130,10 @@ class RevenueScorer:
         }.get(category, 1.0)
         research_multiplier = _research_multiplier(rule_key, biz_type)
         weighted = base_weight * category_multiplier * business_multiplier * research_multiplier
-        competitor_bonus = 1.0 if competitor_verified and rule_key in {"click_to_call", "mobile_sticky_cta", "core_web_vitals", "form_architecture", "primary_conversion_path"} else 0.0
+        competitor_bonus = 1.0 if competitor_verified and rule_key in {"click_to_call", "mobile_sticky_cta", "core_web_vitals", "mobile_lab_performance", "form_architecture", "primary_conversion_path"} else 0.0
         intrinsic_impact = (weighted * severity * substitution) + (competitor_bonus * severity)
         pre_dedupe = intrinsic_impact * conf_mult
-        common_rule_keys = {"unsecured_ssl", "core_web_vitals", "diluted_h1", "missing_alt_images", "favicon_present", "html_lang_attribute"}
+        common_rule_keys = {"unsecured_ssl", "core_web_vitals", "mobile_lab_performance", "diluted_h1", "missing_alt_images", "favicon_present", "html_lang_attribute"}
         return {
             "rule_key": rule_key, "family": LEAK_FAMILY.get(rule_key, rule_key),
             "analysis_layer": "common_foundation" if rule_key in common_rule_keys else "adaptive_architecture",
@@ -2622,6 +2632,7 @@ class RevenueScorer:
             "b2b_pricing_transparency": 0.12,
             "unsecured_ssl": 0.22,
             "core_web_vitals": 0.10,
+            "mobile_lab_performance": 0.10,
             "pagespeed_below_90": 0.03,
             "click_to_call": 0.07,
             "mobile_sticky_cta": 0.05,
@@ -2694,7 +2705,7 @@ class RevenueScorer:
                 str(scan_data.get("real_user_speed_grade") or "UNKNOWN").upper() == "GOOD"
                 and bool(scan_data.get("crux_available"))
             )
-            if rule == "core_web_vitals" and field_perf_good:
+            if rule == "mobile_lab_performance" and field_perf_good:
                 base = min(base, 0.035)
             substitution = max(0.20, min(1.0, float(leak.get("substitution_factor") or 1.0)))
             # Intrinsic severity is already evidence-independent; severity_factor expresses how much
@@ -2706,7 +2717,7 @@ class RevenueScorer:
                 "family": family,
                 "severity_factor": round(severity, 3),
                 "causal_impairment_ceiling": round(base, 3),
-                "field_performance_override": bool(rule == "core_web_vitals" and field_perf_good),
+                "field_performance_override": bool(rule == "mobile_lab_performance" and field_perf_good),
                 "substitution_factor": round(substitution, 3),
                 "modeled_path_impairment": round(fraction, 4),
                 "confidence": str(leak.get("confidence") or "unknown").lower(),

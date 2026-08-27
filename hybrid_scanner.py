@@ -250,7 +250,7 @@ class _StaticHTMLProbe(HTMLParser):
 
 
 class HybridScanner:
-    ENGINE_VERSION = "v7.2.1"
+    ENGINE_VERSION = "v7.2.2"
     """Three-phase scanner with evidence confidence and business context."""
 
     def __init__(self, google_api_key: Optional[str] = None):
@@ -1193,6 +1193,7 @@ class HybridScanner:
         nearby_status = "not_attempted"
         nearby_retry_status = "not_needed"
         nearby_error_detail = ""
+        nearby_type_filter_rejected = False
         try:
             response = self.session.post(endpoint, json=body, headers=headers, timeout=(4, 12))
             nearby_status = f"http_{response.status_code}"
@@ -1207,6 +1208,10 @@ class HybridScanner:
                 # even when it is not accepted as a Nearby filter in the caller's API version.
                 # Retry once without the type restriction before falling back to Text Search.
                 if response.status_code == 400 and "includedPrimaryTypes" in body:
+                    # A typed Nearby 400 means the target's Google primary type cannot be trusted
+                    # as a Nearby filter. Keep an untyped retry only as broad reputation context,
+                    # but force a specific Text Search for actual peer discovery.
+                    nearby_type_filter_rejected = True
                     retry_body = dict(body)
                     retry_body.pop("includedPrimaryTypes", None)
                     retry = self.session.post(endpoint, json=retry_body, headers=headers, timeout=(4, 12))
@@ -1227,7 +1232,8 @@ class HybridScanner:
         nearby_websites = sum(bool(str(x.get("websiteUri") or "")) for x in nearby_places)
         strong_offering_query = bool(search_query and search_query != self._competitor_search_text(journey_model))
         need_text = bool(
-            not nearby_places
+            nearby_type_filter_rejected
+            or not nearby_places
             or primary_type in generic_place_types
             or nearby_websites < 3
             or (strong_offering_query and len(nearby_places) < max_results)
@@ -1250,7 +1256,8 @@ class HybridScanner:
 
         # Specific text results are preferred when the target type is generic; otherwise Nearby
         # remains the primary source and text results merely improve coverage.
-        combined_places = (text_places + nearby_places) if primary_type in generic_place_types else (nearby_places + text_places)
+        prefer_text_results = bool(primary_type in generic_place_types or nearby_type_filter_rejected)
+        combined_places = (text_places + nearby_places) if prefer_text_results else (nearby_places + text_places)
         places: List[Dict[str, Any]] = []
         seen_place_keys: set[str] = set()
         for place in combined_places:
@@ -1262,7 +1269,10 @@ class HybridScanner:
             if len(places) >= max_results:
                 break
 
-        search_strategy = "nearby+specific_text" if nearby_places and text_places else ("specific_text" if text_places else "nearby")
+        if nearby_type_filter_rejected and text_places:
+            search_strategy = "typed_nearby_rejected+specific_text"
+        else:
+            search_strategy = "nearby+specific_text" if nearby_places and text_places else ("specific_text" if text_places else "nearby")
         target_id = str((target_place or {}).get("place_id") or "")
         target_host = self._host_from_url((target_place or {}).get("place_website_uri") or target_scan.get("domain") or "")
         competitors: List[Dict[str, Any]] = []
@@ -1354,6 +1364,7 @@ class HybridScanner:
             "nearby_search_status": nearby_status,
             "nearby_retry_status": nearby_retry_status,
             "nearby_error_detail": nearby_error_detail or None,
+            "nearby_type_filter_rejected": nearby_type_filter_rejected,
             "text_search_status": text_status,
             "target_place_name": target_place.get("place_display_name") or "",
             "target_address": str(target_place.get("place_formatted_address") or ""),

@@ -88,7 +88,7 @@ DEDICATED_CHECKPOINT_RULES = {
     6: "measurement_telemetry",
     7: "primary_conversion_path",
     18: "diluted_h1",
-    25: "core_web_vitals",
+    25: "mobile_lab_performance",
     28: "core_web_vitals",
     29: "core_web_vitals",
     30: "core_web_vitals",
@@ -146,6 +146,12 @@ FOUNDATION_OMISSION_META: Dict[int, Dict[str, str]] = {
         "title": "Mobile Viewport Foundation Missing",
         "why": "A responsive mobile viewport is a basic requirement for modern mobile browsing, not an elite optimization.",
         "solution": "Add a valid viewport meta declaration and verify the primary pages render at device width without forced desktop scaling.",
+    },
+    34: {
+        "level": "BASIC",
+        "title": "Image Accessibility Text Missing",
+        "why": "Rendered informative images should expose appropriate alternative text or equivalent accessibility treatment before advanced optimization is considered complete.",
+        "solution": "Add meaningful alt text to informative images and use empty alt/presentation semantics only for genuinely decorative imagery; then verify the rendered DOM.",
     },
 }
 

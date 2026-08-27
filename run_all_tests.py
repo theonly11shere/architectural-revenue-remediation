@@ -1,4 +1,4 @@
-"""Trilloka V7.2.1 real-world scanner integrity runner.
+"""Trilloka V7.2.2 launch-candidate real-world scanner integrity runner.
 
 Runs the current Journey + Context scanner/scorer regression suite and targeted
 calibration/hardening checks.  Everything here is passive and offline: it performs
@@ -17,7 +17,12 @@ from checkpoint_engine import FAIL, UNKNOWN, build_50_checkpoints, build_foundat
 from hybrid_scanner import HybridScanner
 from report_engine import ReportGenerator
 from scorer import RevenueScorer
-from test_regressions import base_scan, valmont_fixture, _resolved_lead_fixture
+from test_regressions import (
+    base_scan, valmont_fixture, _resolved_lead_fixture,
+    test_unsupported_nearby_type_forces_specific_text_search_even_when_untyped_retry_has_results,
+    test_missing_alt_accessibility_failure_triggers_generic_foundation_notice,
+    test_crux_good_uses_lab_performance_semantics_not_core_web_vitals_failure,
+)
 
 ROOT = Path(__file__).resolve().parent
 CORE_FILES = (
@@ -73,8 +78,8 @@ def test_pytest_regressions() -> None:
 
 def test_main_runtime_import() -> None:
     import main as gateway
-    assert gateway.app.version == "7.2.1"
-    assert gateway.scanner.ENGINE_VERSION == "v7.2.1"
+    assert gateway.app.version == "7.2.2"
+    assert gateway.scanner.ENGINE_VERSION == "v7.2.2"
     assert gateway.PLAN_CATALOG["essential_350"]["remediation_limit"] == 4
     assert gateway.PLAN_CATALOG["advanced_550"]["remediation_limit"] == 8
 
@@ -470,7 +475,7 @@ def test_safe_completion_and_field_performance_edges() -> None:
     assert audit["surface_metrics"]["conversion_path_readiness"] < 100.0
 
     leak = {
-        "rule_key": "core_web_vitals", "family": "performance",
+        "rule_key": "mobile_lab_performance", "family": "performance",
         "economic_severity": 1.15, "intrinsic_severity_score": 1.15,
         "final_score_loss": 1.05, "confidence": "high", "severity_factor": 0.4, "substitution_factor": 1.0,
     }
@@ -524,7 +529,7 @@ def test_multiservice_b2b_journey_and_financial_guardrail() -> None:
 
 def main() -> int:
     print("=" * 70)
-    print(" TRILLOKA V7.2.1 BLUEPRINT90 REAL-WORLD + NETWORK SECURITY INTEGRITY SUITE ")
+    print(" TRILLOKA V7.2.2 LAUNCH-CANDIDATE BLUEPRINT90 REAL-WORLD + SECURITY INTEGRITY SUITE ")
     print("=" * 70)
     checks = (
         ("Core Python compile + warnings-as-errors", test_compile),
@@ -557,6 +562,9 @@ def main() -> int:
         ("36-case synthetic blueprint matrix differentiates all six journeys", test_full_synthetic_blueprint_matrix),
         ("Diversified B2B service lines cannot hijack journey or financial priors", test_multiservice_b2b_journey_and_financial_guardrail),
         ("Competitor probe rejects business/content identity conflicts", test_competitor_probe_identity_guard),
+        ("Unsupported Nearby types force specific Text Search fallback", test_unsupported_nearby_type_forces_specific_text_search_even_when_untyped_retry_has_results),
+        ("Verified missing-alt omission triggers generic Foundation Notice", test_missing_alt_accessibility_failure_triggers_generic_foundation_notice),
+        ("CrUX GOOD uses lab-performance semantics instead of false CWV wording", test_crux_good_uses_lab_performance_semantics_not_core_web_vitals_failure),
     )
     passed = sum(check(name, fn) for name, fn in checks)
     print("=" * 70)
