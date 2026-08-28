@@ -214,6 +214,34 @@ class ScanAccessManager:
                     response_json TEXT NOT NULL
                 );
 
+                -- Durable public scan jobs make long scans resumable. A browser can reconnect,
+                -- poll the same job and replay its own completed free result for 24 hours without
+                -- consuming another free allowance or launching another external scan.
+                CREATE TABLE IF NOT EXISTS scan_jobs (
+                    job_id TEXT PRIMARY KEY,
+                    mode TEXT NOT NULL,
+                    usage_id INTEGER,
+                    device_hash TEXT,
+                    subject_hash TEXT,
+                    domain_key TEXT NOT NULL,
+                    plan_id TEXT,
+                    status TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    completed_at INTEGER,
+                    expires_at INTEGER NOT NULL,
+                    result_json TEXT,
+                    error_status INTEGER,
+                    error_reason TEXT,
+                    error_detail TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_scan_jobs_device_domain
+                    ON scan_jobs(device_hash, domain_key, created_at);
+                CREATE INDEX IF NOT EXISTS idx_scan_jobs_subject_domain
+                    ON scan_jobs(subject_hash, domain_key, created_at);
+                CREATE INDEX IF NOT EXISTS idx_scan_jobs_status
+                    ON scan_jobs(status, updated_at);
+
                 CREATE TABLE IF NOT EXISTS access_metrics (
                     key TEXT PRIMARY KEY,
                     value INTEGER NOT NULL DEFAULT 0
@@ -899,6 +927,129 @@ class ScanAccessManager:
     def note_cache_hit(self, mode: str) -> None:
         with self._lock, self._connect() as conn:
             self._metric(conn, f"cache_hit_{mode}")
+
+    # ------------------------------------------------------------------
+    # Durable resumable scan jobs / 24-hour same-device free replay
+    # ------------------------------------------------------------------
+    def create_scan_job(self, ticket: AccessTicket, *, device_id: str) -> str:
+        now = int(time.time())
+        ttl = max(self.free_cache_seconds, self.reservation_ttl_seconds)
+        job_id = secrets.token_urlsafe(24)
+        device_hash = self.device_subject(device_id)
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                """INSERT INTO scan_jobs(
+                       job_id,mode,usage_id,device_hash,subject_hash,domain_key,plan_id,status,
+                       created_at,updated_at,expires_at
+                   ) VALUES(?,?,?,?,?,?,?,'processing',?,?,?)""",
+                (job_id, ticket.mode, ticket.usage_id, device_hash, ticket.subject_hash,
+                 ticket.domain_key, ticket.plan_id, now, now, now + ttl),
+            )
+            self._metric(conn, "scan_job_created")
+        return job_id
+
+    def _job_owner_match(
+        self, row: sqlite3.Row, *, device_id: Optional[str], subject_hash: Optional[str]
+    ) -> bool:
+        if device_id and str(row["device_hash"] or "") == self.device_subject(device_id):
+            return True
+        if subject_hash and str(row["subject_hash"] or "") == subject_hash:
+            return True
+        return False
+
+    def get_scan_job(
+        self, job_id: str, *, device_id: Optional[str] = None, subject_hash: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        clean_id = (job_id or "").strip()
+        if not clean_id:
+            return None
+        now = int(time.time())
+        with self._lock, self._connect() as conn:
+            row = conn.execute("SELECT * FROM scan_jobs WHERE job_id=?", (clean_id,)).fetchone()
+        if not row or int(row["expires_at"] or 0) < now:
+            return None
+        if not self._job_owner_match(row, device_id=device_id, subject_hash=subject_hash):
+            return None
+        result: Dict[str, Any] = {k: row[k] for k in row.keys() if k != "result_json"}
+        result["result"] = None
+        if row["result_json"]:
+            try:
+                parsed = json.loads(str(row["result_json"]))
+                if isinstance(parsed, dict):
+                    result["result"] = parsed
+            except Exception:
+                pass
+        return result
+
+    def find_device_domain_job(
+        self, *, device_id: str, domain_key: str, max_age_seconds: Optional[int] = None
+    ) -> Optional[Dict[str, Any]]:
+        if not device_id or not domain_key:
+            return None
+        now = int(time.time())
+        _ = max(60, int(max_age_seconds or self.free_cache_seconds))
+        device_hash = self.device_subject(device_id)
+        with self._lock, self._connect() as conn:
+            row = conn.execute(
+                """SELECT * FROM scan_jobs
+                   WHERE device_hash=? AND domain_key=? AND expires_at>=?
+                     AND status IN ('processing','complete')
+                   ORDER BY COALESCE(completed_at,created_at) DESC LIMIT 1""",
+                (device_hash, domain_key, now),
+            ).fetchone()
+        if not row:
+            return None
+        if str(row["status"] or "") == "processing" and int(row["updated_at"] or 0) < now - self.reservation_ttl_seconds:
+            with self._lock, self._connect() as conn:
+                conn.execute(
+                    "UPDATE scan_jobs SET status='failed',updated_at=?,completed_at=?,error_status=503,error_reason='STALE_JOB',error_detail='Previous scan worker stopped before completion.' WHERE job_id=? AND status='processing'",
+                    (now, now, str(row["job_id"])),
+                )
+            return None
+        result: Dict[str, Any] = {k: row[k] for k in row.keys() if k != "result_json"}
+        result["result"] = None
+        if row["result_json"]:
+            try:
+                parsed = json.loads(str(row["result_json"]))
+                if isinstance(parsed, dict):
+                    result["result"] = parsed
+            except Exception:
+                pass
+        return result
+
+    def complete_scan_job(self, job_id: str, result_payload: Dict[str, Any]) -> None:
+        now = int(time.time())
+        serializable = json.dumps(result_payload, separators=(",", ":"), ensure_ascii=False, default=str)
+        with self._lock, self._connect() as conn:
+            changed = conn.execute(
+                """UPDATE scan_jobs
+                   SET status='complete',updated_at=?,completed_at=?,expires_at=?,result_json=?,
+                       error_status=NULL,error_reason=NULL,error_detail=NULL
+                   WHERE job_id=?""",
+                (now, now, now + self.free_cache_seconds, serializable, job_id),
+            ).rowcount
+            if changed:
+                self._metric(conn, "scan_job_complete")
+
+    def fail_scan_job(
+        self, job_id: str, *, status_code: int = 500, reason: str = "SCAN_FAILED", detail: str = ""
+    ) -> None:
+        now = int(time.time())
+        with self._lock, self._connect() as conn:
+            changed = conn.execute(
+                """UPDATE scan_jobs
+                   SET status='failed',updated_at=?,completed_at=?,error_status=?,error_reason=?,error_detail=?
+                   WHERE job_id=?""",
+                (now, now, int(status_code or 500), str(reason or "SCAN_FAILED")[:80], str(detail or "")[:1000], job_id),
+            ).rowcount
+            if changed:
+                self._metric(conn, "scan_job_failed")
+
+    def cleanup_scan_jobs(self) -> int:
+        now = int(time.time())
+        with self._lock, self._connect() as conn:
+            changed = conn.execute("DELETE FROM scan_jobs WHERE expires_at<?", (now,)).rowcount
+        return int(changed or 0)
 
     def access_summary(
         self,

@@ -28,6 +28,7 @@ import asyncio
 import copy
 import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -105,7 +106,7 @@ _PROTECTED_DOMAIN_ROOTS = tuple(
 app = FastAPI(
     title="Trilloka Architect Engine API",
     description="Evidence-weighted Revenue Readiness Diagnostic, local competitor benchmark & tiered report gateway",
-    version="7.2.2",
+    version="7.2.3",
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -116,7 +117,7 @@ app.add_middleware(
     allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Trilloka-System-Key", "X-Trilloka-Admin-Session"],
+    allow_headers=["Content-Type", "X-Trilloka-System-Key", "X-Trilloka-Admin-Session", "X-Trilloka-Device-ID"],
     expose_headers=["X-Trilloka-Access-Reason", "Retry-After"],
 )
 
@@ -262,6 +263,23 @@ def _set_device_cookie(response: Response, device_id: str) -> None:
         secure=secure,
         samesite=samesite,
     )
+
+
+def _resolve_scan_device_id(http_request: FastAPIRequest, response: Response) -> str:
+    """Resolve a stable browser device token for quota/replay ownership.
+
+    The public frontend is hosted on trilloka.com while the API is on onrender.com, so a
+    SameSite cookie alone is not sufficiently reliable across browsers. The frontend also
+    sends a random X-Trilloka-Device-ID stored locally. IP limits remain in force, so this
+    token is an additive continuity mechanism rather than a quota bypass.
+    """
+    supplied = str(http_request.headers.get("X-Trilloka-Device-ID") or "").strip()
+    cookie_value = http_request.cookies.get("trilloka_scan_device")
+    candidate = supplied or cookie_value
+    device_id, device_created = access_manager.ensure_device_id(candidate)
+    if device_created or cookie_value != device_id:
+        _set_device_cookie(response, device_id)
+    return device_id
 
 
 def _access_error(exc: AccessDenied) -> HTTPException:
@@ -530,7 +548,7 @@ def handle_trilloka_guardrail(target_domain: str) -> Optional[Dict[str, Any]]:
 def health_check() -> Dict[str, Any]:
     return {
         "status": "online",
-        "system": "Trilloka Architect Engine v7.2.2",
+        "system": "Trilloka Architect Engine v7.2.3",
         "google_api_configured": bool(os.environ.get("PAGESPEED_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
         "places_api_configured": bool(os.environ.get("GOOGLE_PLACES_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("PAGESPEED_API_KEY")),
         "report_engine": REPORT_ENGINE_AVAILABLE,
@@ -1405,120 +1423,16 @@ def _customer_report_for_ticket(admin_report: Dict[str, Any], ticket: AccessTick
     return report
 
 
-async def _run_audit_impl(
+async def _execute_reserved_scan(
     payload: AuditRequest,
     background_tasks: BackgroundTasks,
-    http_request: FastAPIRequest,
-    response: Response,
-    x_trilloka_admin_session: Optional[str],
-    x_trilloka_admin_key: Optional[str],
+    ticket: AccessTicket,
+    validated_target: Any,
+    previous_snapshot: Optional[Dict[str, Any]],
+    email: Optional[str],
+    access_pass: Optional[str],
 ) -> Dict[str, Any]:
-    guardrail_response = handle_trilloka_guardrail(payload.domain)
-    if guardrail_response:
-        return guardrail_response
-
-    # Reject SSRF/internal-network targets before quota reservation, cache lookup, Google
-    # API usage, HTTP probing or Chromium launch. DNS is resolved here for an early 400;
-    # the scanner revalidates and pins every actual server-side connection independently.
-    try:
-        validated_target = await asyncio.to_thread(validate_public_http_url, payload.domain)
-    except NetworkTargetError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsafe or invalid scan target ({exc.reason}): {exc}",
-        ) from exc
-
-    domain_key = access_manager.normalize_domain(validated_target.url)
-    if not domain_key:
-        raise HTTPException(status_code=400, detail="A valid target domain is required")
-
-    previous_snapshot: Optional[Dict[str, Any]] = None
-    try:
-        previous_cached = access_manager.cache_get(domain_key, 365 * 24 * 60 * 60)
-        if previous_cached:
-            previous_snapshot = copy.deepcopy(previous_cached[0])
-    except Exception as exc:
-        print(f"[Rescan] Previous snapshot lookup skipped — {exc}")
-
-    device_id, device_created = access_manager.ensure_device_id(http_request.cookies.get("trilloka_scan_device"))
-    if device_created:
-        _set_device_cookie(response, device_id)
-    client_ip = access_manager.client_ip(http_request)
-    email = str(payload.email) if payload.email else None
-    access_pass = str(payload.access_pass or "").strip() or None
-    # Bypass is available only to a verified owner/admin session.
-    admin_bypass = _is_admin_session(
-        http_request, x_trilloka_admin_session, x_trilloka_admin_key
-    )
-
-    # Only a valid paid pass can invoke paid duplicate protection.
-    try:
-        is_duplicate = access_manager.recent_paid_duplicate(
-            email,
-            domain_key,
-            access_pass,
-            force_refresh=bool(payload.force_refresh),
-        )
-    except AccessDenied as exc:
-        raise _access_error(exc) from exc
-
-    if is_duplicate:
-        cached = access_manager.cache_get(domain_key, access_manager.paid_duplicate_grace_seconds)
-        if cached:
-            cached_payload, age = cached
-            access_manager.note_cache_hit("paid_duplicate")
-            status = access_manager.entitlement_status(email, domain_key, access_pass)
-            plan = status.get("plan") or {}
-            ticket = AccessTicket(
-                mode="paid",
-                usage_id=None,
-                subject_hash=access_manager.email_subject(email),
-                domain_key=domain_key,
-                plan_id=plan.get("plan_id"),
-                scans_per_day=plan.get("scans_per_day"),
-                scans_remaining_today=status.get("scans_remaining_today"),
-                remediation_limit=plan.get("remediation_limit"),
-                expires_at=status.get("expires_at"),
-                reservation_consumes_quota=False,
-            )
-            return _attach_access_metadata(
-                cached_payload,
-                ticket,
-                cached=True,
-                cache_age_seconds=age,
-                email=email,
-                access_pass=access_pass,
-            )
-
-    try:
-        ticket = access_manager.reserve(
-            ip=client_ip,
-            device_id=device_id,
-            email=email,
-            domain_key=domain_key,
-            access_pass=access_pass,
-            admin_bypass=admin_bypass,
-        )
-    except AccessDenied as exc:
-        raise _access_error(exc) from exc
-
-    # Free preview requests may reuse a 24-hour domain result while still consuming the one free
-    # preview allowance, protecting PageSpeed/Places/Chromium cost.
-    if ticket.mode == "free":
-        cached = access_manager.cache_get(domain_key, access_manager.free_cache_seconds)
-        if cached:
-            cached_payload, age = cached
-            access_manager.finish(ticket, success=True)
-            access_manager.note_cache_hit("free")
-            return _attach_access_metadata(
-                cached_payload,
-                ticket,
-                cached=True,
-                cache_age_seconds=age,
-                email=email,
-                access_pass=access_pass,
-            )
-
+    """Execute one already-authorized scan and settle its reservation exactly once."""
     try:
         scan_data = await _run_scan_async(validated_target.url, payload.business_name or "", payload.business_type)
         if not scan_data.get("is_reachable"):
@@ -1636,7 +1550,7 @@ async def _run_audit_impl(
             admin_master_report=admin_master_report,
         )
         # Cache only the complete generic engine result. Visibility is applied per requester later.
-        access_manager.cache_put(domain_key, base_payload)
+        access_manager.cache_put(ticket.domain_key, base_payload)
         access_manager.finish(ticket, success=True)
         return _attach_access_metadata(
             base_payload,
@@ -1656,6 +1570,424 @@ async def _run_audit_impl(
             status_code=500,
             detail="Scanner execution failed before a defensible diagnostic could be produced",
         ) from exc
+
+
+async def _run_audit_impl(
+    payload: AuditRequest,
+    background_tasks: BackgroundTasks,
+    http_request: FastAPIRequest,
+    response: Response,
+    x_trilloka_admin_session: Optional[str],
+    x_trilloka_admin_key: Optional[str],
+) -> Dict[str, Any]:
+    guardrail_response = handle_trilloka_guardrail(payload.domain)
+    if guardrail_response:
+        return guardrail_response
+
+    # Reject SSRF/internal-network targets before quota reservation, cache lookup, Google
+    # API usage, HTTP probing or Chromium launch. DNS is resolved here for an early 400;
+    # the scanner revalidates and pins every actual server-side connection independently.
+    try:
+        validated_target = await asyncio.to_thread(validate_public_http_url, payload.domain)
+    except NetworkTargetError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsafe or invalid scan target ({exc.reason}): {exc}",
+        ) from exc
+
+    domain_key = access_manager.normalize_domain(validated_target.url)
+    if not domain_key:
+        raise HTTPException(status_code=400, detail="A valid target domain is required")
+
+    previous_snapshot: Optional[Dict[str, Any]] = None
+    try:
+        previous_cached = access_manager.cache_get(domain_key, 365 * 24 * 60 * 60)
+        if previous_cached:
+            previous_snapshot = copy.deepcopy(previous_cached[0])
+    except Exception as exc:
+        print(f"[Rescan] Previous snapshot lookup skipped — {exc}")
+
+    device_id = _resolve_scan_device_id(http_request, response)
+    client_ip = access_manager.client_ip(http_request)
+    email = str(payload.email) if payload.email else None
+    access_pass = str(payload.access_pass or "").strip() or None
+    # Bypass is available only to a verified owner/admin session.
+    admin_bypass = _is_admin_session(
+        http_request, x_trilloka_admin_session, x_trilloka_admin_key
+    )
+
+    # Only a valid paid pass can invoke paid duplicate protection.
+    try:
+        is_duplicate = access_manager.recent_paid_duplicate(
+            email,
+            domain_key,
+            access_pass,
+            force_refresh=bool(payload.force_refresh),
+        )
+    except AccessDenied as exc:
+        raise _access_error(exc) from exc
+
+    if is_duplicate:
+        cached = access_manager.cache_get(domain_key, access_manager.paid_duplicate_grace_seconds)
+        if cached:
+            cached_payload, age = cached
+            access_manager.note_cache_hit("paid_duplicate")
+            status = access_manager.entitlement_status(email, domain_key, access_pass)
+            plan = status.get("plan") or {}
+            ticket = AccessTicket(
+                mode="paid",
+                usage_id=None,
+                subject_hash=access_manager.email_subject(email),
+                domain_key=domain_key,
+                plan_id=plan.get("plan_id"),
+                scans_per_day=plan.get("scans_per_day"),
+                scans_remaining_today=status.get("scans_remaining_today"),
+                remediation_limit=plan.get("remediation_limit"),
+                expires_at=status.get("expires_at"),
+                reservation_consumes_quota=False,
+            )
+            return _attach_access_metadata(
+                cached_payload,
+                ticket,
+                cached=True,
+                cache_age_seconds=age,
+                email=email,
+                access_pass=access_pass,
+            )
+
+    try:
+        ticket = access_manager.reserve(
+            ip=client_ip,
+            device_id=device_id,
+            email=email,
+            domain_key=domain_key,
+            access_pass=access_pass,
+            admin_bypass=admin_bypass,
+        )
+    except AccessDenied as exc:
+        raise _access_error(exc) from exc
+
+    # Free preview requests may reuse a 24-hour domain result while still consuming the one free
+    # preview allowance, protecting PageSpeed/Places/Chromium cost.
+    if ticket.mode == "free":
+        cached = access_manager.cache_get(domain_key, access_manager.free_cache_seconds)
+        if cached:
+            cached_payload, age = cached
+            access_manager.finish(ticket, success=True)
+            access_manager.note_cache_hit("free")
+            return _attach_access_metadata(
+                cached_payload,
+                ticket,
+                cached=True,
+                cache_age_seconds=age,
+                email=email,
+                access_pass=access_pass,
+            )
+
+    return await _execute_reserved_scan(
+        payload=payload,
+        background_tasks=background_tasks,
+        ticket=ticket,
+        validated_target=validated_target,
+        previous_snapshot=previous_snapshot,
+        email=email,
+        access_pass=access_pass,
+    )
+
+def _scan_job_public_meta(job: Dict[str, Any]) -> Dict[str, Any]:
+    now = int(time.time())
+    return {
+        "job_id": str(job.get("job_id") or ""),
+        "status": str(job.get("status") or "processing"),
+        "domain": str(job.get("domain_key") or ""),
+        "created_at": int(job.get("created_at") or 0),
+        "completed_at": int(job.get("completed_at") or 0) or None,
+        "expires_at": int(job.get("expires_at") or 0),
+        "expires_in_seconds": max(0, int(job.get("expires_at") or 0) - now),
+    }
+
+
+def _replay_existing_result(job: Dict[str, Any]) -> Dict[str, Any]:
+    result = copy.deepcopy(job.get("result") or {})
+    completed_at = int(job.get("completed_at") or job.get("updated_at") or 0)
+    age = max(0, int(time.time()) - completed_at) if completed_at else 0
+    result["scan_replay"] = {
+        "replayed": True,
+        "fresh_scan_run": False,
+        "replay_reason": "SAME_DEVICE_DOMAIN_24H_REVIEW",
+        "original_job_id": str(job.get("job_id") or ""),
+        "original_completed_at": completed_at or None,
+        "age_seconds": age,
+        "review_window_hours": round(access_manager.free_cache_seconds / 3600, 2),
+    }
+    access = result.get("scan_access") if isinstance(result.get("scan_access"), dict) else {}
+    access.update({
+        "cached": True,
+        "replayed_existing_scan": True,
+        "fresh_scan_run": False,
+        "cache_age_seconds": age,
+    })
+    result["scan_access"] = access
+    result["message"] = (
+        "24-hour scan review: this is your previously completed result for this domain. "
+        "No new scan was run and no additional scan allowance was used."
+    )
+    return result
+
+
+async def _process_scan_job(
+    *,
+    job_id: str,
+    payload_data: Dict[str, Any],
+    ticket: AccessTicket,
+    validated_target: Any,
+    previous_snapshot: Optional[Dict[str, Any]],
+    email: Optional[str],
+    access_pass: Optional[str],
+) -> None:
+    # This runs after the 202 response is returned. The durable SQLite job row lets the
+    # browser reconnect or refresh while the expensive scan continues server-side.
+    job_background = BackgroundTasks()
+    try:
+        payload = AuditRequest(**payload_data)
+        result = await _execute_reserved_scan(
+            payload=payload,
+            background_tasks=job_background,
+            ticket=ticket,
+            validated_target=validated_target,
+            previous_snapshot=previous_snapshot,
+            email=email,
+            access_pass=access_pass,
+        )
+        access_manager.complete_scan_job(job_id, result)
+        try:
+            await job_background()
+        except Exception as delivery_exc:
+            print(f"[Scan Job] Report delivery/archive task failed after result completion — {delivery_exc}")
+    except HTTPException as exc:
+        reason = str((exc.headers or {}).get("X-Trilloka-Access-Reason") or "SCAN_FAILED")
+        access_manager.fail_scan_job(
+            job_id,
+            status_code=int(exc.status_code or 500),
+            reason=reason,
+            detail=str(exc.detail or "Scan failed"),
+        )
+    except Exception as exc:
+        access_manager.fail_scan_job(
+            job_id,
+            status_code=500,
+            reason="SCAN_FAILED",
+            detail="Scanner execution failed before a defensible diagnostic could be produced",
+        )
+        print(f"[Scan Job] Fatal worker error — {exc}")
+
+
+@app.post("/api/scan/start")
+async def start_scan_job(
+    payload: AuditRequest,
+    background_tasks: BackgroundTasks,
+    http_request: FastAPIRequest,
+    response: Response,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
+    x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
+) -> Dict[str, Any]:
+    """Start or resume a long-running scan without tying completion to one browser request."""
+    guardrail_response = handle_trilloka_guardrail(payload.domain)
+    if guardrail_response:
+        return {
+            "state": "complete",
+            "replayed": False,
+            "fresh_scan_run": False,
+            "result": guardrail_response,
+            "message": "Protected self-diagnostic returned without launching a public scan job.",
+        }
+
+    try:
+        validated_target = await asyncio.to_thread(validate_public_http_url, payload.domain)
+    except NetworkTargetError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsafe or invalid scan target ({exc.reason}): {exc}",
+        ) from exc
+
+    domain_key = access_manager.normalize_domain(validated_target.url)
+    if not domain_key:
+        raise HTTPException(status_code=400, detail="A valid target domain is required")
+
+    device_id = _resolve_scan_device_id(http_request, response)
+    email = str(payload.email) if payload.email else None
+    access_pass = str(payload.access_pass or "").strip() or None
+    admin_bypass = _is_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
+
+    # First, recover the same browser's own job/result. This occurs BEFORE quota reservation,
+    # so reviewing the same free URL for 24 hours cannot consume a second free scan.
+    existing = access_manager.find_device_domain_job(
+        device_id=device_id,
+        domain_key=domain_key,
+        max_age_seconds=access_manager.free_cache_seconds,
+    )
+    if existing:
+        state = str(existing.get("status") or "")
+        existing_mode = str(existing.get("mode") or "")
+        if state == "processing":
+            response.status_code = 202
+            return {
+                "state": "processing",
+                "resumed": True,
+                "replayed": False,
+                "fresh_scan_run": False,
+                "job": _scan_job_public_meta(existing),
+                "message": "Your existing scan is still processing. No second scan was started.",
+            }
+        allow_replay = (
+            state == "complete"
+            and isinstance(existing.get("result"), dict)
+            and not (existing_mode == "free" and access_pass)
+            and not (existing_mode == "paid" and bool(payload.force_refresh))
+        )
+        if allow_replay:
+            access_manager.note_cache_hit("same_device_24h_review")
+            return {
+                "state": "complete",
+                "resumed": True,
+                "replayed": True,
+                "fresh_scan_run": False,
+                "job": _scan_job_public_meta(existing),
+                "result": _replay_existing_result(existing),
+                "message": "Showing the scan already completed for this URL within your 24-hour review window. No new scan was run.",
+            }
+
+    # Preserve the existing paid accidental-double-submit protection for jobs created before
+    # this resumable-job release or by older clients.
+    try:
+        is_paid_duplicate = access_manager.recent_paid_duplicate(
+            email,
+            domain_key,
+            access_pass,
+            force_refresh=bool(payload.force_refresh),
+        )
+    except AccessDenied as exc:
+        raise _access_error(exc) from exc
+
+    if is_paid_duplicate:
+        cached = access_manager.cache_get(domain_key, access_manager.paid_duplicate_grace_seconds)
+        if cached:
+            cached_payload, age = cached
+            status = access_manager.entitlement_status(email, domain_key, access_pass)
+            plan = status.get("plan") or {}
+            ticket = AccessTicket(
+                mode="paid",
+                usage_id=None,
+                subject_hash=access_manager.email_subject(email),
+                domain_key=domain_key,
+                plan_id=plan.get("plan_id"),
+                scans_per_day=plan.get("scans_per_day"),
+                scans_remaining_today=status.get("scans_remaining_today"),
+                remediation_limit=plan.get("remediation_limit"),
+                expires_at=status.get("expires_at"),
+                reservation_consumes_quota=False,
+            )
+            result = _attach_access_metadata(
+                cached_payload,
+                ticket,
+                cached=True,
+                cache_age_seconds=age,
+                email=email,
+                access_pass=access_pass,
+            )
+            result["message"] = "Recent paid result returned; no duplicate scan was run."
+            return {"state": "complete", "replayed": True, "fresh_scan_run": False, "result": result}
+
+    client_ip = access_manager.client_ip(http_request)
+    try:
+        ticket = access_manager.reserve(
+            ip=client_ip,
+            device_id=device_id,
+            email=email,
+            domain_key=domain_key,
+            access_pass=access_pass,
+            admin_bypass=admin_bypass,
+        )
+    except AccessDenied as exc:
+        raise _access_error(exc) from exc
+
+    previous_snapshot: Optional[Dict[str, Any]] = None
+    try:
+        previous_cached = access_manager.cache_get(domain_key, 365 * 24 * 60 * 60)
+        if previous_cached:
+            previous_snapshot = copy.deepcopy(previous_cached[0])
+    except Exception as exc:
+        print(f"[Scan Job] Previous snapshot lookup skipped — {exc}")
+
+    try:
+        job_id = access_manager.create_scan_job(ticket, device_id=device_id)
+    except Exception:
+        # Do not consume an allowance if durable job creation itself fails.
+        access_manager.finish(ticket, success=False)
+        raise HTTPException(status_code=503, detail="Could not create a resumable scan job. Please try again.")
+
+    background_tasks.add_task(
+        _process_scan_job,
+        job_id=job_id,
+        payload_data=payload.model_dump(mode="json"),
+        ticket=ticket,
+        validated_target=validated_target,
+        previous_snapshot=previous_snapshot,
+        email=email,
+        access_pass=access_pass,
+    )
+    response.status_code = 202
+    job = access_manager.get_scan_job(job_id, device_id=device_id) or {
+        "job_id": job_id, "status": "processing", "domain_key": domain_key,
+        "created_at": int(time.time()), "expires_at": int(time.time()) + access_manager.free_cache_seconds,
+    }
+    return {
+        "state": "processing",
+        "resumed": False,
+        "replayed": False,
+        "fresh_scan_run": True,
+        "job": _scan_job_public_meta(job),
+        "message": "Scan started. You can refresh or reconnect; this job will continue server-side and the completed result can be reviewed again for 24 hours.",
+    }
+
+
+@app.get("/api/scan/status/{job_id}")
+async def get_scan_job_status(
+    job_id: str,
+    http_request: FastAPIRequest,
+    response: Response,
+) -> Dict[str, Any]:
+    device_id = _resolve_scan_device_id(http_request, response)
+    job = access_manager.get_scan_job(job_id, device_id=device_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Scan job was not found for this browser or its review window has expired.")
+
+    meta = _scan_job_public_meta(job)
+    state = str(job.get("status") or "processing")
+    if state == "complete":
+        return {
+            "state": "complete",
+            "replayed": False,
+            "fresh_scan_run": True,
+            "job": meta,
+            "result": job.get("result") or {},
+            "message": "Scan complete.",
+        }
+    if state == "failed":
+        return {
+            "state": "failed",
+            "job": meta,
+            "error": {
+                "status": int(job.get("error_status") or 500),
+                "reason": str(job.get("error_reason") or "SCAN_FAILED"),
+                "detail": str(job.get("error_detail") or "The scan did not complete."),
+            },
+        }
+    return {
+        "state": "processing",
+        "job": meta,
+        "message": "Architectural Analysis is still processing. No second scan is required.",
+    }
 
 
 @app.post("/api/audit")

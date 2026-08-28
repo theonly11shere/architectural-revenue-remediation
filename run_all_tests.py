@@ -65,7 +65,7 @@ def test_compile() -> None:
 
 def test_pytest_regressions() -> None:
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "test_regressions.py"],
+        [sys.executable, "-m", "pytest", "-q", "test_regressions.py", "test_scan_jobs.py"],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -78,7 +78,7 @@ def test_pytest_regressions() -> None:
 
 def test_main_runtime_import() -> None:
     import main as gateway
-    assert gateway.app.version == "7.2.2"
+    assert gateway.app.version == "7.2.3"
     assert gateway.scanner.ENGINE_VERSION == "v7.2.2"
     assert gateway.PLAN_CATALOG["essential_350"]["remediation_limit"] == 4
     assert gateway.PLAN_CATALOG["advanced_550"]["remediation_limit"] == 8
@@ -529,7 +529,7 @@ def test_multiservice_b2b_journey_and_financial_guardrail() -> None:
 
 def main() -> int:
     print("=" * 70)
-    print(" TRILLOKA V7.2.2 LAUNCH-CANDIDATE BLUEPRINT90 REAL-WORLD + SECURITY INTEGRITY SUITE ")
+    print(" TRILLOKA V7.2.3 RESUMABLE-SCAN BLUEPRINT90 REAL-WORLD + SECURITY INTEGRITY SUITE ")
     print("=" * 70)
     checks = (
         ("Core Python compile + warnings-as-errors", test_compile),
