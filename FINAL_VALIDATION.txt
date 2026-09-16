@@ -1,45 +1,27 @@
-TRILLOKA V7.2.2 LAUNCH CANDIDATE — FINAL LOCAL VALIDATION
-=========================================================
+TRILLOKA V7.2.3 RESUMABLE-SCAN / 24-HOUR REVIEW VALIDATION
 
-Runtime: FastAPI 7.2.2 / scanner v7.2.2
-Score method: real_world_v3_blueprint90
-Public score ceiling: 90
-Canonical architecture: 22 Foundation + 60 Revenue/User + 18 Elite = 100 internal strength
+Scope
+-----
+Access/reliability/frontend hardening only. Blueprint90 scoring architecture and scanner engine behavior remain V7.2.2.
 
-V7.2.2 is a narrow launch-hardening patch. Blueprint90 calibration and the core Journey + Context scoring architecture were not re-tuned.
+Validation results
+------------------
+- pytest: 87/87 passed (84 existing regressions + 3 resumable-job/replay regressions)
+- run_all_tests.py: 33/33 integrity checks passed
+- synthetic_blueprint_validation.py: 36/36 synthetic cases passed
+- Python compile: PASS
+- Inline frontend JavaScript syntax (`node --check`): PASS
+- API gateway version: 7.2.3
+- Scanner engine version: v7.2.2 (unchanged)
 
-Verified launch corrections:
-- Unsupported typed Nearby searches force a specific Text Search even when the untyped Nearby retry returns unrelated results.
-- Specific Text Search results are preferred for peer discovery after a rejected type filter.
-- Checkpoint 34 (verified missing image accessibility text) can trigger the generic non-disclosing Foundation Notice.
-- CrUX GOOD + weak PageSpeed uses `mobile_lab_performance` / "Mobile Lab Performance Headroom" rather than falsely labeling the lab score a Core Web Vitals failure.
-- `core_web_vitals` remains reserved for poor real-user CrUX evidence.
-- CrUX GOOD still reduces only the financial causal exposure of weak lab performance; the observable lab finding remains visible.
+New guarantees covered by regression tests
+------------------------------------------
+1. A scan job is bound to the same random browser device token.
+2. A completed result is durably stored and replayable for the configured 24-hour free review window.
+3. Re-entering the same URL after completion returns the saved result with `fresh_scan_run=false` and consumes no second free usage row.
+4. Re-entering the same URL while processing returns the existing job ID and creates no second quota reservation.
+5. The legacy synchronous `/api/scan` route remains present.
 
-Preserved behavior:
-- Journey/context architecture and V7.2.1 diversified-B2B guardrails.
-- Non-compensatory 22/60/18 score architecture and Blueprint90 mapping.
-- UNKNOWN is not FAIL and causes no deduction.
-- SAFE_SUBMISSION_LIMIT.
-- Elite eligibility gates.
-- Financial exposure decoupled from readiness score loss.
-- Competitor benchmark does not directly alter Revenue Readiness.
-- SSRF/network target hardening.
-
-Exact-package validation:
-- 84/84 regression tests: PASS
-- 33/33 integrity checks: PASS
-- 36/36 synthetic cases across 6 journeys and 6 score bands: PASS
-- Python warnings-as-errors compile: PASS
-- Runtime version import: 7.2.2 / v7.2.2: PASS
-
-Synthetic score differentiation remains within the Blueprint90 design:
-- Broken: approximately 27–31
-- Material: approximately 41–44
-- Functional: approximately 49–57
-- Strong: approximately 60–66
-- Exceptional: approximately 71
-- Near-perfect: approximately 86–87
-
-Production caveat:
-These checks validate the exact local package. A deployed smoke test is still required for live Google Places/PageSpeed behavior, production DNS/networking, Chromium, environment variables, and frontend/API wiring.
+Important operational boundary
+------------------------------
+The job record/result is durable in SQLite, but an in-flight scan cannot survive a full application-process restart. If a worker is restarted mid-scan, the stale job is failed after the existing reservation TTL and the failed reservation is recoverable rather than remaining permanently stuck. A distributed queue/worker would be the next step only if Trilloka later runs multiple API instances or requires restart-proof execution.

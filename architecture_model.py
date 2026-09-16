@@ -23,6 +23,8 @@ from commercial_knowledge import (
     LOCAL_TERM_EXPANSIONS, HOSPITALITY_TERM_EXPANSIONS,
 )
 
+from pathway_markers import infer_subtype, resolve_journeys, build_differentiation_plan
+
 
 BUSINESS_TYPE_LABELS: Dict[str, str] = {
     "general": "General / Unresolved Business",
@@ -656,6 +658,9 @@ def infer_architecture_profile(data: Mapping[str, Any], requested_hint: Any = "a
     business_hint = "auto" if direct_journey_hint else hint
     business = infer_business_type(data, business_hint)
     business_type = str(business.get("business_type") or "general")
+    subtype_profile = infer_subtype(data, business_type)
+    differentiation_plan = build_differentiation_plan(data, business_type)
+    marker_resolution = resolve_journeys(data, business_type)
 
     surfaces = _text_surfaces(data)
     scores: Dict[str, float] = {model: 0.0 for model in JOURNEY_LABELS if model != "general"}
@@ -762,17 +767,44 @@ def infer_architecture_profile(data: Mapping[str, Any], requested_hint: Any = "a
                 "signals": list(dict.fromkeys(signals.get(model) or []))[:6],
             })
 
+    # V7.5 authority resolver: observed customer-path sequences outrank weighted language/priors.
+    weighted_journey_model = journey_model
+    weighted_confidence = confidence
+    if not force_general_journey:
+        if marker_resolution.get("resolved"):
+            journey_model = str(marker_resolution.get("journey_model") or "general")
+            auth = int(marker_resolution.get("authority") or 0)
+            confidence = min(0.98, 0.76 + 0.055 * max(0, auth - 3))
+            winning_signals = [
+                f"marker:{stage}:{marker}"
+                for stage, markers in (marker_resolution.get("proof") or {}).items()
+                for marker in markers
+            ][:12]
+        else:
+            # Business semantics are a search hint, not proof of a specialized journey.
+            journey_model = "general"
+            confidence = min(0.69, weighted_confidence)
+            winning_signals = []
+
     context_tags, context_reasons = infer_context_tags(data, journey_model, business_type)
-    provisional = bool(journey_model == "general" or confidence < 0.72 or (business_type == "general" and float(business.get("confidence") or 0.0) < 0.60))
+    provisional = bool(journey_model == "general" or confidence < 0.72 or (not force_general_journey and int(marker_resolution.get("authority") or 0) < 4) or (business_type == "general" and float(business.get("confidence") or 0.0) < 0.60))
     secondary = JOURNEY_SECONDARY_CONVERSIONS.get(journey_model, JOURNEY_SECONDARY_CONVERSIONS["general"])
     return {
-        "model_basis": "business_type_journey_context_v2_1",
+        "model_basis": "hierarchical_business_subtype_path_markers_v3",
         "business_type": business_type,
         "business_type_label": business.get("business_type_label") or BUSINESS_TYPE_LABELS.get(business_type, business_type.replace("_", " ").title()),
         "business_type_confidence": round(float(business.get("confidence") or 0.0), 2),
         "business_type_source": business.get("source") or "auto_inference",
         "business_type_signals": list(business.get("signals") or []),
         "business_type_candidates": business.get("score_candidates") or {},
+        "business_subtype": subtype_profile.get("subtype"),
+        "business_subtype_label": subtype_profile.get("subtype_label"),
+        "business_subtype_confidence": subtype_profile.get("confidence"),
+        "business_subtype_signals": subtype_profile.get("signals") or [],
+        "differentiation_plan": differentiation_plan,
+        "journey_marker_resolution": marker_resolution,
+        "weighted_journey_candidate": weighted_journey_model,
+        "weighted_journey_candidate_confidence": round(float(weighted_confidence), 2),
         "journey_model": journey_model,
         "journey_label": JOURNEY_LABELS.get(journey_model, JOURNEY_LABELS["general"]),
         "confidence": round(confidence, 2),

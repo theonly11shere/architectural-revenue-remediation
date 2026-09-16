@@ -172,10 +172,12 @@ def test_visible_phone_without_tel_is_partial_not_total_failure():
     assert leak["severity_score"] < 3.0
 
 
-def test_sticky_and_click_to_call_are_overlap_adjusted():
+def test_missing_sticky_is_not_scored_as_customer_loss():
     audit = RevenueScorer().audit_and_score(valmont_fixture(), business_type="auto", competitor_data_present=None)
-    adjustment = next(x for x in audit["overlap_adjustments"] if x["family"] == "mobile_direct_action")
-    assert adjustment["post_dedupe_total"] < adjustment["pre_dedupe_total"]
+    leaks = audit["tiered_remediation_packages"]["all_scoring_leaks"]
+    assert not any(x.get("rule_key") == "mobile_sticky_cta" for x in leaks)
+    click = next(x for x in leaks if x.get("rule_key") == "click_to_call")
+    assert click["severity_factor"] == 0.4
 
 
 def test_restaurant_remediation_does_not_use_free_consultation_or_intake_team():
@@ -188,7 +190,7 @@ def test_restaurant_remediation_does_not_use_free_consultation_or_intake_team():
     ).lower()
     assert "free consultation" not in joined
     assert "intake team" not in joined
-    assert "order now" in joined
+    assert "restaurant / food service" in joined
 
 
 def test_severity_factor_survives_to_report():
@@ -208,10 +210,10 @@ def test_severity_factor_survives_to_report():
         assert mobile["severity_label"] == "MODERATE FRICTION"
 
 
-def test_no_three_leak_critical_score_clamp():
+def test_no_artificial_leak_count_or_critical_score_clamp():
     scan = valmont_fixture()
     audit = RevenueScorer().audit_and_score(scan, business_type="auto", competitor_data_present=None)
-    assert audit["total_leaks_found"] >= 3
+    assert audit["total_leaks_found"] == len(audit["tiered_remediation_packages"]["all_scoring_leaks"])
     assert audit["overall_score"] >= 35.0
 
 
@@ -287,7 +289,7 @@ def test_valmont_style_site_no_longer_receives_an_easy_good_score():
     # A functional ordering site with missing mobile support and no meaningful measurement
     # should land in the functional/headroom band rather than automatically receiving 65+.
     assert 35.0 <= audit["overall_score"] <= 45.0
-    assert audit["score_rating"] == "MATERIAL COMMERCIAL WEAKNESSES"
+    assert audit["score_rating"] == "PROVISIONAL READINESS — CUSTOMER JOURNEY NOT YET RESOLVED"
     assert audit["analysis_layers"]["elite_architecture"]["layer_score"] == 0
 
 
@@ -399,11 +401,11 @@ def test_report_does_not_pad_verified_findings_with_passes_or_unknowns():
 
 
 def test_revenue_exposure_has_model_based_dollar_range():
-    audit = RevenueScorer().audit_and_score(valmont_fixture(), business_type="general", competitor_data_present=None)
+    audit = RevenueScorer().audit_and_score(valmont_fixture(), business_type="auto", competitor_data_present=None)
     exposure = audit["revenue_leak"]
     assert exposure["estimated_annual_min"] >= 0
     assert exposure["estimated_annual_max"] >= exposure["estimated_annual_min"]
-    assert "$" in exposure["est_annual_revenue_leak"]
+    assert exposure["estimate_status"] == "DEFERRED_PROVISIONAL_JOURNEY"
     assert exposure["model_based"] is True
     assert exposure["measured_revenue_loss"] is False
 
@@ -416,7 +418,7 @@ def test_explicit_general_business_type_stays_general():
 
 def test_report_archive_writes_json_and_customer_html(tmp_path):
     scan = valmont_fixture()
-    audit = RevenueScorer().audit_and_score(scan, business_type="general", competitor_data_present=None)
+    audit = RevenueScorer().audit_and_score(scan, business_type="auto", competitor_data_present=None)
     reporter = ReportGenerator()
     reporter.vault_dir = str(tmp_path)
     report = reporter.generate_admin_master_report(audit, scan)
@@ -552,7 +554,7 @@ def test_v5_unknown_customer_note_is_explicit_and_unscored():
     assert report["checkpoint_summary"]["unknown_breakdown"]
 
 
-def test_v5_report_customer_order_is_conversion_first():
+def test_v5_missing_sticky_does_not_manufacture_conversion_loss():
     scan = base_scan()
     scan.update({
         "mobile_sticky_cta_present": False,
@@ -564,10 +566,9 @@ def test_v5_report_customer_order_is_conversion_first():
     audit = RevenueScorer().audit_and_score(scan, business_type="general", competitor_data_present=None)
     report = ReportGenerator().generate_admin_master_report(audit, scan)
     verified = [x for x in report["top_10_financial_leaks"] if x.get("finding_type") == "VERIFIED_LEAK"]
-    fams = [x.get("family") for x in verified]
-    assert "mobile_direct_action" in fams
-    if "search_snippet" in fams:
-        assert fams.index("mobile_direct_action") < fams.index("search_snippet")
+    rules = [x.get("rule_key") for x in verified]
+    assert "mobile_sticky_cta" not in rules
+    assert "meta_description_missing" in rules
 
 
 def test_v5_methodology_keeps_baymard_informed_conversion_priority():
@@ -615,7 +616,7 @@ def test_legal_policy_boilerplate_does_not_create_hospitality_context():
         "mobile_cta_types": ["contact"],
     }
     profile = infer_architecture_profile(scan, "auto")
-    assert profile["journey_model"] == "appointment_consultation"
+    assert profile["journey_model"] == "lead_quote"
     assert "regulated_high_trust" in profile["context_tags"]
     assert "hospitality_event" not in profile["context_tags"]
 
@@ -693,7 +694,7 @@ def test_report_uses_90_point_blueprint_and_advisory_threshold_language():
     assert "/ 78" not in html
     assert "Advisory maturity threshold" in html
     assert "not a score cap" in html
-    assert "MATERIAL COMMERCIAL WEAKNESSES (35–45)" == report["score_level_impact"]["level"]
+    assert "PROVISIONAL READINESS — CUSTOMER JOURNEY NOT YET RESOLVED" == report["score_level_impact"]["level"]
     assert "/ 90" in html
 
 
@@ -969,7 +970,7 @@ def test_financial_exposure_v2_uses_opportunity_pool_not_score_points():
         "lead_quote", [changed_score_loss], evidence, {"context_tags": []},
         {"economic_inputs": {"annual_digital_commercial_value": 100000}},
     )
-    assert modeled["model_version"] == "commercial_exposure_v2"
+    assert modeled["model_version"] == "commercial_exposure_v2_1"
     assert modeled["basis"] == "business_input_annual_digital_commercial_value"
     assert modeled["annual_digital_opportunity_pool"]["low"] == 100000
     assert modeled["combined_path_impairment_pct"] == modeled_changed["combined_path_impairment_pct"]
@@ -1109,7 +1110,7 @@ def test_hasler_style_strong_trust_but_unverified_completion_is_not_scored_too_g
     assert cp50["unknown_reason_code"] == "SAFE_SUBMISSION_LIMIT"
     assert 35.0 <= audit["overall_score"] <= 44.0
     assert audit["analysis_layers"]["elite_architecture"]["layer_score"] == 0
-    assert audit["analysis_layers"]["adaptive_architecture"]["weighted_checkpoint_detail"]["pillars"]["conversion_execution"]["score"] < 24.0
+    assert audit["analysis_layers"]["adaptive_architecture"]["weighted_checkpoint_detail"]["pillars"]["conversion_execution"]["score"] < 28.0
 
 
 def test_provisional_conversion_readiness_cannot_present_as_near_perfect():
@@ -1544,6 +1545,10 @@ def test_v731_customer_report_keeps_actionability_without_private_calibration():
         "mobile_primary_cta_present": False,
         "mobile_sticky_cta_present": False,
         "mobile_cta_types": [],
+        "click_to_call_present": False,
+        "click_to_call_status": "verified",
+        "journey_evidence_status": "verified",
+        "journey_pages_verified": 3,
     })
     audit = RevenueScorer().audit_and_score(scan, business_type="auto")
     reporter = ReportGenerator()

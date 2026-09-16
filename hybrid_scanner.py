@@ -256,7 +256,7 @@ class _StaticHTMLProbe(HTMLParser):
 
 
 class HybridScanner:
-    ENGINE_VERSION = "v7.4.1"
+    ENGINE_VERSION = "v7.5.0"
     """Three-phase scanner with evidence confidence and business context."""
 
     def __init__(self, google_api_key: Optional[str] = None):
@@ -380,7 +380,7 @@ class HybridScanner:
             self._scan_priority_journey_pages,
             resolved_url,
             candidate_links,
-            str(initial_architecture_profile.get("journey_model") or "general"),
+            "general",  # V7.5 neutral differentiation crawl: do not let an early journey guess steer evidence
             list(initial_architecture_profile.get("context_tags") or []),
             initial_deep_type,
         )
@@ -486,7 +486,7 @@ class HybridScanner:
             self._scan_priority_journey_pages,
             resolved_url,
             expanded_candidates,
-            str(mid_profile.get("journey_model") or "general"),
+            "general",  # V7.5 category-wide differentiation pass before final journey resolution
             list(mid_profile.get("context_tags") or []),
             deep_business_type,
             existing_journey_urls,

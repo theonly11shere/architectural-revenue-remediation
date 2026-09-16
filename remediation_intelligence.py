@@ -621,6 +621,14 @@ def build_outcome_remediation(
 
     business_label = BUSINESS_TYPE_LABELS.get(business, business.replace("_", " ").title())
     journey_label = JOURNEY_LABELS.get(journey, journey.replace("_", " ").title())
+    arch = {}
+    if isinstance(scan_data, Mapping):
+        raw_arch = scan_data.get("architecture_profile") or scan_data.get("business_profile") or {}
+        arch = raw_arch if isinstance(raw_arch, Mapping) else {}
+    subtype_label = _clean(arch.get("business_subtype_label"))
+    marker_resolution = arch.get("journey_marker_resolution") if isinstance(arch.get("journey_marker_resolution"), Mapping) else {}
+    path_status = _clean(marker_resolution.get("status"))
+    path_completeness = _clean(marker_resolution.get("path_completeness"))
 
     if research_names:
         why = (
@@ -634,9 +642,14 @@ def build_outcome_remediation(
             f"and its {journey_label} journey rather than applying a generic website fix."
         )
 
+    if subtype_label and subtype_label.lower() != "unresolved":
+        why = _append_once(why, f"The identified subtype is {subtype_label}; subtype evidence narrows where the fix should be validated but does not manufacture a finding.")
+    if path_status:
+        why = _append_once(why, f"Customer-path authority is {path_status}" + (f" with {path_completeness} stage coverage." if path_completeness else "."))
+
     implementation_method = (
         "1) preserve the evidence/baseline; 2) correct the smallest root cause that explains the verified finding; "
-        "3) re-test the same customer path; 4) compare the relevant business outcome before expanding the change."
+        "3) re-test the same marker-backed customer path; 4) compare the relevant business outcome before expanding the change."
     )
     success_check = success
     if key in CATEGORY_OUTCOME_LINK_RULES:
@@ -672,7 +685,10 @@ def build_outcome_remediation(
         "journey_measure": jprof["measure"],
         "research_basis": research,
         "research_basis_summary": research_names,
-        "remediation_engine": "v7.4.1_research_category_journey_outcome_learning",
+        "remediation_engine": "v7.5_hierarchical_marker_research_outcome",
+        "business_subtype": subtype_label or None,
+        "journey_path_status": path_status or None,
+        "journey_path_completeness": path_completeness or None,
         "learned_outcome_guidance": learned_outcome,
     }
 
