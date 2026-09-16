@@ -87,15 +87,20 @@ def infer_subtype(data: Mapping[str,Any], business_type:str)->Dict[str,Any]:
     return {"subtype":subtype if n else "unresolved","subtype_label":(subtype if n else "unresolved").replace("_"," ").title(),"confidence":round(conf,2),"signals":hits[:8],"candidates":{s:c for c,s,_ in ranked[:5]}}
 
 def _observed_markers(data:Mapping[str,Any])->Dict[str,List[Dict[str,Any]]]:
+    """Build path evidence without allowing generic page copy to impersonate progression/terminal proof."""
     out:Dict[str,List[Dict[str,Any]]]={}
     def add(key,authority,source,detail=""):
         out.setdefault(key,[]).append({"authority":authority,"source":source,"detail":detail or key})
+
     actions=set(str(x).lower() for x in (data.get("mobile_cta_types") or []))|set(str(x).lower() for x in (data.get("observed_action_types") or []))|set(str(x).lower() for x in (data.get("journey_action_types") or []))
     for a in actions:
         if a in ACTION_ALIASES:add(ACTION_ALIASES[a],3,"observed_action",a)
+
     bools={"add_to_cart_visible":"add_to_cart","checkout_context_detected":"checkout","order_online_present":"order","reservation_present":"reserve","booking_action_present":"book"}
     for field,m in bools.items():
-        if data.get(field) is True:add(m,4 if m in {"add_to_cart","checkout"} else 3,"verified_site_evidence",field)
+        if data.get(field) is True:add(m,5 if m=="checkout" else 4 if m=="add_to_cart" else 3,"verified_site_evidence",field)
+
+    # Explicit action language can corroborate a real CTA. It never creates progression/terminal proof.
     text=_all_text(data)
     explicit_action_phrases = {
         "quote": ("request a quote", "get a quote", "free estimate", "request a proposal"),
@@ -112,34 +117,36 @@ def _observed_markers(data:Mapping[str,Any])->Dict[str,List[Dict[str,Any]]]:
     for marker, phrases in explicit_action_phrases.items():
         hits=[p for p in phrases if p in text]
         if hits:add(marker,3,"explicit_action_text",hits[0])
-    for marker,phrases in TEXT_MARKERS.items():
-        hits=[p for p in phrases if p in text]
-        if hits:add(marker,4 if marker not in {"payment","order_confirmation","booking_confirmation","reservation_confirmation","appointment_confirmation","demo_confirmation","trial_activation","subscription_confirmation","account_activation","donation_confirmation","application_submission","registration_confirmation","enrollment_confirmation"} else 5,"page_text",hits[0])
-    # An explicit commerce CTA that hands the visitor to another host is verified
-    # progression evidence, even when Trilloka deliberately does not crawl arbitrary
-    # third-party transaction systems. This is a handoff, not a claimed checkout.
-    base_host = str(data.get("domain") or data.get("url") or "")
-    try:
-        from urllib.parse import urlparse
-        base_host = urlparse(base_host if "://" in base_host else "https://" + base_host).netloc.lower().split(":")[0]
-    except Exception:
-        base_host = ""
-    external_order = False
-    for item in data.get("journey_action_evidence") or []:
-        if not isinstance(item, Mapping) or "order" not in [str(x).lower() for x in (item.get("action_types") or [])]:
+
+    # Progression/terminal markers are page-scoped. This prevents restaurant hours (date/time),
+    # policy copy (payment), or generic contact details from fabricating a customer path.
+    terminal_markers={m for g in JOURNEY_GRAMMAR.values() for m in g["terminal"]}
+    progression_markers={m for g in JOURNEY_GRAMMAR.values() for m in g["progression"]}
+    for page in data.get("journey_pages_scanned") or []:
+        if not isinstance(page,Mapping) or not page.get("verified"):
             continue
-        try:
-            host = urlparse(str(item.get("url") or "")).netloc.lower().split(":")[0]
-        except Exception:
-            host = ""
-        if host and base_host and host != base_host:
-            external_order = True
-            break
-    # Homepage/static evidence can expose an external action without being a scanned page.
-    if data.get("external_order_handoff_present") is True:
-        external_order = True
-    if external_order:
-        add("external_commerce_handoff",4,"verified_external_handoff","explicit order CTA leaves the site")
+        page_text=str(page.get("page_text_sample") or "").lower()[:12000]
+        role=str(page.get("role") or "")
+        page_url=str(page.get("url") or "")
+        # Verified structural facts outrank text.
+        if page.get("add_to_cart_visible") is True:add("add_to_cart",4,"verified_journey_page",page_url)
+        if page.get("checkout_context_detected") is True:add("checkout",5,"verified_journey_page",page_url)
+        if page.get("external_order_handoff_present") is True:add("external_commerce_handoff",4,"verified_journey_page",page_url)
+        if role=="commerce_conversion" and ("/cart" in page_url.lower() or "cart" in page_text[:1500]): add("cart",4,"verified_journey_page",page_url)
+        # Only inspect progression/terminal language on a conversion/evaluation page.
+        if role not in {"commerce_conversion","booking","contact_or_lead","evaluation"}:
+            continue
+        for marker,phrases in TEXT_MARKERS.items():
+            hits=[phrase for phrase in phrases if phrase in page_text]
+            if not hits: continue
+            if marker in terminal_markers:
+                add(marker,5,"verified_conversion_page",f"{page_url} :: {hits[0]}")
+            elif marker in progression_markers:
+                add(marker,4,"verified_conversion_page",f"{page_url} :: {hits[0]}")
+
+    # Explicit commerce CTA leaving the site is verified progression, not a claimed checkout.
+    if data.get("external_order_handoff_present") is True or data.get("external_commerce_handoffs"):
+        add("external_commerce_handoff",4,"verified_external_handoff","explicit commerce CTA leaves the site")
     return out
 
 def resolve_journeys(data:Mapping[str,Any],business_type:str)->Dict[str,Any]:
@@ -170,4 +177,9 @@ def build_differentiation_plan(data:Mapping[str,Any],business_type:str)->Dict[st
     for j in paths["candidate_journeys"]:
         g=JOURNEY_GRAMMAR[j]
         seek.extend(g["action"]); seek.extend(g["progression"]); seek.extend(g["terminal"])
-    return {"business_type":business_type,"subtype":subtype,"candidate_journeys":paths["candidate_journeys"],"seek_markers":list(dict.fromkeys(seek)),"policy":"Business type/subtype narrows the evidence search. Only observed path markers resolve the customer journey."}
+    observed=set(paths.get("observed_markers") or {})
+    missing_by_journey={}
+    for j in paths["candidate_journeys"]:
+        g=JOURNEY_GRAMMAR[j]
+        missing_by_journey[j]={stage:[m for m in g[stage] if m not in observed] for stage in ("action","progression","terminal")}
+    return {"business_type":business_type,"subtype":subtype,"candidate_journeys":paths["candidate_journeys"],"seek_markers":list(dict.fromkeys(seek)),"missing_markers_by_journey":missing_by_journey,"policy":"Business type/subtype narrows the evidence search. Knowledge may prioritize what to inspect, but only observed path markers resolve the customer journey."}

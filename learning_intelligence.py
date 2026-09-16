@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-_VERSION = "v7.4.1-learning-v1"
+_VERSION = "v7.5.2-learning-v2"
 _LOCK = threading.RLock()
 
 # Deliberately compact.  We learn discriminating commercial language, not full page text.
@@ -449,16 +449,71 @@ class LearningMemory:
             "policy": "Only validated classification memory contributes a bounded recognition hint. It cannot create findings or modify scoring weights.",
         }
 
+    def pathway_routing_overlay(self, business_type: str, subtype: str = "") -> Dict[str, Any]:
+        """Learn only crawl priorities from previously strong path resolutions.
+
+        This never returns evidence, confidence, findings or score changes. A learned journey can
+        move its URLs/markers earlier in the bounded crawl, but the current site must prove its own path.
+        """
+        btype = _clean_type(business_type)
+        if not self.enabled or btype == "general":
+            return {"journey_priorities": [], "support": {}, "version": _VERSION, "policy": "routing_only"}
+        counts: Counter[str] = Counter()
+        domains: Dict[str, set] = {}
+        subtype_counts: Counter[str] = Counter()
+        with _LOCK, self._connect() as conn:
+            rows = conn.execute(
+                "SELECT domain_hash,payload_json FROM learning_events WHERE event_type='completed_scan' AND business_type=? ORDER BY id DESC LIMIT 1200",
+                (btype,),
+            ).fetchall()
+        for row in rows:
+            payload = _loads(row["payload_json"], {})
+            resolution = payload.get("journey_resolution") if isinstance(payload, Mapping) else {}
+            if not isinstance(resolution, Mapping) or int(resolution.get("authority") or 0) < 4:
+                continue
+            journey = str(resolution.get("journey_model") or "general")
+            if journey == "general":
+                continue
+            dh = str(row["domain_hash"] or "")
+            domains.setdefault(journey, set()).add(dh)
+            counts[journey] += 1
+            if subtype and str(payload.get("business_subtype") or "") == str(subtype):
+                subtype_counts[journey] += 1
+        # Distinct-domain support prevents one repeatedly rescanned site from dominating routing.
+        ranked=[]
+        for journey, seen in domains.items():
+            support=len(seen)
+            if support < 3:
+                continue
+            ranked.append((-(support*10 + min(9, subtype_counts.get(journey,0))), journey, support))
+        ranked.sort()
+        return {
+            "journey_priorities": [j for _,j,_ in ranked[:6]],
+            "support": {j:support for _,j,support in ranked[:6]},
+            "version": _VERSION,
+            "policy": "Validated historical paths prioritize discovery only; current-site evidence remains authoritative.",
+        }
+
     # ---------- scan / review / outcome memory ----------
     def record_completed_scan(self, *, domain: str, scan: Mapping[str, Any], audit: Mapping[str, Any]) -> None:
         if not self.enabled:
             return
         profile = scan.get("architecture_profile") if isinstance(scan.get("architecture_profile"), Mapping) else {}
+        resolution = profile.get("journey_marker_resolution") if isinstance(profile.get("journey_marker_resolution"), Mapping) else {}
         payload = {
             "signature": build_learning_signature(scan),
             "score": audit.get("overall_score", audit.get("overall_health_score")),
             "verified_rules": [str(x.get("rule_key")) for x in (audit.get("scoring_ledger") or []) if isinstance(x, Mapping) and x.get("rule_key")][:40],
             "architect_review_count": len(audit.get("architect_review_queue") or []),
+            # Routing memory is deliberately evidence-gated. Future scans may learn what to LOOK FOR,
+            # never what conclusion to force. Old completed_scan rows without this block are ignored.
+            "journey_resolution": {
+                "journey_model": str(resolution.get("journey_model") or profile.get("journey_model") or "general"),
+                "authority": int(resolution.get("authority") or 0),
+                "status": str(resolution.get("status") or "UNVERIFIED"),
+                "path_completeness": str(resolution.get("path_completeness") or "0/3"),
+            },
+            "business_subtype": str(profile.get("business_subtype") or ""),
         }
         with _LOCK, self._connect() as conn:
             conn.execute(

@@ -780,17 +780,33 @@ def infer_architecture_profile(data: Mapping[str, Any], requested_hint: Any = "a
                 for stage, markers in (marker_resolution.get("proof") or {}).items()
                 for marker in markers
             ][:12]
+            # Secondary journeys must obey the same evidence authority as the primary path.
+            # Weighted semantic candidates remain diagnostics only and are never reported as
+            # customer journeys unless the current site supplies explicit path evidence.
+            secondary_journeys = []
+            for item in marker_resolution.get("ranked_paths") or []:
+                if str(item.get("journey_model") or "") == journey_model or int(item.get("authority") or 0) < 3:
+                    continue
+                secondary_journeys.append({
+                    "journey_model": item.get("journey_model"),
+                    "journey_label": JOURNEY_LABELS.get(str(item.get("journey_model") or ""), str(item.get("journey_model") or "").replace("_", " ").title()),
+                    "status": item.get("status"),
+                    "path_completeness": item.get("completeness"),
+                    "authority": item.get("authority"),
+                })
+            secondary_journeys = secondary_journeys[:3]
         else:
             # Business semantics are a search hint, not proof of a specialized journey.
             journey_model = "general"
             confidence = min(0.69, weighted_confidence)
             winning_signals = []
+            secondary_journeys = []
 
     context_tags, context_reasons = infer_context_tags(data, journey_model, business_type)
     provisional = bool(journey_model == "general" or confidence < 0.72 or (not force_general_journey and int(marker_resolution.get("authority") or 0) < 4) or (business_type == "general" and float(business.get("confidence") or 0.0) < 0.60))
     secondary = JOURNEY_SECONDARY_CONVERSIONS.get(journey_model, JOURNEY_SECONDARY_CONVERSIONS["general"])
     return {
-        "model_basis": "hierarchical_business_subtype_path_markers_v3",
+        "model_basis": "hierarchical_business_subtype_path_markers_v4",
         "business_type": business_type,
         "business_type_label": business.get("business_type_label") or BUSINESS_TYPE_LABELS.get(business_type, business_type.replace("_", " ").title()),
         "business_type_confidence": round(float(business.get("confidence") or 0.0), 2),

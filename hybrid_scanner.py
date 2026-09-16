@@ -256,7 +256,7 @@ class _StaticHTMLProbe(HTMLParser):
 
 
 class HybridScanner:
-    ENGINE_VERSION = "v7.5.1"
+    ENGINE_VERSION = "v7.5.2"
     """Three-phase scanner with evidence confidence and business context."""
 
     def __init__(self, google_api_key: Optional[str] = None):
@@ -367,6 +367,17 @@ class HybridScanner:
             str(initial_architecture_profile.get("business_type") or "general")
             if not initial_category_gate.get("required") else "general"
         )
+        initial_candidates = list((initial_architecture_profile.get("differentiation_plan") or {}).get("candidate_journeys") or [])
+        try:
+            initial_routing_memory = learning_memory.pathway_routing_overlay(
+                initial_deep_type, str(initial_architecture_profile.get("business_subtype") or "")
+            ) if initial_deep_type != "general" else {"journey_priorities": []}
+        except Exception:
+            initial_routing_memory = {"journey_priorities": []}
+        initial_discovery_journeys = self._union_strings(
+            initial_routing_memory.get("journey_priorities"), initial_candidates
+        )
+        combined["pathway_routing_memory"] = initial_routing_memory
 
         # Bounded multi-page journey inspection. This is passive: GET requests only, same origin,
         # no form submissions, no cart mutation, no login and no customer data entry. When the
@@ -383,6 +394,7 @@ class HybridScanner:
             "general",  # V7.5 neutral differentiation crawl: do not let an early journey guess steer evidence
             list(initial_architecture_profile.get("context_tags") or []),
             initial_deep_type,
+            discovery_journeys=initial_discovery_journeys,
         )
         self._merge_journey_evidence(combined, journey_meta)
 
@@ -482,6 +494,15 @@ class HybridScanner:
             combined.get("internal_links"),
         )
         deep_limit = self._to_int(os.environ.get("TRILLOKA_CATEGORY_DEEP_DIVE_MAX_PAGES"), 6) or 6
+        deep_candidates = list((mid_profile.get("differentiation_plan") or {}).get("candidate_journeys") or [])
+        try:
+            deep_routing_memory = learning_memory.pathway_routing_overlay(
+                deep_business_type, str(mid_profile.get("business_subtype") or "")
+            )
+        except Exception:
+            deep_routing_memory = {"journey_priorities": []}
+        deep_discovery_journeys = self._union_strings(deep_routing_memory.get("journey_priorities"), deep_candidates)
+        combined["pathway_routing_memory"] = deep_routing_memory
         deep_meta = await asyncio.to_thread(
             self._scan_priority_journey_pages,
             resolved_url,
@@ -491,6 +512,7 @@ class HybridScanner:
             deep_business_type,
             existing_journey_urls,
             deep_limit,
+            discovery_journeys=deep_discovery_journeys,
         )
         self._merge_journey_evidence(combined, deep_meta)
 
@@ -523,6 +545,7 @@ class HybridScanner:
             "concept_observations": category_observations,
             "research_guidance": deep_pack.get("research_guidance") or {},
             "knowledge_stats": category_knowledge_stats(),
+            "pathway_routing": {"candidate_journeys": deep_candidates, "learned_routing": deep_routing_memory},
             "policy": "Category and research knowledge guide evidence collection and importance only. Missing optional concepts do not create failures; research cannot manufacture a website problem.",
         }
 
@@ -2062,11 +2085,16 @@ class HybridScanner:
             return "policy"
         return "support"
 
-    def _select_priority_journey_urls(self, base_url: str, candidates: List[str], journey_model: str, limit: int, context_tags: Optional[List[str]] = None, business_type: str = "general", exclude_urls: Optional[List[str]] = None) -> List[str]:
+    def _select_priority_journey_urls(self, base_url: str, candidates: List[str], journey_model: str, limit: int, context_tags: Optional[List[str]] = None, business_type: str = "general", exclude_urls: Optional[List[str]] = None, discovery_journeys: Optional[List[str]] = None) -> List[str]:
         parsed = urllib.parse.urlparse(base_url)
         origin = f"{parsed.scheme}://{parsed.netloc}"
         model = str(journey_model or "general")
         terms = list(JOURNEY_PAGE_TERMS.get(model, JOURNEY_PAGE_TERMS["general"]))
+        # Once business type is resolved, inspect all plausible customer paths rather than using
+        # a single guessed journey. Learned routing may reorder this list, but never supplies proof.
+        for candidate_model in (discovery_journeys or []):
+            if candidate_model in JOURNEY_PAGE_TERMS:
+                terms = list(JOURNEY_PAGE_TERMS[candidate_model]) + terms
         # Category-specific knowledge augments page discovery only after the existing
         # business-type inference has resolved a usable category. It never creates findings.
         if str(business_type or "general") != "general":
@@ -2109,6 +2137,9 @@ class HybridScanner:
                 scored.append((score, url))
 
         guessed = list(JOURNEY_PAGE_GUESSES.get(model, JOURNEY_PAGE_GUESSES["general"]))
+        for candidate_model in (discovery_journeys or []):
+            if candidate_model in JOURNEY_PAGE_GUESSES:
+                guessed = list(JOURNEY_PAGE_GUESSES[candidate_model]) + guessed
         if str(business_type or "general") != "general":
             guessed = list(business_page_guesses(str(business_type), model, list(context_tags or []))) + guessed
         guessed = list(dict.fromkeys(guessed))
@@ -2139,12 +2170,12 @@ class HybridScanner:
                 selected.append(url)
         return selected
 
-    def _scan_priority_journey_pages(self, base_url: str, candidates: List[str], journey_model: str, context_tags: Optional[List[str]] = None, business_type: str = "general", exclude_urls: Optional[List[str]] = None, limit_override: Optional[int] = None) -> Dict[str, Any]:
+    def _scan_priority_journey_pages(self, base_url: str, candidates: List[str], journey_model: str, context_tags: Optional[List[str]] = None, business_type: str = "general", exclude_urls: Optional[List[str]] = None, limit_override: Optional[int] = None, discovery_journeys: Optional[List[str]] = None) -> Dict[str, Any]:
         raw_limit = self._to_int(os.environ.get("TRILLOKA_JOURNEY_MAX_PAGES"), 5) or 5
         if limit_override is not None:
             raw_limit = self._to_int(limit_override, raw_limit) or raw_limit
         limit = max(2, min(8, raw_limit))
-        urls = self._select_priority_journey_urls(base_url, candidates, journey_model, limit, context_tags, business_type, exclude_urls)
+        urls = self._select_priority_journey_urls(base_url, candidates, journey_model, limit, context_tags, business_type, exclude_urls, discovery_journeys)
         pages: List[Dict[str, Any]] = []
         errors: List[Dict[str, Any]] = []
         credential_types: List[str] = []
