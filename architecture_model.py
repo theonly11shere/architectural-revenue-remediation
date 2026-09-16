@@ -662,7 +662,12 @@ def infer_architecture_profile(data: Mapping[str, Any], requested_hint: Any = "a
     signals: Dict[str, List[str]] = {model: [] for model in scores}
     _add_phrase_scores(scores, signals, surfaces)
 
+    # Architecture inference uses both the rendered/homepage mobile actions and verified
+    # actions discovered on deeper customer-journey pages. Keep these evidence channels
+    # separate in the scanner, but combine them here because the question is what journey
+    # the website actually supports, not whether every action is visible on the homepage.
     actions = {str(x).lower() for x in (data.get("mobile_cta_types") or []) if x}
+    actions.update(str(x).lower() for x in (data.get("journey_action_types") or []) if x)
     action_weights: Dict[str, Tuple[str, float]] = {
         "quote": ("lead_quote", 9.0), "contact": ("lead_quote", 4.0),
         "reserve": ("reservation_event", 9.0), "order": ("direct_purchase", 7.0),
@@ -761,7 +766,7 @@ def infer_architecture_profile(data: Mapping[str, Any], requested_hint: Any = "a
     provisional = bool(journey_model == "general" or confidence < 0.72 or (business_type == "general" and float(business.get("confidence") or 0.0) < 0.60))
     secondary = JOURNEY_SECONDARY_CONVERSIONS.get(journey_model, JOURNEY_SECONDARY_CONVERSIONS["general"])
     return {
-        "model_basis": "business_type_journey_context_v2",
+        "model_basis": "business_type_journey_context_v2_1",
         "business_type": business_type,
         "business_type_label": business.get("business_type_label") or BUSINESS_TYPE_LABELS.get(business_type, business_type.replace("_", " ").title()),
         "business_type_confidence": round(float(business.get("confidence") or 0.0), 2),

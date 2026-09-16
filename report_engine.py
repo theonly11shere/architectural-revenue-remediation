@@ -33,7 +33,7 @@ class ReportGenerator:
         self.vault_dir = os.environ.get("VAULT_DIR", "./vault_archives")
 
     def generate_admin_master_report(self, audit_data: Dict[str, Any], scan_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create the V7.4.0 evidence-first, outcome-guided, Architect-escalated master report.
+        """Create the V7.4.1 evidence-first, outcome-guided, Architect-escalated master report.
 
         Verified leaks are never padded to a fixed count. Unknowns, strengths and optional future
         optimization ideas are stored in separate sections so a passing checkpoint cannot be
@@ -91,7 +91,7 @@ class ReportGenerator:
         journey_model = str(business_profile.get("journey_model") or audit.get("journey_model") or "general")
 
         return {
-            "report_type": "ADMIN_LEAD_ALERT_V7_4_0",
+            "report_type": "ADMIN_LEAD_ALERT_V7_4_1",
             "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "target_domain": audit.get("target_domain", scan.get("domain", "Unknown")),
             "business_type": business_type,
@@ -584,8 +584,11 @@ class ReportGenerator:
     @staticmethod
     def _build_verified_strengths(checkpoints: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         out: List[Dict[str, Any]] = []
+        diagnostic_only_ids = {40}  # Measurement availability is scanner diagnostics, not a website strength.
         for cp in checkpoints or []:
             if not isinstance(cp, dict) or str(cp.get("status") or "").upper() != PASS:
+                continue
+            if int(cp.get("id") or 0) in diagnostic_only_ids:
                 continue
             name = str(cp.get("check") or f"Checkpoint {cp.get('id')}")
             out.append({
@@ -1360,7 +1363,7 @@ class ReportGenerator:
         return False
 
     def _build_email_html(self, report: Dict[str, Any]) -> str:
-        """Render the V7.4.0 plain-language report used in email and the HTML attachment."""
+        """Render the V7.4.1 plain-language report used in email and the HTML attachment."""
         report = report or {}
 
         def esc(value: Any) -> str:
@@ -1409,6 +1412,13 @@ class ReportGenerator:
         evidence_text = f"{esc(evidence_conf.get('level') or 'UNKNOWN')} ({fmt_num(evidence_conf.get('score'),1)}/100)"
         scope = esc(report.get("score_scope") or "Observable website Revenue Readiness only; not product-market fit, demand, traffic quality, pricing, sales execution or actual revenue.")
         revenue = esc(report.get("estimated_revenue_leak") or "Not measured")
+        exposure = report.get("revenue_exposure") if isinstance(report.get("revenue_exposure"), dict) else {}
+        exposure_deferred = str(exposure.get("estimate_status") or "").upper() == "DEFERRED_PROVISIONAL_JOURNEY"
+        exposure_note = (
+            "Financial scenario modeling is intentionally deferred until the primary customer journey is resolved. Verified website findings remain visible and scored independently."
+            if exposure_deferred else
+            "Scenario estimate from verified issues and explicit assumptions; not measured accounting loss, guaranteed uplift or proof that this amount has been lost."
+        )
         methodology = report.get("scoring_methodology") if isinstance(report.get("scoring_methodology"), dict) else {}
         score_impact = report.get("score_level_impact") if isinstance(report.get("score_level_impact"), dict) else {}
         summary = report.get("checkpoint_summary") or self._checkpoint_summary(report.get("full_50_checkpoint_basis") or [])
@@ -1628,7 +1638,7 @@ class ReportGenerator:
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trilloka Revenue Readiness Audit — {domain}</title></head>
 <body style="margin:0;background:#F4F1EB;padding:0;">
 <main style="max-width:920px;margin:0 auto;background:#FCFBF8;padding:32px 24px 60px;">
-  <div style="font:700 11px Inter,sans-serif;color:#9A7A31;letter-spacing:1.5px;text-transform:uppercase;">TRILLOKA TELEMETRY & EXECUTIVE AUDIT — V7.4.0</div>
+  <div style="font:700 11px Inter,sans-serif;color:#9A7A31;letter-spacing:1.5px;text-transform:uppercase;">TRILLOKA TELEMETRY & EXECUTIVE AUDIT — V7.4.1</div>
   <h1 style="font:700 34px Georgia,serif;color:#111827;margin:8px 0 8px;">Revenue Readiness Audit</h1>
   <p style="font:13px Inter,sans-serif;color:#6B7280;margin:0 0 22px;">Target: <strong>{domain}</strong> &nbsp;•&nbsp; Vault ID: <strong>{vault_id}</strong></p>
 
@@ -1661,7 +1671,7 @@ class ReportGenerator:
   <div style="background:#FFF1F2;border:1px solid #FECDD3;border-radius:12px;padding:18px;margin:24px 0;">
     <div style="font:700 10px Inter,sans-serif;color:#9F1239;letter-spacing:1px;">MODELED COMMERCIAL EXPOSURE</div>
     <div style="font:700 25px Georgia,serif;color:#BE123C;margin-top:5px;">{revenue}</div>
-    <p style="font:11px/1.55 Inter,sans-serif;color:#881337;margin:7px 0 0;">Scenario estimate from verified issues and explicit assumptions; not measured accounting loss, guaranteed uplift or proof that this amount has been lost.</p>
+    <p style="font:11px/1.55 Inter,sans-serif;color:#881337;margin:7px 0 0;">{esc(exposure_note)}</p>
   </div>
 
   <h2 style="font:700 24px Georgia,serif;color:#111827;margin:32px 0 16px;">Where You Might Be Losing Customers</h2>

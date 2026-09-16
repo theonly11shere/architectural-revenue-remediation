@@ -1,4 +1,4 @@
-"""Trilloka V7.4.0 category-specific commercial knowledge packs + research enrichment.
+"""Trilloka V7.4.1 category-specific commercial knowledge packs + research enrichment.
 
 The packs increase what the existing scanner knows about each supported business family.
 They do NOT create findings by themselves. They guide evidence collection, page selection,
@@ -557,7 +557,7 @@ def get_business_deep_dive_pack(
 ) -> Dict[str, Any]:
     """Return the existing category pack enriched by applicable research knowledge.
 
-    V7.4.0 does not alter classification or failure logic. Research enrichment happens
+    V7.4.1 does not alter classification or failure logic. Research enrichment happens
     only after a business category is resolved (or explicitly selected), and it improves
     what the deep-dive crawler looks for plus the diagnostic context available downstream.
     """

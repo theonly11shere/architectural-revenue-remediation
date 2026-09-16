@@ -256,7 +256,7 @@ class _StaticHTMLProbe(HTMLParser):
 
 
 class HybridScanner:
-    ENGINE_VERSION = "v7.4.0"
+    ENGINE_VERSION = "v7.4.1"
     """Three-phase scanner with evidence confidence and business context."""
 
     def __init__(self, google_api_key: Optional[str] = None):
@@ -278,9 +278,9 @@ class HybridScanner:
         # Fixed Google API calls use this session. Disable environment proxy inheritance so
         # deployment-level proxy variables cannot silently reroute security-sensitive traffic.
         self.session.trust_env = False
-        self.session.headers.update({"User-Agent": "TrillokaBot/3.4 Category-Deep-Dive Revenue Architecture Auditor"})
+        self.session.headers.update({"User-Agent": "TrillokaBot/3.4.1 Reliability-Patched Revenue Architecture Auditor"})
         # Every user/page-derived destination goes through a DNS-validated, IP-pinned client.
-        self.safe_http = SafeHTTPClient(default_headers={"User-Agent": "TrillokaBot/3.4 Category-Deep-Dive Revenue Architecture Auditor"})
+        self.safe_http = SafeHTTPClient(default_headers={"User-Agent": "TrillokaBot/3.4.1 Reliability-Patched Revenue Architecture Auditor"})
 
     async def execute_hybrid_scan(self, target_domain: str, business_name: str = "", business_type: str = "auto") -> Dict[str, Any]:
         """Run HTTP, Google and mobile-browser evidence collection."""
@@ -669,6 +669,7 @@ class HybridScanner:
             "final_url": url,
             "redirect_chain": [],
             "https_redirect_enforced": None,
+            "https_redirect_evidence": {},
             "http_preflight_error": "",
             "http_bot_challenge_suspected": False,
             "http_html_length": 0,
@@ -707,26 +708,46 @@ class HybridScanner:
             preflight["http_preflight_error"] = str(exc)
             print(f"[Hybrid Scanner] HTTP preflight failed for {url}: {exc}")
 
-        preflight["https_redirect_enforced"] = self._check_https_redirect(url)
+        redirect_evidence = self._check_https_redirect_details(url)
+        preflight["https_redirect_enforced"] = redirect_evidence.get("enforced")
+        preflight["https_redirect_evidence"] = redirect_evidence
         return preflight
 
-    def _check_https_redirect(self, url: str) -> Optional[bool]:
-        """Return True/False only when the HTTP redirect behavior is actually conclusive.
+    def _check_https_redirect_details(self, url: str) -> Dict[str, Any]:
+        """Return a tri-state HTTPS enforcement verdict plus the exact passive evidence.
 
         A WAF/challenge/4xx/5xx response is not evidence that HTTPS enforcement is missing;
-        those cases remain UNKNOWN (None).
+        those cases remain UNKNOWN. A FAIL requires a successful final HTTP document that never
+        reached HTTPS. This evidence object makes a high-priority redirect finding auditable.
         """
+        details: Dict[str, Any] = {
+            "enforced": None, "attempted_http_url": "", "final_url": "",
+            "final_status_code": None, "redirect_chain": [], "reason": "unverified",
+        }
         try:
             parsed = urllib.parse.urlparse(url)
             if not parsed.netloc:
-                return None
+                details["reason"] = "target URL had no network location"
+                return details
             http_url = urllib.parse.urlunparse(
                 ("http", parsed.netloc, parsed.path or "/", parsed.params, parsed.query, "")
             )
+            details["attempted_http_url"] = http_url
             response = self.safe_http.get(http_url, timeout=(4, 8), allow_redirects=True, max_bytes=180_000)
+            history = [
+                {"status_code": r.status_code, "url": r.url, "location": r.headers.get("Location")}
+                for r in response.history
+            ]
+            details.update({
+                "final_url": str(response.url),
+                "final_status_code": int(response.status_code),
+                "redirect_chain": history,
+            })
             final_scheme = urllib.parse.urlparse(response.url).scheme.lower()
             if final_scheme == "https":
-                return True
+                details["enforced"] = True
+                details["reason"] = "HTTP request reached an HTTPS final URL"
+                return details
 
             body_sample = (response.text or "")[:12000].lower()
             ambiguous = (
@@ -734,14 +755,20 @@ class HybridScanner:
                 or any(pattern in body_sample for pattern in BOT_CHALLENGE_PATTERNS)
             )
             if ambiguous:
-                return None
+                details["reason"] = "HTTP response was blocked/challenged/error and cannot prove missing HTTPS enforcement"
+                return details
 
-            # A successful final HTTP document with no HTTPS redirect is conclusive.
             if 200 <= response.status_code < 400 and final_scheme == "http":
-                return False
-        except Exception:
-            return None
-        return None
+                details["enforced"] = False
+                details["reason"] = "HTTP request ended on a successful HTTP document without reaching HTTPS"
+                return details
+        except Exception as exc:
+            details["reason"] = f"redirect verification unavailable: {str(exc)[:180]}"
+        return details
+
+    def _check_https_redirect(self, url: str) -> Optional[bool]:
+        """Backward-compatible tri-state HTTPS redirect helper."""
+        return self._check_https_redirect_details(url).get("enforced")
 
     def _fetch_site_files(self, url: str) -> Dict[str, Any]:
         parsed = urllib.parse.urlparse(url)
@@ -2113,6 +2140,10 @@ class HybridScanner:
         text_samples: List[str] = []
         booking_provider_links: List[Dict[str, Any]] = []
         discovered_internal_links: List[str] = []
+        # Site-wide positive evidence discovered on deeper pages. These are existence facts only:
+        # a positive on any verified page may strengthen the aggregate, while a negative on one
+        # secondary page never erases a positive already seen elsewhere. Page-specific checkout
+        # details remain page-level and are not blindly generalized.
         aggregate = {
             "reviews_visible": False,
             "social_proof_present": False,
@@ -2127,7 +2158,20 @@ class HybridScanner:
             "shipping_info_linked": False,
             "pricing_linked": False,
             "blog_present": False,
+            "social_links_present": False,
+            "address_location_visible": False,
+            "phone_number_visible": False,
+            "click_to_call_present": False,
+            "add_to_cart_visible": False,
+            "order_online_present": False,
+            "reservation_present": False,
+            "booking_action_present": False,
+            "directions_present": False,
+            "checkout_context_detected": False,
+            "forms_present": False,
         }
+        journey_action_types: List[str] = []
+        journey_action_evidence: List[Dict[str, Any]] = []
         for url in urls:
             try:
                 response = self.safe_http.get(url, timeout=(3, 7), allow_redirects=True, max_bytes=800_000)
@@ -2157,6 +2201,15 @@ class HybridScanner:
                 role = self._journey_role(response.url)
                 for key in aggregate:
                     aggregate[key] = bool(aggregate[key] or evidence.get(key))
+                page_actions = [str(x).lower() for x in (evidence.get("mobile_cta_types") or []) if x]
+                journey_action_types = self._union_strings(journey_action_types, page_actions)
+                if page_actions:
+                    journey_action_evidence.append({
+                        "url": str(response.url),
+                        "role": role,
+                        "action_types": page_actions[:20],
+                        "collection_method": "verified_static_journey_page",
+                    })
                 path_lower = urllib.parse.urlparse(response.url).path.lower()
                 if role == "policy":
                     if "privacy" in path_lower:
@@ -2189,6 +2242,13 @@ class HybridScanner:
                     "forms_present": bool(evidence.get("forms_present")),
                     "form_max_field_count": evidence.get("form_max_field_count"),
                     "cta_types": evidence.get("mobile_cta_types") or [],
+                    "add_to_cart_visible": bool(evidence.get("add_to_cart_visible")),
+                    "order_online_present": bool(evidence.get("order_online_present")),
+                    "reservation_present": bool(evidence.get("reservation_present")),
+                    "booking_action_present": bool(evidence.get("booking_action_present")),
+                    "directions_present": bool(evidence.get("directions_present")),
+                    "checkout_context_detected": bool(evidence.get("checkout_context_detected")),
+                    "click_to_call_present": bool(evidence.get("click_to_call_present")),
                     "conversion_error_signals": page_errors,
                     "credential_signal_types": page_credential_types,
                     "reviews_visible": bool(evidence.get("reviews_visible")),
@@ -2227,6 +2287,8 @@ class HybridScanner:
             "browser_journey_candidate_url": browser_candidate,
             "journey_text_sample": "\n".join(text_samples)[:26000],
             "discovered_internal_links": list(dict.fromkeys(discovered_internal_links))[:400],
+            "journey_action_types": list(dict.fromkeys(journey_action_types))[:40],
+            "journey_action_evidence": journey_action_evidence[:40],
             **aggregate,
         }
 
@@ -2260,6 +2322,25 @@ class HybridScanner:
         target["booking_provider_links"] = HybridScanner._dedupe_booking_provider_links(
             list(target.get("booking_provider_links") or []) + list(journey.get("booking_provider_links") or [])
         )
+        # Keep site-wide action evidence separate from homepage/mobile CTA evidence. This lets the
+        # architecture classifier learn from verified deeper conversion pages without falsely
+        # claiming that those actions were visible/sticky on the homepage.
+        target["journey_action_types"] = HybridScanner._union_strings(
+            target.get("journey_action_types"), journey.get("journey_action_types")
+        )
+        existing_action_evidence = list(target.get("journey_action_evidence") or [])
+        incoming_action_evidence = list(journey.get("journey_action_evidence") or [])
+        action_evidence: List[Dict[str, Any]] = []
+        action_seen = set()
+        for item in existing_action_evidence + incoming_action_evidence:
+            if not isinstance(item, dict):
+                continue
+            marker = (str(item.get("url") or ""), tuple(sorted(str(x) for x in (item.get("action_types") or []))))
+            if marker in action_seen:
+                continue
+            action_seen.add(marker)
+            action_evidence.append(item)
+        target["journey_action_evidence"] = action_evidence[:60]
         existing_errors = list(target.get("conversion_error_signals") or [])
         journey_errors = list(journey.get("journey_error_signals") or [])
         dedup_errors = []
@@ -2283,7 +2364,11 @@ class HybridScanner:
             "reviews_visible", "social_proof_present", "trust_badges_present",
             "privacy_policy_linked", "terms_linked", "about_team_linked", "faq_present",
             "case_studies_portfolio_present", "return_policy_linked", "shipping_info_linked",
-            "pricing_linked", "blog_present",
+            "pricing_linked", "blog_present", "social_links_present",
+            "address_location_visible", "phone_number_visible", "click_to_call_present",
+            "add_to_cart_visible", "order_online_present", "reservation_present",
+            "booking_action_present", "directions_present", "checkout_context_detected",
+            "forms_present",
         ):
             if journey.get(key) is True:
                 target[key] = True
@@ -2293,6 +2378,10 @@ class HybridScanner:
             target.get("reviews_visible") or target.get("trust_badges_present") or target.get("case_studies_portfolio_present") or target.get("social_proof_present")
         )
         target["privacy_terms_linked"] = bool(target.get("privacy_policy_linked") and target.get("terms_linked"))
+        if target.get("phone_number_visible") is True:
+            target["phone_visibility_status"] = "verified"
+        if target.get("click_to_call_present") is True:
+            target["click_to_call_status"] = "verified"
 
     @staticmethod
     def _utc_now() -> str:
@@ -2416,6 +2505,14 @@ class HybridScanner:
             "forms_present": browser_probe.get("forms_present"),
             "form_action_valid": browser_probe.get("form_action_valid"),
             "cta_types": browser_probe.get("mobile_cta_types") or [],
+            "add_to_cart_visible": browser_probe.get("add_to_cart_visible"),
+            "order_online_present": browser_probe.get("order_online_present"),
+            "reservation_present": browser_probe.get("reservation_present"),
+            "booking_action_present": browser_probe.get("booking_action_present"),
+            "directions_present": browser_probe.get("directions_present"),
+            "checkout_context_detected": browser_probe.get("checkout_context_detected"),
+            "address_location_visible": browser_probe.get("address_location_visible"),
+            "phone_number_visible": browser_probe.get("phone_number_visible"),
             "conversion_error_signals": browser_probe.get("conversion_error_signals") or [],
             "booking_provider_links": browser_probe.get("booking_provider_links") or [],
             "evidence_screenshot_mime": browser_probe.get("evidence_screenshot_mime") or "",
@@ -2439,12 +2536,28 @@ class HybridScanner:
         target["booking_provider_links"] = HybridScanner._dedupe_booking_provider_links(
             list(target.get("booking_provider_links") or []) + list(browser_probe.get("booking_provider_links") or [])
         )
-        # Positive trust/policy evidence on the rendered journey page can strengthen the aggregate;
+        rendered_actions = [str(x).lower() for x in (browser_probe.get("mobile_cta_types") or []) if x]
+        target["journey_action_types"] = HybridScanner._union_strings(
+            target.get("journey_action_types"), rendered_actions
+        )
+        if rendered_actions:
+            existing_action_evidence = list(target.get("journey_action_evidence") or [])
+            existing_action_evidence.append({
+                "url": str(url or ""),
+                "role": HybridScanner._journey_role(str(url or "")),
+                "action_types": rendered_actions[:20],
+                "collection_method": "rendered_journey_page",
+            })
+            target["journey_action_evidence"] = existing_action_evidence[-60:]
+        # Positive trust/policy/evidence on the rendered journey page can strengthen the aggregate;
         # negative evidence never erases a homepage/cross-page positive.
         for key in (
             "reviews_visible", "social_proof_present", "trust_badges_present", "credential_signals_present",
             "privacy_policy_linked", "terms_linked", "about_team_linked", "case_studies_portfolio_present",
             "return_policy_linked", "shipping_info_linked", "pricing_linked",
+            "address_location_visible", "phone_number_visible", "click_to_call_present",
+            "add_to_cart_visible", "order_online_present", "reservation_present",
+            "booking_action_present", "directions_present", "checkout_context_detected", "forms_present",
         ):
             if browser_probe.get(key) is True:
                 target[key] = True
@@ -2452,6 +2565,10 @@ class HybridScanner:
             list(target.get("credential_signal_types") or []) + list(browser_probe.get("credential_signal_types") or [])
         ))
         target["privacy_terms_linked"] = bool(target.get("privacy_policy_linked") and target.get("terms_linked"))
+        if target.get("phone_number_visible") is True:
+            target["phone_visibility_status"] = "verified"
+        if target.get("click_to_call_present") is True:
+            target["click_to_call_status"] = "verified"
 
     @staticmethod
     def _infer_business_subtype(vertical: str, text: str) -> str:
@@ -2463,7 +2580,11 @@ class HybridScanner:
         if str(data.get("mobile_cta_status") or "unknown").lower() != "verified":
             return None
         model = str(journey_model or "general")
+        # A verified conversion path can live on a deeper journey page even when it is not
+        # a homepage/mobile CTA.  Do not confuse the two for prominence scoring, but do use
+        # both when deciding whether the website has a primary commercial action at all.
         cta_types = set(str(x) for x in (data.get("mobile_cta_types") or []) if x)
+        cta_types.update(str(x) for x in (data.get("journey_action_types") or []) if x)
         form_usable = bool(data.get("forms_present") and data.get("form_action_valid") is not False)
         call = bool(data.get("click_to_call_present"))
         expected = architecture_expected_actions(model)

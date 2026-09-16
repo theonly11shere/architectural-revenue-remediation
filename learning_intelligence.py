@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-_VERSION = "v7.4.0-learning-v1"
+_VERSION = "v7.4.1-learning-v1"
 _LOCK = threading.RLock()
 
 # Deliberately compact.  We learn discriminating commercial language, not full page text.

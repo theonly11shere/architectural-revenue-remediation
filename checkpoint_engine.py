@@ -302,6 +302,7 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
     regulated = "regulated_high_trust" in context_tags
     local_context = "local_location_dependent" in context_tags
     commerce_context = "commerce_payment" in context_tags or journey == "direct_purchase" or business_type_key in {"ecommerce", "marketplace"}
+    goods_commerce_context = business_type_key in {"ecommerce", "marketplace"}
     sensitive_context = "sensitive_data" in context_tags
     enterprise_context = "enterprise_considered_purchase" in context_tags
     hospitality_context = "hospitality_event" in context_tags
@@ -368,10 +369,35 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
             return UNKNOWN
         return PASS if bool(value) else FAIL
 
+    def required_presence_status(*values: Any, verified: bool = True) -> str:
+        """Tri-state presence check for compound requirements.
+
+        False means verified absence. None means the scanner could not establish the fact and
+        must remain UNKNOWN instead of being coerced into FAIL by bool(None).
+        """
+        if not verified or not values or any(value is None for value in values):
+            return UNKNOWN
+        return PASS if all(value is True for value in values) else FAIL
+
     def optional_presence(value: Any, verified: bool, note: str) -> tuple[str, str]:
         if verified and value is True:
             return PASS, note
         return NA, note
+
+    def any_presence_value(*values: Any) -> Any:
+        """Tri-state OR for evidence families.
+
+        A verified positive on any source is enough for True.  A negative result is only safe
+        when every supplied signal is explicitly False.  If no source is positive and at least
+        one source is unresolved, preserve None so UNKNOWN cannot silently become FAIL.
+        """
+        if not values:
+            return None
+        if any(value is True for value in values):
+            return True
+        if all(value is False for value in values):
+            return False
+        return None
 
     final_url = str(scan.get("final_url") or scan.get("url") or "").lower()
     product_context = bool(
@@ -399,7 +425,7 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
 
     # Trust & Conversion 1-15
     add(1, "SSL Certificate Active", bool_status(scan.get("has_ssl"), bool(scan.get("is_reachable"))), "trust_conversion", scan.get("final_url"))
-    add(2, "HTTPS Redirect Enforced", bool_status(scan.get("https_redirect_enforced")), "trust_conversion", scan.get("redirect_chain"))
+    add(2, "HTTPS Redirect Enforced", bool_status(scan.get("https_redirect_enforced")), "trust_conversion", scan.get("https_redirect_evidence") or scan.get("redirect_chain"))
 
     if call_relevant:
         add(3, "Mobile Click-to-Call Present", bool_status(scan.get("click_to_call_present"), scan.get("click_to_call_status") == "verified"), "trust_conversion", reason="Required only when the inferred customer journey and local context make calling a normal primary/supporting conversion path.")
@@ -408,7 +434,16 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
         add(3, "Mobile Click-to-Call Present", status, "trust_conversion", reason=note)
 
     if sticky_relevant:
-        add(4, "Persistent Mobile Primary Action", bool_status(scan.get("mobile_sticky_cta_present"), scan.get("mobile_cta_status") == "verified"), "trust_conversion", scan.get("mobile_cta_types"), "A persistent action is scored only where mobile direct-action continuity is central to the inferred journey; direct purchase requires product/checkout context.")
+        if scan.get("mobile_sticky_cta_present") is True and scan.get("mobile_cta_status") == "verified":
+            sticky_status = PASS
+            sticky_note = "A persistent mobile action was verified. This can strengthen continuity, but its absence is not treated as an automatic customer-loss failure."
+        elif scan.get("mobile_cta_status") == "verified":
+            sticky_status = NA
+            sticky_note = "No persistent mobile action was verified. Sticky actions are an optional optimization that require visual/journey judgment rather than a universal readiness requirement."
+        else:
+            sticky_status = UNKNOWN
+            sticky_note = "Mobile persistence could not be verified from the available evidence. No failure is created."
+        add(4, "Persistent Mobile Primary Action", sticky_status, "trust_conversion", scan.get("mobile_cta_types"), sticky_note)
     else:
         if not browser_verified and static_verified:
             status = UNKNOWN
@@ -444,7 +479,7 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
 
     add(9, "Address / Location Signal Visible", NA if not location_relevant else bool_status(scan.get("address_location_visible"), content_verified), "trust_conversion", reason="Location is required only when public evidence indicates a location-dependent customer journey/context.")
 
-    credential_value = bool(scan.get("credential_signals_present") or scan.get("trust_badges_present"))
+    credential_value = any_presence_value(scan.get("credential_signals_present"), scan.get("trust_badges_present"))
     if credential_required:
         add(10, "Professional / Regulatory Credential Signals", bool_status(credential_value, content_verified), "trust_conversion", scan.get("credential_signal_types"), "Credentials are required only when the public evidence indicates a regulated/high-trust context.")
     elif credential_relevant:
@@ -460,15 +495,18 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
         status, note = optional_presence(scan.get("reviews_visible"), content_verified, "Reviews are not the required proof format for this customer journey/context; case studies, credentials or other proof can satisfy trust instead.")
         add(11, "Testimonials / Reviews Visible", status, "trust_conversion", reason=note)
 
-    if commerce_context and (journey == "direct_purchase" or business_type_key in {"ecommerce", "marketplace"}):
-        refund_value = bool(scan.get("return_policy_linked") or scan.get("guarantee_refund_present"))
-        add(12, "Return / Refund Policy Discoverable", bool_status(refund_value, content_verified), "trust_conversion", {"return_policy_linked": scan.get("return_policy_linked"), "guarantee_signal": scan.get("guarantee_refund_present")}, "Refund/return reassurance is a commerce requirement; it is not imposed on clinics or ordinary service businesses.")
+    if goods_commerce_context:
+        refund_value = any_presence_value(scan.get("return_policy_linked"), scan.get("guarantee_refund_present"))
+        add(12, "Return / Refund Policy Discoverable", bool_status(refund_value, content_verified), "trust_conversion", {"return_policy_linked": scan.get("return_policy_linked"), "guarantee_signal": scan.get("guarantee_refund_present")}, "Return/refund discoverability is scored for ecommerce/marketplace goods commerce; a direct-purchase journey alone does not impose retail return-policy expectations on restaurants or other transactional services.")
     else:
         add(12, "Return / Refund Policy Discoverable", NA, "trust_conversion", reason="Not a universal requirement for this customer journey/context.")
 
     add(13, "Team / About Identity Path Linked", bool_status(scan.get("about_team_linked"), content_verified) if team_required else (PASS if scan.get("about_team_linked") is True and content_verified else NA), "trust_conversion", reason="Identity/team transparency is scored when the observed journey/context makes organizational identity part of the decision; optional elsewhere.")
 
-    proof_value = bool(scan.get("social_proof_present") or scan.get("reviews_visible") or scan.get("credential_signals_present") or scan.get("case_studies_portfolio_present"))
+    proof_value = any_presence_value(
+        scan.get("social_proof_present"), scan.get("reviews_visible"),
+        scan.get("credential_signals_present"), scan.get("case_studies_portfolio_present")
+    )
     add(14, "Relevant Social / Customer Proof Active", bool_status(proof_value, content_verified) if broad_proof_required else (PASS if proof_value and content_verified else NA), "trust_conversion", reason="Proof can be reviews, credentials, case studies or other verifiable customer/business evidence; the required format varies by journey/context.")
 
     instant_channel_present = bool(scan.get("live_chat_present") or scan.get("whatsapp_present"))
@@ -564,7 +602,9 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
         add(44, "FAQ / Objection-Handling Support", NA, "content_eeat", reason="FAQ format is optional; absence is not scored unless future evidence shows a business-specific objection gap.")
 
     proof_of_work_relevant = bool(enterprise_context or journey in {"demo_sales", "donation_support", "application_enrollment"} or business_type_key in {"agency", "b2b", "saas", "nonprofit", "education"})
-    proof_of_work = bool(scan.get("case_studies_portfolio_present") or scan.get("reviews_visible") or scan.get("social_proof_present"))
+    proof_of_work = any_presence_value(
+        scan.get("case_studies_portfolio_present"), scan.get("reviews_visible"), scan.get("social_proof_present")
+    )
     add(45, "Customer / Proof-of-Work Evidence", bool_status(proof_of_work, content_verified) if proof_of_work_relevant else NA, "content_eeat", {"case_studies": scan.get("case_studies_portfolio_present"), "social_proof": scan.get("social_proof_present")}, "Proof-of-work/customer evidence is required only for enterprise/considered-purchase or demo/sales journeys; ordinary local and regulated services are not forced to publish case studies.")
 
     if scan.get("blog_present") is True and content_verified:
@@ -580,15 +620,17 @@ def build_50_checkpoints(scan_data: Dict[str, Any], audit_data: Dict[str, Any] |
         or scan.get("retargeting_pixel_installed") or scan.get("has_ga4")
     )
     privacy_required = bool(tracking_or_data or commerce_context or regulated or sensitive_context)
-    terms_required = bool((commerce_context and (journey == "direct_purchase" or scan.get("checkout_context_detected"))) or journey in {"membership_subscription", "donation_support", "application_enrollment"})
+    terms_required = bool((goods_commerce_context and scan.get("checkout_context_detected")) or journey in {"membership_subscription", "donation_support", "application_enrollment"})
     if not privacy_required:
         add(48, "Required Privacy / Terms Policy Links", NA, "content_eeat", reason="No verified data/commerce context made a policy link mandatory for scoring in this public scan.")
     elif terms_required:
-        policy_ok = bool(scan.get("privacy_policy_linked") and scan.get("terms_linked"))
-        add(48, "Privacy & Terms Policies Linked", bool_status(policy_ok, content_verified), "content_eeat", {"requirement": "privacy_and_terms", "privacy_policy_linked": scan.get("privacy_policy_linked"), "terms_linked": scan.get("terms_linked")}, "Both policies are expected only for verified transaction/account/checkout contexts.")
+        policy_status = required_presence_status(
+            scan.get("privacy_policy_linked"), scan.get("terms_linked"), verified=content_verified
+        )
+        add(48, "Privacy & Terms Policies Linked", policy_status, "content_eeat", {"requirement": "privacy_and_terms", "privacy_policy_linked": scan.get("privacy_policy_linked"), "terms_linked": scan.get("terms_linked")}, "Both policies are expected only for verified transaction/account/checkout contexts. Unknown policy evidence remains UNKNOWN rather than being treated as absence.")
     else:
-        policy_ok = bool(scan.get("privacy_policy_linked"))
-        add(48, "Privacy Policy Linked for Data Collection", bool_status(policy_ok, content_verified), "content_eeat", {"requirement": "privacy_only", "privacy_policy_linked": scan.get("privacy_policy_linked"), "terms_linked": scan.get("terms_linked")}, "A Privacy policy is required where forms/tracking, regulated context, commerce, or sensitive-data evidence makes it applicable; Terms are not forced outside transaction/account contexts.")
+        policy_status = required_presence_status(scan.get("privacy_policy_linked"), verified=content_verified)
+        add(48, "Privacy Policy Linked for Data Collection", policy_status, "content_eeat", {"requirement": "privacy_only", "privacy_policy_linked": scan.get("privacy_policy_linked"), "terms_linked": scan.get("terms_linked")}, "A Privacy policy is required where forms/tracking, regulated context, commerce, or sensitive-data evidence makes it applicable; Terms are not forced outside transaction/account contexts. Unknown policy evidence remains UNKNOWN rather than being treated as absence.")
 
     cookie = scan.get("cookie_banner_present")
     tracking_or_cookie_context = bool(

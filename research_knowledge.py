@@ -1,4 +1,4 @@
-"""Trilloka V7.4.0 research-grounded category/journey knowledge ledger.
+"""Trilloka V7.4.1 research-grounded category/journey knowledge ledger.
 
 Purpose
 -------

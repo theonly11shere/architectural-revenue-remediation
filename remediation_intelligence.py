@@ -1,4 +1,4 @@
-"""Trilloka V7.4.0 adaptive, research-grounded remediation & outcome intelligence.
+"""Trilloka V7.4.1 adaptive, research-grounded remediation & outcome intelligence.
 
 This module deliberately does NOT change detection, applicability, scoring, or the
 UNKNOWN/FAIL boundary. It improves only what Trilloka does after a finding has
@@ -541,6 +541,29 @@ def _research_summary(basis: Mapping[str, Any]) -> str:
     return ", ".join(names[:3])
 
 
+# Category context is intentionally selective. A business type should change a remedy only
+# when the actual implementation/decision surface differs by business or journey. Pure
+# infrastructure/metadata fixes keep their technical meaning instead of receiving boilerplate
+# restaurant/SaaS/etc. sentences that do not help execute the fix.
+CATEGORY_DECISION_SURFACE_RULES = {
+    "conversion_path_error", "primary_conversion_path", "form_architecture", "lead_form_friction",
+    "mobile_sticky_cta", "click_to_call", "proof_placement_gap", "location_visibility",
+    "reviews_social_proof", "trust_credentials", "b2b_pricing_transparency",
+    "checkout_cost_transparency", "guest_checkout_barrier", "checkout_complexity",
+    "delivery_expectation_clarity", "shipping_info_discoverability", "return_policy_discoverability",
+    "cross_page_consistency", "public_unfinished_content",
+}
+CATEGORY_CUSTOMER_FOCUS_RULES = set(CATEGORY_DECISION_SURFACE_RULES)
+CATEGORY_OUTCOME_LINK_RULES = {
+    "conversion_path_error", "primary_conversion_path", "form_architecture", "lead_form_friction",
+    "mobile_sticky_cta", "click_to_call", "proof_placement_gap", "location_visibility",
+    "reviews_social_proof", "b2b_pricing_transparency",
+    "checkout_cost_transparency", "guest_checkout_barrier", "checkout_complexity",
+    "delivery_expectation_clarity", "shipping_info_discoverability", "return_policy_discoverability",
+    "cross_page_consistency",
+}
+
+
 def build_outcome_remediation(
     rule_key: str,
     business_type: str,
@@ -577,11 +600,14 @@ def build_outcome_remediation(
     cro = _append_once(cro, ref.get("ux", ""))
     systems = _append_once(systems, ref.get("systems", ""))
 
-    # Every supported remedy is category-aware even when no special rule override exists.
-    # This keeps the solution tied to the actual decision surface and business outcome.
-    technical = _append_once(technical, f"Apply and verify this first on the relevant {category['decision_surface']}.")
-    cro = _append_once(cro, f"For this business type, keep the customer decision focused on this need: {category['customer_focus']}.")
-    systems = _append_once(systems, f"Validate the change against this outcome path: {category['measurement']}.")
+    # Apply generic category context only when it materially changes execution. Pure technical
+    # foundation/SEO fixes (HTTPS, canonical, schema, metadata, etc.) retain focused remedies.
+    if key in CATEGORY_DECISION_SURFACE_RULES:
+        technical = _append_once(technical, f"Apply and verify this first on the relevant {category['decision_surface']}.")
+    if key in CATEGORY_CUSTOMER_FOCUS_RULES:
+        cro = _append_once(cro, f"For this business type, keep the customer decision focused on this need: {category['customer_focus']}.")
+    if key in CATEGORY_OUTCOME_LINK_RULES:
+        systems = _append_once(systems, f"Validate the change against this outcome path: {category['measurement']}.")
 
     # Context refinement stays bounded and never turns a missing/unknown observation into a claim.
     for ctx in sorted(contexts):
@@ -612,7 +638,9 @@ def build_outcome_remediation(
         "1) preserve the evidence/baseline; 2) correct the smallest root cause that explains the verified finding; "
         "3) re-test the same customer path; 4) compare the relevant business outcome before expanding the change."
     )
-    success_check = _append_once(success, f"Primary outcome to watch: {category['measurement']}.")
+    success_check = success
+    if key in CATEGORY_OUTCOME_LINK_RULES:
+        success_check = _append_once(success_check, f"Primary outcome to watch: {category['measurement']}.")
 
     # V7.4 can reuse Architect-confirmed remediation outcomes from earlier scans. This memory
     # never creates the finding and never replaces the research/category baseline; it only sharpens
@@ -644,7 +672,7 @@ def build_outcome_remediation(
         "journey_measure": jprof["measure"],
         "research_basis": research,
         "research_basis_summary": research_names,
-        "remediation_engine": "v7.4.0_research_category_journey_outcome_learning",
+        "remediation_engine": "v7.4.1_research_category_journey_outcome_learning",
         "learned_outcome_guidance": learned_outcome,
     }
 

@@ -21,8 +21,29 @@ def build_architect_review_queue(scan: Mapping[str, Any], audit: Mapping[str, An
     profile = scan.get("architecture_profile") if isinstance(scan.get("architecture_profile"), Mapping) else {}
     journey = str(profile.get("journey_model") or "general")
     business_type = str(profile.get("business_type") or "general")
-    decision = (scan.get("commercial_architecture_diagnostics") or {}).get("decision_evidence") if isinstance(scan.get("commercial_architecture_diagnostics"), Mapping) else {}
-    if not isinstance(decision, Mapping): decision = {}
+    diagnostics = scan.get("commercial_architecture_diagnostics") if isinstance(scan.get("commercial_architecture_diagnostics"), Mapping) else {}
+    decision = diagnostics.get("decision_point_evidence") if isinstance(diagnostics, Mapping) else {}
+    # Backward-compatible fallback for archived/pre-patch snapshots that used the older key.
+    if not isinstance(decision, Mapping):
+        decision = diagnostics.get("decision_evidence") if isinstance(diagnostics, Mapping) else {}
+    if not isinstance(decision, Mapping):
+        decision = {}
+
+    # 0) A specialized but provisional journey should be explicitly confirmed by the Architect
+    # before journey-dependent recommendations or financial interpretation are treated as mature.
+    if bool(profile.get("provisional")) and journey != "general":
+        reviews.append(_item(
+            "IMPORTANT", "journey_resolution", "Primary customer journey requires Architect confirmation",
+            "Automation found a likely customer journey but confidence remains below the resolution threshold. Journey-dependent failures and financial scenario modeling stay guarded until this is confirmed.",
+            {
+                "business_type": business_type,
+                "journey_model": journey,
+                "journey_confidence": profile.get("confidence"),
+                "journey_signals": list(profile.get("journey_signals") or [])[:10],
+                "secondary_journeys": list(profile.get("secondary_journeys") or [])[:3],
+            },
+            {"check": "Confirm the real primary conversion path from the live site and distinguish primary versus secondary journeys before approving journey-dependent priorities."},
+        ))
 
     # 1) Visual prominence cannot be proven from DOM existence alone.
     primary_present = scan.get("mobile_primary_cta_present") is True
@@ -56,13 +77,22 @@ def build_architect_review_queue(scan: Mapping[str, Any], audit: Mapping[str, An
             {"check": "Open the handoff on desktop and mobile; inspect continuity of offer, price/expectations, trust, error handling and return path without completing a live transaction."},
         ))
 
-    # 4) Proof placement is sometimes structurally detected but qualitatively ambiguous.
-    if decision.get("proof_sitewide") and decision.get("decision_pages") and decision.get("proof_at_decision") is None:
+    # 4) Proof placement is structurally detectable, but visual relevance/credibility can remain
+    # qualitative. Route medium-confidence placement findings to the Architect even when the
+    # structural sitewide-present/decision-point-absent condition was detected.
+    scoring_ledger = [x for x in (audit.get("scoring_ledger") or []) if isinstance(x, Mapping)]
+    proof_finding = next((x for x in scoring_ledger if str(x.get("rule_key") or "") == "proof_placement_gap"), None)
+    structural_proof_uncertain = bool(
+        (decision.get("proof_exists_sitewide") or decision.get("proof_sitewide"))
+        and (int(decision.get("decision_pages_verified") or 0) > 0 or decision.get("decision_pages"))
+        and decision.get("proof_visible_at_decision_point", decision.get("proof_at_decision")) is None
+    )
+    if structural_proof_uncertain or (proof_finding and str(proof_finding.get("confidence") or "").lower() != "high"):
         reviews.append(_item(
             "IMPORTANT", "proof_quality", "Proof relevance at the decision point",
-            "Proof exists, but automation could not confidently establish whether the proof is relevant, credible and visually connected to the decision it is supposed to support.",
-            {"decision_evidence": dict(decision)},
-            {"check": "Judge whether the proof actually answers the customer's concern at the high-consideration decision point, not merely whether a testimonial/logo exists somewhere."},
+            "Structural evidence indicates a proof-placement concern, but automation should not pretend that DOM proximity alone establishes visual relevance, credibility or persuasive connection to the decision.",
+            {"decision_evidence": dict(decision), "scored_finding": dict(proof_finding or {})},
+            {"check": "Inspect the affected decision page visually. Confirm whether the existing proof actually answers the customer's concern at the high-consideration point before recommending a substantial change."},
         ))
 
     # 5) Novel learned subtype / unresolved archetype.

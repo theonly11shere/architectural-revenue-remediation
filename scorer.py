@@ -147,7 +147,7 @@ BUSINESS_TYPE_RULE_MULTIPLIERS: Dict[str, Dict[str, float]] = {
     "automotive": {"click_to_call": 1.15, "location_visibility": 1.15, "reviews_social_proof": 1.12, "form_architecture": 1.10},
 }
 
-# V7.4.0 context-specific importance. Context has always been part of Trilloka's
+# V7.4.1 context-specific importance. Context has always been part of Trilloka's
 # applicability model; this bounded post-verification layer lets that same context sharpen
 # importance without manufacturing a finding.
 CONTEXT_RULE_MULTIPLIERS: Dict[str, Dict[str, float]] = {
@@ -1453,7 +1453,13 @@ class RevenueScorer:
 
         Business type affects importance elsewhere; this helper verifies the actual journey action.
         """
-        ctas = {str(x).lower() for x in (data.get("mobile_cta_types") or []) if x}
+        # Site-level journey evidence may come from the homepage/mobile surface OR from a
+        # verified deeper journey page (for example Order Online, Request a Quote, Demo,
+        # Application).  Keep mobile prominence separate, but let either source establish
+        # that the business has a qualified conversion action.
+        mobile_ctas = {str(x).lower() for x in (data.get("mobile_cta_types") or []) if x}
+        journey_ctas = {str(x).lower() for x in (data.get("journey_action_types") or []) if x}
+        ctas = mobile_ctas | journey_ctas
         evidence: Dict[str, Any] = {
             "journey_model": biz_type,
             "journey_label": profile.get("journey_label"),
@@ -1497,6 +1503,8 @@ class RevenueScorer:
             "qualified_primary_action": qualified,
             "mobile_primary_cta_present": primary,
             "cta_types": sorted(ctas),
+            "mobile_cta_types": sorted(mobile_ctas),
+            "journey_action_types": sorted(journey_ctas),
             "forms_present": bool(data.get("forms_present")),
         })
         return points, evidence
@@ -1984,6 +1992,8 @@ class RevenueScorer:
         provisional = bool(profile.get("provisional"))
         local = context_has(profile, "local_location_dependent")
         commerce = context_has(profile, "commerce_payment") or biz_type == "direct_purchase"
+        business_type_key = str(profile.get("business_type") or "general")
+        goods_commerce = business_type_key in {"ecommerce", "marketplace"}
         enterprise = context_has(profile, "enterprise_considered_purchase") or biz_type == "demo_sales"
 
         # Universal foundations with real commercial implications.
@@ -2051,18 +2061,24 @@ class RevenueScorer:
             or (biz_type == "direct_purchase" and product_context)
             or (biz_type == "general" and data.get("mobile_primary_cta_present") is True)
         )
-        if sticky_relevant and str(data.get("mobile_cta_status") or "unknown").lower() == "verified" and not data.get("mobile_sticky_cta_present"):
-            severity = 0.45 if data.get("mobile_primary_cta_present") else 0.72
-            leaks.append(self._build_leak(
-                "mobile_sticky_cta", "Absence of Mobile Sticky Call-to-Action (CTA)",
-                "Primary actions exist, but no verified fixed/sticky conversion action remains accessible after mobile scrolling." if data.get("mobile_primary_cta_present") else "No verified persistent mobile conversion action was detected after scrolling.",
-                "trust_conversion", biz_type, severity, "high",
-                self._conversion_substitution("mobile_sticky_cta", biz_type, data, profile), competitor_verified,
-                {"mobile_primary_cta_present": bool(data.get("mobile_primary_cta_present")), "mobile_sticky_cta_present": False, "cta_types": data.get("mobile_cta_types") or []}, "Rendered mobile DOM after scroll"))
+        # Missing sticky/persistent CTA is not a universal failure. A verified sticky action may
+        # earn positive continuity evidence, while absence is routed to Architect/optimization
+        # judgment instead of creating a scored leak.
 
-        # Primary journey path. Provisional models never fail this rule.
+        # Primary journey path. Provisional models never fail this rule.  A site-wide claim that
+        # the primary journey action is missing requires both rendered mobile/action evidence AND
+        # a verified bounded journey crawl (or a rendered journey page).  This prevents a homepage
+        # miss from being generalized to the whole website when the action may live deeper.
         conversion_points, conversion_evidence = self._business_conversion_strength(data, biz_type, profile)
-        if not provisional and str(data.get("mobile_cta_status") or "unknown").lower() == "verified" and conversion_points <= 0.0:
+        mobile_action_verified = str(data.get("mobile_cta_status") or "unknown").lower() == "verified"
+        journey_action_coverage_verified = bool(
+            str(data.get("journey_evidence_status") or "").lower() == "verified"
+            or int(data.get("journey_pages_verified") or 0) > 0
+            or data.get("browser_journey_rendered") is True
+        )
+        conversion_evidence["mobile_action_evidence_verified"] = mobile_action_verified
+        conversion_evidence["journey_action_coverage_verified"] = journey_action_coverage_verified
+        if not provisional and mobile_action_verified and journey_action_coverage_verified and conversion_points <= 0.0:
             labels = {
                 "lead_quote": "No verified quote, enquiry, contact-form or equivalent qualified lead action was found.",
                 "appointment_consultation": "No verified appointment, consultation, booking or equivalent customer action was found.",
@@ -2124,10 +2140,10 @@ class RevenueScorer:
             if checkout_fields is not None and checkout_fields > 8:
                 severity = min(0.90, 0.35 + (checkout_fields - 8.0) * 0.08)
                 leaks.append(self._build_leak("checkout_complexity", "High Checkout Form Burden", f"The inspected checkout exposes about {int(checkout_fields)} customer-input fields. This is treated as effort, not a claim that every field is unnecessary.", "trust_conversion", biz_type, severity, "medium", 1.0, False, {"checkout_form_field_count": int(checkout_fields)}, "Observed checkout form structure"))
-            if data.get("delivery_date_visible") is False:
+            if goods_commerce and data.get("delivery_date_visible") is False:
                 leaks.append(self._build_leak("delivery_expectation_clarity", "Delivery Expectation Clarity Gap", "No clear estimated-delivery or arrival-date wording was detected in the inspected checkout context.", "trust_conversion", biz_type, 0.35, "medium", 1.0, False, {"delivery_date_visible": False}, "Observed checkout content"))
 
-        if biz_type == "direct_purchase" and str(data.get("content_signal_status") or "").lower() == "verified":
+        if goods_commerce and biz_type == "direct_purchase" and str(data.get("content_signal_status") or "").lower() == "verified":
             if data.get("return_policy_linked") is False:
                 leaks.append(self._build_leak("return_policy_discoverability", "Return Policy Hard to Find", "No clear return/refund policy link was detected in the verified purchase-path evidence.", "trust_conversion", biz_type, 0.45, "medium", 1.0, False, {"return_policy_linked": False}, "Verified rendered/static navigation evidence"))
             if data.get("shipping_info_linked") is False:
@@ -2252,11 +2268,30 @@ class RevenueScorer:
                 "competitor_advantage_bonus": 0.0, "intrinsic_severity_score": round(pre_dedupe, 2), "economic_severity": round(pre_dedupe, 2),
                 "pre_dedupe_penalty": round(pre_dedupe, 2),
                 "family_adjustment": 1.0, "final_score_loss": round(pre_dedupe, 2), "score_impact_points": round(pre_dedupe, 2), "final_severity_score": round(pre_dedupe, 2),
-                "evidence": {"checkpoint_id": checkpoint.get("id"), "checkpoint": checkpoint.get("check"), "evidence": checkpoint.get("evidence")},
+                "evidence": self._promoted_checkpoint_evidence(checkpoint),
                 "source": "Verified 50-point checkpoint evidence",
             })
             existing_rules.add(rule_key)
         return promoted
+
+    @staticmethod
+    def _promoted_checkpoint_evidence(checkpoint: Dict[str, Any]) -> Dict[str, Any]:
+        raw = checkpoint.get("evidence")
+        out: Dict[str, Any] = {
+            "checkpoint_id": checkpoint.get("id"),
+            "checkpoint": checkpoint.get("check"),
+            "evidence": raw,
+        }
+        # Promote compact auditable fields for high-impact infrastructure/policy findings so
+        # evidence receipts explain the actual observation instead of merely naming a checkpoint.
+        if isinstance(raw, dict):
+            for key in (
+                "attempted_http_url", "final_url", "final_status_code", "redirect_chain", "reason",
+                "requirement", "privacy_policy_linked", "terms_linked",
+            ):
+                if key in raw:
+                    out[key] = raw.get(key)
+        return out
 
     @staticmethod
     def _checkpoint_failure_copy(checkpoint: Dict[str, Any]) -> Tuple[str, str]:
@@ -2271,7 +2306,7 @@ class RevenueScorer:
                 )
             return ("Policy Trust Gap", "Privacy and Terms links were not both detected where transaction/account or checkout context makes both policies applicable.")
         copy_map = {
-            "https_redirect": ("HTTPS Redirect Gap", "The secure site is available, but HTTP-to-HTTPS enforcement was not verified as correctly implemented."),
+            "https_redirect": ("HTTPS Redirect Gap", "A direct HTTP request was verified to remain on HTTP instead of being enforced to the canonical HTTPS destination."),
             "retargeting_telemetry": ("Retargeting Measurement Gap", "No verified retargeting/marketing pixel signal was found, limiting campaign attribution and remarketing readiness."),
             "phone_visibility": ("Phone Visibility Gap", "A visible phone contact signal was not detected even though the page was successfully inspected."),
             "location_visibility": ("Location Confidence Gap", "The page did not expose a clear address/location signal, which can weaken local intent and trust."),
@@ -2466,6 +2501,8 @@ class RevenueScorer:
                     "form_action_valid", "form_max_field_count", "mobile_cta_types", "mobile_sticky_cta_present",
                     "click_to_call_present", "privacy_policy_linked", "terms_linked", "credential_signal_types",
                     "detected_phone_numbers", "ai_template_pattern_index", "checkpoint", "checkpoint_id",
+                    "attempted_http_url", "final_url", "final_status_code", "redirect_chain", "reason",
+                    "requirement", "privacy_policy_linked", "terms_linked", "journey_action_types",
                 )
                 compact = {k: evidence.get(k) for k in preferred_keys if k in evidence and evidence.get(k) not in (None, [], "")}
                 if not compact:
@@ -2891,6 +2928,45 @@ class RevenueScorer:
         scan_data = scan_data or {}
         profile = profile or {}
 
+        # A dollar scenario is not decision-useful while the customer journey itself is unresolved.
+        # Keep verified findings visible, but defer the economic model until the journey is resolved
+        # (or Architect review/customer confirmation establishes it). This prevents a provisional
+        # category/journey guess from selecting the wrong opportunity prior and overstating exposure.
+        if bool(profile.get("provisional")) or str(profile.get("journey_model") or biz_type or "general") == "general":
+            verified_penalty = round(sum(float(x.get("final_score_loss") or 0.0) for x in items), 2)
+            return {
+                "model_version": "commercial_exposure_v2_1",
+                "basis": "deferred_provisional_journey",
+                "journey_model": str(profile.get("journey_model") or biz_type or "general"),
+                "journey_label": str(profile.get("journey_label") or "Provisional / unresolved journey"),
+                "level": "DEFERRED",
+                "min": 0, "max": 0, "range": "Deferred",
+                "economic_severity_basis": round(sum(float(x.get("economic_severity") or x.get("intrinsic_severity_score") or 0.0) for x in items), 2),
+                "verified_penalty_basis": verified_penalty,
+                "combined_path_impairment": None,
+                "combined_path_impairment_pct": None,
+                "impairment_range_pct": None,
+                "annual_digital_opportunity_pool": None,
+                "central_annual_exposure": None,
+                "rounding_increment": None,
+                "economic_context_multiplier": None,
+                "economic_context_tags": sorted(str(x) for x in (profile.get("context_tags") or []) if x),
+                "family_impairment": {},
+                "issue_components": [],
+                "assumptions": {
+                    "deferred_reason": "Primary customer journey is provisional or unresolved.",
+                    "required_next_step": "Resolve/confirm the customer journey before applying journey-specific economic priors.",
+                },
+                "causal_calibration_note": "Verified findings remain valid, but journey-specific dollar exposure is intentionally withheld until the commercial path is resolved.",
+                "confidence": "DEFERRED",
+                "confidence_score": None,
+                "evidence_confidence_score": (evidence_confidence or {}).get("score"),
+                "economic_input_confidence": "NOT_APPLIED_WHILE_PROVISIONAL",
+                "estimate_status": "DEFERRED_PROVISIONAL_JOURNEY",
+                "display": "Deferred — customer journey requires confirmation before financial scenario modeling",
+                "method_note": "Commercial exposure is intentionally deferred because the primary customer journey is provisional. Trilloka does not apply journey-specific dollar priors until that path is resolved; verified website findings remain visible and scored independently.",
+            }
+
         # Probability-of-impairment ceilings for a fully severe, verified issue. These describe
         # causal exposure of the *digital opportunity pool*, not conversion-rate claims.
         rule_impairment = {
@@ -3177,7 +3253,7 @@ class RevenueScorer:
 
         range_text = f"${annual_min:,} – ${annual_max:,} / year"
         return {
-            "model_version": "commercial_exposure_v2",
+            "model_version": "commercial_exposure_v2_1",
             "basis": basis,
             "journey_model": biz_type,
             "journey_label": str(profile.get("journey_label") or biz_type),
@@ -3209,7 +3285,7 @@ class RevenueScorer:
             ),
             "display": (
                 f"{range_text} — no verified modeled exposure" if not items
-                else (f"{range_text} — {level} scenario exposure" if scenario_based else f"{range_text} — {level} model-based exposure")
+                else (f"{range_text} — scenario range" if scenario_based else f"{range_text} — {level} model-based exposure")
             ),
             "method_note": (
                 "Potential commercial exposure is modeled as an annual digital opportunity pool multiplied by the combined impairment of verified customer-journey issues. "
