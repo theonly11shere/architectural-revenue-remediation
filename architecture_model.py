@@ -1,17 +1,44 @@
-"""Trilloka Journey + Context architecture model (v7.2.1).
+"""Trilloka Business Type + Journey + Context architecture model (v7.3).
 
-The scanner deliberately avoids an endlessly-growing industry taxonomy.  It infers:
-1) how a public website appears to convert a visitor (journey model), and
-2) which contextual obligations materially change that journey (context tags).
+V7.3 deliberately keeps three separate ideas instead of collapsing them into one label:
 
-Industry/business-type values supplied by older clients are accepted only as weak hints for
-backward compatibility.  They never override stronger page/action evidence.
+1) Business type — what commercial model the organization most closely operates.
+2) Customer journey — how a visitor appears to create value on the public website.
+3) Context — obligations/conditions that change the importance of individual checks.
+
+Business type is a first-class scoring input.  It supplies bounded priors and later scoring
+multipliers, but observed customer actions still determine the website journey.  This lets the
+same business type support more than one journey and prevents a single industry label from
+forcing obviously contradictory website conclusions.
 """
 from __future__ import annotations
 
 import math
 import re
-from typing import Any, Dict, Iterable, List, Mapping, Sequence, Set, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Set, Tuple
+
+
+BUSINESS_TYPE_LABELS: Dict[str, str] = {
+    "general": "General / Unresolved Business",
+    "ecommerce": "E-commerce / Retail",
+    "marketplace": "Marketplace / Multi-Sided Commerce",
+    "local_service": "Local Service",
+    "professional_service": "Professional Service",
+    "healthcare": "Healthcare / Clinical Service",
+    "medspa": "MedSpa / Aesthetic Service",
+    "legal": "Legal Service",
+    "financial_services": "Financial / Advisory Service",
+    "real_estate": "Real Estate",
+    "restaurant": "Restaurant / Food Service",
+    "hospitality_event": "Hospitality / Event / Tourism",
+    "saas": "SaaS / Software",
+    "b2b": "B2B / Industrial / Enterprise",
+    "agency": "Agency / Creative / Marketing",
+    "membership_creator": "Membership / Creator / Community",
+    "education": "Education / Training",
+    "nonprofit": "Nonprofit / Charity",
+    "automotive": "Automotive / Dealer / Repair",
+}
 
 JOURNEY_LABELS: Dict[str, str] = {
     "lead_quote": "Lead / Quote",
@@ -20,6 +47,8 @@ JOURNEY_LABELS: Dict[str, str] = {
     "direct_purchase": "Direct Purchase",
     "demo_sales": "Demo / Sales",
     "membership_subscription": "Membership / Subscription",
+    "donation_support": "Donation / Support",
+    "application_enrollment": "Application / Enrollment",
     "general": "General / Unresolved Journey",
 }
 
@@ -30,6 +59,8 @@ JOURNEY_PRIMARY_CONVERSION: Dict[str, str] = {
     "direct_purchase": "purchase_or_checkout",
     "demo_sales": "demo_trial_or_sales_contact",
     "membership_subscription": "subscribe_join_or_membership",
+    "donation_support": "donation_or_support_commitment",
+    "application_enrollment": "application_registration_or_enrollment",
     "general": "primary_site_action",
 }
 
@@ -40,6 +71,8 @@ JOURNEY_SECONDARY_CONVERSIONS: Dict[str, List[str]] = {
     "direct_purchase": ["product_question", "chat", "contact"],
     "demo_sales": ["contact_form", "call", "chat"],
     "membership_subscription": ["contact", "follow", "community"],
+    "donation_support": ["contact", "volunteer", "newsletter"],
+    "application_enrollment": ["contact", "book", "information_request"],
     "general": ["contact"],
 }
 
@@ -50,38 +83,46 @@ CONTEXT_LABELS: Dict[str, str] = {
     "sensitive_data": "Sensitive-Data Collection",
     "enterprise_considered_purchase": "Enterprise / Considered Purchase",
     "hospitality_event": "Hospitality / Event",
+    "recurring_commitment": "Recurring / Ongoing Commitment",
+    "donation_public_trust": "Donation / Public-Trust Context",
 }
 
 # Common low-weight foundation layer. These checks are intentionally business-agnostic.
 COMMON_FOUNDATION_IDS = frozenset({1, 2, *range(16, 36)})
 ARCHITECTURAL_CHECKPOINT_IDS = frozenset(set(range(1, 51)) - set(COMMON_FOUNDATION_IDS))
 
-# Journey URL priority terms.  These choose evidence pages; they do not score by themselves.
+# Journey URL priority terms. These choose evidence pages; they do not score by themselves.
 JOURNEY_PAGE_TERMS: Dict[str, Tuple[str, ...]] = {
     "lead_quote": (
         "quote", "estimate", "contact", "consultation", "enquiry", "inquiry", "request",
-        "services", "projects", "portfolio", "reviews", "about", "team",
+        "services", "projects", "portfolio", "reviews", "about", "team", "pricing",
     ),
     "appointment_consultation": (
         "appointment", "book", "booking", "schedule", "consultation", "patient", "treatment",
-        "services", "team", "credentials", "reviews", "contact",
+        "services", "team", "credentials", "reviews", "contact", "pricing",
     ),
     "reservation_event": (
         "reserve", "reservation", "booking", "book", "charter", "cruise", "event", "venue",
-        "tour", "rental", "wedding", "corporate", "contact", "reviews",
+        "tour", "rental", "wedding", "corporate", "contact", "reviews", "menu",
     ),
     "direct_purchase": (
         "product", "products", "shop", "cart", "checkout", "order", "shipping", "delivery",
-        "returns", "refund", "contact",
+        "returns", "refund", "contact", "reviews", "faq",
     ),
     "demo_sales": (
         "demo", "contact-sales", "contact", "pricing", "plans", "trial", "signup", "sign-up",
-        "security", "customers", "case-studies", "solutions",
+        "security", "customers", "case-studies", "solutions", "integrations",
     ),
     "membership_subscription": (
         "subscribe", "join", "membership", "newsletter", "courses", "community", "pricing", "about", "contact",
     ),
-    "general": ("contact", "book", "quote", "pricing", "services", "about", "team", "reviews"),
+    "donation_support": (
+        "donate", "donation", "give", "support", "impact", "programs", "about", "financials", "contact", "volunteer",
+    ),
+    "application_enrollment": (
+        "apply", "application", "enroll", "enrol", "admissions", "register", "registration", "programs", "courses", "tuition", "contact",
+    ),
+    "general": ("contact", "book", "quote", "pricing", "services", "about", "team", "reviews", "apply", "donate"),
 }
 
 JOURNEY_PAGE_GUESSES: Dict[str, List[str]] = {
@@ -91,6 +132,8 @@ JOURNEY_PAGE_GUESSES: Dict[str, List[str]] = {
     "direct_purchase": ["/shop/", "/products/", "/cart/", "/checkout/", "/returns/"],
     "demo_sales": ["/demo/", "/contact-sales/", "/pricing/", "/solutions/", "/case-studies/"],
     "membership_subscription": ["/subscribe/", "/join/", "/membership/", "/pricing/", "/community/"],
+    "donation_support": ["/donate/", "/give/", "/support/", "/impact/", "/about/"],
+    "application_enrollment": ["/apply/", "/admissions/", "/enroll/", "/register/", "/programs/"],
     "general": ["/contact/", "/services/", "/about/"],
 }
 
@@ -101,37 +144,71 @@ JOURNEY_EXPECTED_ACTIONS: Dict[str, Set[str]] = {
     "direct_purchase": {"add_to_cart", "buy", "order", "checkout"},
     "demo_sales": {"demo", "trial", "contact", "quote", "book"},
     "membership_subscription": {"subscribe", "join", "contact", "buy"},
-    "general": {"buy", "order", "reserve", "book", "call", "quote", "trial", "demo", "subscribe", "contact"},
+    "donation_support": {"donate", "support", "contact", "subscribe"},
+    "application_enrollment": {"apply", "register", "enroll", "contact", "book"},
+    "general": {"buy", "order", "reserve", "book", "call", "quote", "trial", "demo", "subscribe", "contact", "donate", "apply", "register"},
 }
 
-# Weak backwards-compatibility hint only. Strong page/action evidence wins.
+# Business-type priors are deliberately bounded. They influence journey selection because the user
+# explicitly wants business type to affect scoring, but direct on-page actions can still outweigh them.
+BUSINESS_TYPE_JOURNEY_PRIORS: Dict[str, Dict[str, float]] = {
+    "general": {},
+    "ecommerce": {"direct_purchase": 8.0},
+    "marketplace": {"direct_purchase": 6.0, "membership_subscription": 2.0},
+    "local_service": {"lead_quote": 7.0, "appointment_consultation": 2.0},
+    "professional_service": {"lead_quote": 5.0, "appointment_consultation": 4.0},
+    "healthcare": {"appointment_consultation": 8.0, "lead_quote": 1.0},
+    "medspa": {"appointment_consultation": 8.0, "direct_purchase": 1.5},
+    "legal": {"appointment_consultation": 6.5, "lead_quote": 3.5},
+    "financial_services": {"appointment_consultation": 6.5, "lead_quote": 3.0, "application_enrollment": 1.0},
+    "real_estate": {"lead_quote": 5.5, "appointment_consultation": 4.0},
+    "restaurant": {"reservation_event": 7.5, "direct_purchase": 2.5},
+    "hospitality_event": {"reservation_event": 8.0, "direct_purchase": 1.0},
+    "saas": {"demo_sales": 7.5, "membership_subscription": 2.5},
+    "b2b": {"demo_sales": 6.5, "lead_quote": 4.0},
+    "agency": {"lead_quote": 6.5, "demo_sales": 3.0},
+    "membership_creator": {"membership_subscription": 8.0, "direct_purchase": 1.5},
+    "education": {"application_enrollment": 7.0, "membership_subscription": 2.5},
+    "nonprofit": {"donation_support": 8.0, "membership_subscription": 1.5},
+    "automotive": {"lead_quote": 4.5, "appointment_consultation": 3.5, "direct_purchase": 2.0},
+}
+
+# Compatibility mapping for older callers. Unlike v7.2 this is no longer merely a weak hint:
+# it first resolves a business type, then that business type supplies bounded journey priors.
 LEGACY_HINT_TO_JOURNEY: Dict[str, str] = {
     "restaurant": "reservation_event",
     "local_service": "lead_quote",
     "professional_service": "lead_quote",
+    "healthcare": "appointment_consultation",
     "medspa": "appointment_consultation",
     "legal": "appointment_consultation",
+    "financial_services": "appointment_consultation",
+    "real_estate": "lead_quote",
     "ecommerce": "direct_purchase",
+    "marketplace": "direct_purchase",
     "saas": "demo_sales",
     "agency": "lead_quote",
     "b2b": "demo_sales",
     "creator": "membership_subscription",
+    "membership_creator": "membership_subscription",
+    "education": "application_enrollment",
+    "nonprofit": "donation_support",
+    "automotive": "lead_quote",
     "general": "general",
 }
 
-# Search fallback is intentionally generic. Google primary type remains preferred.
 JOURNEY_COMPETITOR_SEARCH_TEXT: Dict[str, str] = {
-    "lead_quote": "local service provider",
+    "lead_quote": "service provider",
     "appointment_consultation": "appointment based service",
     "reservation_event": "reservation event service",
     "direct_purchase": "retail store",
     "demo_sales": "business services company",
     "membership_subscription": "membership service",
+    "donation_support": "nonprofit charity",
+    "application_enrollment": "education training provider",
     "general": "business",
 }
 
-# Phrase dictionaries are weighted by where they appear.  Strong intent terms deliberately outrank
-# incidental words such as "menu", "food", "software" or "blog".
 JOURNEY_PHRASES: Dict[str, Tuple[Tuple[str, float], ...]] = {
     "lead_quote": (
         ("request a quote", 7.0), ("get a quote", 7.0), ("free estimate", 6.0), ("request estimate", 6.0),
@@ -167,6 +244,37 @@ JOURNEY_PHRASES: Dict[str, Tuple[Tuple[str, float], ...]] = {
         ("join now", 7.0), ("become a member", 7.0), ("membership", 5.0), ("subscribe", 5.0),
         ("newsletter", 2.5), ("community", 2.0), ("course", 2.0), ("cohort", 2.5),
     ),
+    "donation_support": (
+        ("donate now", 8.0), ("make a donation", 8.0), ("support our work", 6.5), ("give today", 7.0),
+        ("monthly donor", 6.0), ("charity", 4.0), ("nonprofit", 4.0), ("our impact", 3.0), ("volunteer", 2.0),
+    ),
+    "application_enrollment": (
+        ("apply now", 8.0), ("start your application", 8.0), ("enroll now", 7.0), ("enrol now", 7.0),
+        ("register now", 6.0), ("admissions", 5.0), ("application deadline", 5.0), ("tuition", 3.0),
+        ("programs", 1.5), ("courses", 1.5),
+    ),
+}
+
+# Business inference phrases. Strong brand/business descriptors receive more weight than incidental copy.
+BUSINESS_TYPE_PHRASES: Dict[str, Tuple[Tuple[str, float], ...]] = {
+    "ecommerce": (("online store", 7), ("shop online", 6), ("add to cart", 7), ("shipping", 2), ("returns", 2)),
+    "marketplace": (("marketplace", 8), ("buyers and sellers", 8), ("sell on", 5), ("vendors", 4), ("list your", 3)),
+    "local_service": (("service area", 6), ("free estimate", 5), ("home services", 5), ("contractor", 4), ("plumbing", 4), ("cleaning service", 4), ("moving company", 4)),
+    "professional_service": (("professional services", 7), ("consulting", 5), ("consultants", 5), ("accounting", 5), ("advisory", 4)),
+    "healthcare": (("medical clinic", 8), ("health clinic", 7), ("patient", 4), ("doctor", 5), ("dentist", 6), ("physiotherapy", 6), ("chiropractic", 5)),
+    "medspa": (("medspa", 9), ("med spa", 9), ("aesthetic clinic", 7), ("botox", 5), ("laser treatment", 4)),
+    "legal": (("law firm", 9), ("lawyer", 7), ("attorney", 7), ("legal services", 6)),
+    "financial_services": (("financial advisor", 8), ("wealth management", 8), ("investment advisor", 8), ("insurance broker", 6), ("mortgage", 5), ("financial planning", 7)),
+    "real_estate": (("real estate", 8), ("realtor", 8), ("homes for sale", 7), ("property listings", 6), ("realty", 6)),
+    "restaurant": (("restaurant", 8), ("book a table", 7), ("menu", 2), ("dining", 3), ("takeout", 3)),
+    "hospitality_event": (("hotel", 7), ("event venue", 8), ("wedding venue", 8), ("tour", 5), ("charter", 7), ("vacation rental", 6)),
+    "saas": (("software as a service", 9), ("saas", 9), ("software platform", 7), ("start free trial", 6), ("integrations", 3)),
+    "b2b": (("b2b", 8), ("enterprise", 5), ("manufacturer", 6), ("manufacturing", 6), ("industrial", 5), ("wholesale", 5), ("logistics", 4)),
+    "agency": (("marketing agency", 9), ("design agency", 9), ("creative agency", 9), ("digital agency", 8), ("advertising agency", 8)),
+    "membership_creator": (("membership", 5), ("creator", 5), ("community", 3), ("newsletter", 3), ("patreon", 5)),
+    "education": (("school", 6), ("academy", 6), ("university", 8), ("college", 8), ("admissions", 7), ("training program", 6), ("course", 2)),
+    "nonprofit": (("nonprofit", 9), ("non-profit", 9), ("charity", 8), ("donate", 5), ("foundation", 5), ("registered charity", 9)),
+    "automotive": (("auto repair", 8), ("car dealership", 8), ("dealership", 6), ("vehicle service", 6), ("service appointment", 4), ("used cars", 5)),
 }
 
 REGULATED_TERMS = (
@@ -177,7 +285,7 @@ REGULATED_TERMS = (
 )
 SENSITIVE_TERMS = (
     "patient", "medical", "health history", "health information", "diagnosis", "symptom", "insurance claim",
-    "legal matter", "case details", "immigration", "financial information", "tax return", "credit card",
+    "case details", "financial information", "tax return", "credit card",
 )
 LOCAL_TERMS = (
     "service area", "directions", "visit us", "our location", "locations", "vancouver", "burnaby", "surrey",
@@ -186,30 +294,9 @@ LOCAL_TERMS = (
 ENTERPRISE_TERMS = (
     "enterprise", "corporate", "commercial", "industrial", "manufacturer", "manufacturing", "wholesale",
     "procurement", "custom project", "custom home", "request a quote", "case study", "case studies",
-    "oil and gas", "exploration", "production activities", "remote operations", "project support",
-    "support services", "business services",
-)
-
-# Company-level B2B/service language is intentionally separate from appointment/vertical terms.
-# A multi-service operator can legitimately mention clinics, medical teams, rentals, events, etc.
-# on secondary service pages without those words defining the *customer journey of the company*.
-B2B_SERVICE_TERMS = (
-    "enterprise", "corporate", "commercial", "industrial", "industry", "oil and gas", "exploration",
-    "production", "operations", "operational", "project", "projects", "project support", "support services",
-    "logistics", "drilling", "aviation", "procurement", "contract", "contractor", "clients", "customers",
-)
-
-# These are strong appointment/consumer-service indicators only when they appear on the primary
-# company surface (hero/meta/homepage) or are backed by a real booking action/provider. Merely
-# crawling a secondary page containing "medical clinic" must not turn a diversified B2B company
-# into an appointment business.
-APPOINTMENT_PRIMARY_TERMS = (
-    "book appointment", "schedule appointment", "appointments", "new patient", "patient portal",
-    "book a consultation", "schedule a consultation", "physiotherapy", "physiotherapist", "dentist",
-    "dental clinic", "chiropractic", "medical clinic", "med spa", "medspa", "law firm", "lawyer",
 )
 HOSPITALITY_EVENT_TERMS = (
-    "event", "wedding", "venue", "cruise", "charter", "yacht", "tour", "reservation", "reserve",
+    "wedding", "venue", "cruise", "charter", "yacht", "tour", "reservation",
     "restaurant", "catering", "hotel", "banquet", "rental",
 )
 
@@ -228,16 +315,23 @@ def _normalize_hint(raw: Any) -> str:
     value = str(raw or "auto").strip().lower().replace("-", "_").replace(" ", "_")
     aliases = {
         "professional_services": "professional_service", "home_service": "local_service", "aesthetics": "medspa",
-        "law": "legal", "software": "saas", "commerce": "ecommerce", "auto": "auto", "": "auto",
-        # V7 direct customer-journey hints. These are hints, not forced scoring categories.
+        "health": "healthcare", "medical": "healthcare", "clinic": "healthcare",
+        "law": "legal", "software": "saas", "commerce": "ecommerce", "e_commerce": "ecommerce",
+        "store": "ecommerce", "retail": "ecommerce", "creator": "membership_creator", "content_creator": "membership_creator",
+        "financial": "financial_services", "finance": "financial_services", "realty": "real_estate",
+        "charity": "nonprofit", "non_profit": "nonprofit", "school": "education", "training": "education",
+        "hotel": "hospitality_event", "events": "hospitality_event", "food_service": "restaurant", "cafe": "restaurant", "café": "restaurant",
+        "auto_repair": "automotive", "dealer": "automotive", "auto": "auto", "": "auto",
+        # Direct journey hints remain supported for API/backward compatibility.
         "lead": "lead_quote", "quote": "lead_quote", "lead_quote": "lead_quote",
-        "appointment": "appointment_consultation", "consultation": "appointment_consultation",
-        "appointment_consultation": "appointment_consultation",
+        "appointment": "appointment_consultation", "consultation": "appointment_consultation", "appointment_consultation": "appointment_consultation",
         "reservation": "reservation_event", "event": "reservation_event", "reservation_event": "reservation_event",
         "purchase": "direct_purchase", "direct_purchase": "direct_purchase",
         "demo": "demo_sales", "sales": "demo_sales", "demo_sales": "demo_sales",
-        "membership": "membership_subscription", "subscription": "membership_subscription",
-        "membership_subscription": "membership_subscription",
+        "membership": "membership_subscription", "subscription": "membership_subscription", "membership_subscription": "membership_subscription",
+        "donation": "donation_support", "donate": "donation_support", "donation_support": "donation_support",
+        "application": "application_enrollment", "enrollment": "application_enrollment", "enrolment": "application_enrollment",
+        "application_enrollment": "application_enrollment",
     }
     return aliases.get(value, value)
 
@@ -246,15 +340,12 @@ def _text_surfaces(data: Mapping[str, Any]) -> Dict[str, str]:
     title = str(data.get("title") or "")
     meta = str(data.get("meta_description") or "")
     h1 = " ".join(str(x) for x in (data.get("h1_tags") or []) if x)
-    page = str(data.get("page_text") or "")[:26000]
-    journey = str(data.get("journey_text_sample") or "")[:22000]
+    page = str(data.get("page_text") or "")[:32000]
+    journey = str(data.get("journey_text_sample") or "")[:30000]
     schema = " ".join(str(x) for x in (data.get("schema_types") or []) if x)
     return {
         "hero": f"{title} {h1}".lower(),
         "meta": meta.lower(),
-        "home_body": page.lower(),
-        "journey": journey.lower(),
-        "schema": schema.lower(),
         "body": f"{page} {journey} {schema}".lower(),
         "all": f"{title} {h1} {meta} {page} {journey} {schema}".lower(),
     }
@@ -263,88 +354,181 @@ def _text_surfaces(data: Mapping[str, Any]) -> Dict[str, str]:
 def _add_phrase_scores(scores: Dict[str, float], signals: Dict[str, List[str]], surfaces: Mapping[str, str]) -> None:
     for model, weighted_phrases in JOURNEY_PHRASES.items():
         for phrase, weight in weighted_phrases:
-            # Hero/title language is more deliberate than incidental body copy.
             if phrase in surfaces["hero"]:
                 scores[model] += weight * 1.8
                 signals[model].append(f"hero:{phrase}")
             elif phrase in surfaces["meta"]:
                 scores[model] += weight * 1.35
                 signals[model].append(f"meta:{phrase}")
-            elif phrase in surfaces.get("home_body", ""):
+            elif phrase in surfaces["body"]:
                 scores[model] += weight
                 signals[model].append(phrase)
-            elif phrase in surfaces.get("journey", ""):
-                # Journey-page text is selected *after* an initial model guess and can contain a
-                # secondary service line.  It is corroborating evidence, not company-level truth.
-                # Keep it useful, but prevent the crawl from self-confirming a weak first guess.
-                scores[model] += weight * 0.55
-                signals[model].append(f"journey:{phrase}")
-            elif phrase in surfaces.get("schema", ""):
-                scores[model] += weight * 0.35
-                signals[model].append(f"schema:{phrase}")
 
 
-def _phrase_hits(text: str, terms: Iterable[str]) -> List[str]:
-    """Return boundary-aware phrase matches in deterministic order.
+def infer_business_type(data: Mapping[str, Any], requested_hint: Any = "auto") -> Dict[str, Any]:
+    """Infer/resolve a broad business type separately from the customer journey.
 
-    Context tagging must not fire because a token merely appears inside another word
-    (for example ``book`` inside ``facebook``) or because generic policy boilerplate
-    contains words such as ``event`` / ``reserve``.  This helper is deliberately
-    conservative and context-specific callers add their own corroboration rules.
+    A recognized explicit business type is authoritative for scoring (the user chose it). Auto mode
+    uses page, action, schema and local-place evidence. Confidence is deliberately capped when only
+    weak textual evidence exists.
     """
-    haystack = str(text or "").lower()
-    hits: List[str] = []
-    for raw in terms:
-        term = str(raw or "").strip().lower()
-        if not term:
+    hint = _normalize_hint(requested_hint)
+    if hint in BUSINESS_TYPE_LABELS and hint != "general":
+        return {
+            "business_type": hint,
+            "business_type_label": BUSINESS_TYPE_LABELS[hint],
+            "confidence": 1.0,
+            "source": "explicit_request",
+            "signals": [f"requested:{hint}"],
+            "score_candidates": {hint: 100.0},
+        }
+    if hint == "general":
+        return {
+            "business_type": "general",
+            "business_type_label": BUSINESS_TYPE_LABELS["general"],
+            "confidence": 1.0,
+            "source": "explicit_request",
+            "signals": ["requested:general"],
+            "score_candidates": {"general": 100.0},
+        }
+
+    # Backward-compatible hint from older scanner payloads. This is treated as a strong prior,
+    # not a new asserted truth, unless the legacy profile itself carried high confidence.
+    legacy_profile = data.get("business_profile") if isinstance(data.get("business_profile"), Mapping) else {}
+    legacy_raw = legacy_profile.get("business_type") or legacy_profile.get("vertical") or data.get("legacy_business_type")
+    legacy_type = _normalize_hint(legacy_raw) if legacy_raw else "auto"
+    if legacy_type in BUSINESS_TYPE_LABELS and legacy_type != "general":
+        try:
+            legacy_conf = float(legacy_profile.get("business_type_confidence") or legacy_profile.get("confidence") or 0.0)
+        except (TypeError, ValueError):
+            legacy_conf = 0.0
+        if legacy_conf >= 0.80:
+            return {
+                "business_type": legacy_type,
+                "business_type_label": BUSINESS_TYPE_LABELS[legacy_type],
+                "confidence": min(0.96, legacy_conf),
+                "source": "legacy_profile_hint",
+                "signals": [f"legacy_profile:{legacy_type}"],
+                "score_candidates": {legacy_type: round(10.0 * legacy_conf, 2)},
+            }
+
+    surfaces = _text_surfaces(data)
+    scores: Dict[str, float] = {key: 0.0 for key in BUSINESS_TYPE_LABELS if key != "general"}
+    signals: Dict[str, List[str]] = {key: [] for key in scores}
+    for business_type, weighted_phrases in BUSINESS_TYPE_PHRASES.items():
+        for phrase, weight in weighted_phrases:
+            if phrase in surfaces["hero"]:
+                scores[business_type] += float(weight) * 1.8
+                signals[business_type].append(f"hero:{phrase}")
+            elif phrase in surfaces["meta"]:
+                scores[business_type] += float(weight) * 1.35
+                signals[business_type].append(f"meta:{phrase}")
+            elif phrase in surfaces["body"]:
+                scores[business_type] += float(weight)
+                signals[business_type].append(phrase)
+
+    schema_types = {str(x).lower() for x in (data.get("schema_types") or []) if x}
+    schema_map = {
+        "restaurant": "restaurant", "foodestablishment": "restaurant", "store": "ecommerce", "product": "ecommerce",
+        "medicalbusiness": "healthcare", "physician": "healthcare", "dentist": "healthcare", "legalservice": "legal",
+        "financialservice": "financial_services", "realestateagent": "real_estate", "softwareapplication": "saas",
+        "educationalorganization": "education", "school": "education", "collegeoruniversity": "education",
+        "ngo": "nonprofit", "automotivebusiness": "automotive", "autodealer": "automotive", "autorepair": "automotive",
+    }
+    for schema, btype in schema_map.items():
+        if schema in schema_types and btype in scores:
+            scores[btype] += 7.0
+            signals[btype].append(f"schema:{schema}")
+
+    if data.get("add_to_cart_visible") or data.get("checkout_context_detected"):
+        scores["ecommerce"] += 5.0
+        signals["ecommerce"].append("commerce-path")
+    if data.get("address_location_visible") and data.get("phone_number_visible"):
+        scores["local_service"] += 1.5
+        signals["local_service"].append("local-address-phone")
+    if data.get("places_found") and str(data.get("places_confidence") or "").lower() == "high":
+        primary_type = str(data.get("place_primary_type") or "").lower()
+        place_map = {
+            "restaurant": "restaurant", "cafe": "restaurant", "dentist": "healthcare", "doctor": "healthcare",
+            "lawyer": "legal", "real_estate_agency": "real_estate", "car_dealer": "automotive", "car_repair": "automotive",
+        }
+        if primary_type in place_map:
+            btype = place_map[primary_type]
+            scores[btype] += 6.0
+            signals[btype].append(f"google-place:{primary_type}")
+
+    # Service-line contamination guardrail. A broad B2B/agency/local company can mention a
+    # specialist service (for example a remote medical capability) without that one body phrase
+    # redefining the whole business. Regulated/high-trust types therefore need either strong
+    # hero/meta/schema/place evidence or more than one independent body signal before they can
+    # outrank another credible business model. This changes classification confidence only; it
+    # never creates or removes a checkpoint result by itself.
+    for specialist in ("healthcare", "medspa", "legal", "financial_services"):
+        specialist_signals = signals.get(specialist) or []
+        if not specialist_signals:
             continue
-        pattern = r"(?<![a-z0-9])" + re.escape(term).replace(r"\ ", r"\s+") + r"(?![a-z0-9])"
-        if re.search(pattern, haystack, re.I):
-            hits.append(term)
-    return hits
+        strong_surface = any(
+            str(sig).startswith(("hero:", "meta:", "schema:", "google-place:"))
+            for sig in specialist_signals
+        )
+        body_signal_count = sum(
+            1 for sig in specialist_signals
+            if not str(sig).startswith(("hero:", "meta:", "schema:", "google-place:"))
+        )
+        strongest_other = max((value for key, value in scores.items() if key != specialist), default=0.0)
+        if not strong_surface and body_signal_count <= 1 and strongest_other >= 4.0:
+            scores[specialist] = min(scores[specialist], strongest_other * 0.80)
+            signals[specialist].append("guardrail:single-service-line-body-signal")
+
+    ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
+    top_type, top_score = ranked[0] if ranked else ("general", 0.0)
+    second = ranked[1][1] if len(ranked) > 1 else 0.0
+    margin = max(0.0, top_score - second)
+    if top_score < 4.0:
+        return {
+            "business_type": "general",
+            "business_type_label": BUSINESS_TYPE_LABELS["general"],
+            "confidence": 0.45 if top_score <= 0 else min(0.64, 0.46 + top_score * 0.03),
+            "source": "auto_inference",
+            "signals": [],
+            "score_candidates": {k: round(v, 2) for k, v in ranked[:8]},
+        }
+    confidence = max(0.52, min(0.96, 0.50 + min(0.28, top_score * 0.014) + min(0.18, margin * 0.025)))
+    return {
+        "business_type": top_type,
+        "business_type_label": BUSINESS_TYPE_LABELS.get(top_type, top_type.replace("_", " ").title()),
+        "confidence": round(confidence, 2),
+        "source": "auto_inference",
+        "signals": list(dict.fromkeys(signals[top_type]))[:12],
+        "score_candidates": {k: round(v, 2) for k, v in ranked[:8]},
+    }
 
 
-def infer_context_tags(data: Mapping[str, Any], journey_model: str = "general") -> Tuple[List[str], Dict[str, List[str]]]:
+def infer_context_tags(data: Mapping[str, Any], journey_model: str = "general", business_type: str = "general") -> Tuple[List[str], Dict[str, List[str]]]:
     surfaces = _text_surfaces(data)
     text = surfaces["all"]
-    hero_meta = f"{surfaces['hero']} {surfaces['meta']}"
-    primary_company_text = f"{hero_meta} {surfaces.get('home_body', '')}"
-    # ``journey_text_sample`` is intended to contain customer-path/proof pages, not policy boilerplate.
-    # Older callers may not provide it, so body remains a fallback but receives stricter thresholds.
-    journey_text = str(data.get("journey_text_sample") or "").lower()
-    body_text = surfaces["body"]
     tags: List[str] = []
     reasons: Dict[str, List[str]] = {}
 
     def mark(tag: str, why: Iterable[str]) -> None:
-        vals = list(dict.fromkeys(str(x) for x in why if x))
+        vals = [str(x) for x in why if x]
         if vals:
             tags.append(tag)
             reasons[tag] = vals[:8]
 
-    # Regulated/high-trust context must be supported by the primary company surface or by the
-    # resolved customer journey. A secondary service page alone is insufficient; otherwise a
-    # diversified B2B operator with one medical/legal service line is mislabeled company-wide.
-    regulated_hero_meta = _phrase_hits(hero_meta, REGULATED_TERMS)
-    regulated_home = _phrase_hits(surfaces.get("home_body", ""), REGULATED_TERMS)
-    regulated_journey = _phrase_hits(journey_text, REGULATED_TERMS) if journey_text else []
-    regulated_hits: List[str] = list(regulated_hero_meta)
-    if journey_model == "appointment_consultation":
-        regulated_hits.extend(regulated_home[:4])
-        regulated_hits.extend(regulated_journey[:4])
-    elif regulated_hero_meta:
-        regulated_hits.extend(regulated_home[:3])
-    elif len(set(regulated_home)) >= 2:
-        # Multiple independent homepage regulated-service signals can establish context even when
-        # the title is brand-led. A single navigation/service-menu mention cannot.
-        regulated_hits.extend(regulated_home[:4])
-    if len(set(regulated_hits)) >= 2:
-        regulated_hits.extend(regulated_journey[:3])
+    raw_regulated_hits = [term for term in REGULATED_TERMS if term in text]
+    regulated_business = business_type in {"healthcare", "medspa", "legal", "financial_services"}
+    if regulated_business:
+        regulated_hits = list(raw_regulated_hits) + [f"business-type:{business_type}"]
+    else:
+        # Do not turn a diversified company into a regulated/high-trust business merely because
+        # one specialist capability is mentioned in body copy. Outside a regulated business type,
+        # require hero/meta prominence or multiple independent regulated signals.
+        hero_meta = f"{surfaces['hero']} {surfaces['meta']}"
+        prominent = [term for term in raw_regulated_hits if term in hero_meta]
+        regulated_hits = list(raw_regulated_hits) if len(set(raw_regulated_hits)) >= 2 else prominent
     mark("regulated_high_trust", regulated_hits)
 
-    # A city name in the footer/title does not by itself make an online/enterprise site location-dependent.
-    # Strong structural location evidence always counts; geographic text only counts for journeys where
-    # visiting/calling a local provider is naturally part of the customer path.
     geographic_terms = {"vancouver", "burnaby", "surrey", "richmond", "north vancouver", "west vancouver", "coquitlam", "new westminster"}
     structural_local_terms = {"service area", "directions", "visit us", "our location", "locations"}
     local_hits: List[str] = []
@@ -352,11 +536,15 @@ def infer_context_tags(data: Mapping[str, Any], journey_model: str = "general") 
         local_hits.append("verified address/location")
     if data.get("places_found") and str(data.get("places_confidence") or "") == "high":
         local_hits.append("verified Google Place identity")
-    local_hits.extend(_phrase_hits(text, structural_local_terms))
-    if journey_model in {"lead_quote", "appointment_consultation", "reservation_event"}:
-        if data.get("phone_number_visible") is True:
-            local_hits.append("verified local phone path")
-        local_hits.extend(_phrase_hits(text, geographic_terms))
+    if any(term in text for term in structural_local_terms):
+        local_hits.extend(term for term in structural_local_terms if term in text)
+    local_business_type = business_type in {"local_service", "restaurant", "hospitality_event", "automotive", "real_estate"}
+    if local_business_type and data.get("phone_number_visible") is True:
+        local_hits.append("verified local phone path")
+    # A phone number by itself is not enough to classify a national/enterprise lead site as local.
+    # Journey types may still become local when real geographic/location evidence is present.
+    if journey_model in {"lead_quote", "appointment_consultation", "reservation_event"} or local_business_type:
+        local_hits.extend(term for term in geographic_terms if term in text)
     mark("local_location_dependent", local_hits)
 
     commerce_hits: List[str] = []
@@ -366,77 +554,66 @@ def infer_context_tags(data: Mapping[str, Any], journey_model: str = "general") 
         commerce_hits.append("checkout")
     if data.get("shipping_info_linked") or data.get("return_policy_linked"):
         commerce_hits.append("shipping/return policy")
-    if journey_model == "direct_purchase":
-        commerce_hits.append("direct-purchase journey")
+    if journey_model == "direct_purchase" or business_type in {"ecommerce", "marketplace"}:
+        commerce_hits.append("commerce business/journey")
     mark("commerce_payment", commerce_hits)
 
-    # Sensitive-data context is about information a customer may actually submit, not words that
-    # happen to appear in a privacy policy, legal disclaimer, project description or footer.
+    raw_sensitive_hits = [term for term in SENSITIVE_TERMS if term in text]
     sensitive_hits: List[str] = []
-    forms_present = bool(data.get("forms_present"))
-    if regulated_hits and forms_present:
-        sensitive_hits.append("regulated-context form")
-        strong_source = f"{hero_meta} {journey_text}" if journey_text else hero_meta
-        sensitive_hits.extend(_phrase_hits(strong_source, SENSITIVE_TERMS))
-    elif data.get("checkout_context_detected") and journey_model == "direct_purchase":
-        sensitive_hits.append("verified checkout/payment context")
-    elif forms_present:
-        strong_source = f"{hero_meta} {journey_text}" if journey_text else hero_meta
-        explicit_sensitive = _phrase_hits(strong_source, SENSITIVE_TERMS)
-        # Outside a regulated/checkout journey require corroboration; one incidental phrase is not enough.
-        if len(explicit_sensitive) >= 2:
-            sensitive_hits.extend(explicit_sensitive)
+    # Sensitive-data COLLECTION requires a plausible collection surface. Merely discussing a
+    # medical/legal/financial service somewhere on the site is not enough. This prevents broader
+    # business sites from inheriting high-trust weighting from incidental vocabulary.
+    if data.get("forms_present"):
+        explicit_sensitive = {
+            "patient", "health history", "health information", "diagnosis", "symptom",
+            "insurance claim", "case details", "financial information", "tax return", "credit card",
+        }
+        sensitive_hits.extend(term for term in raw_sensitive_hits if regulated_business or term in explicit_sensitive)
+        if regulated_hits:
+            sensitive_hits.append("regulated-context form")
     mark("sensitive_data", sensitive_hits)
 
-    # Considered-purchase/enterprise context should come from deliberate page/journey language rather
-    # than policy boilerplate. A strong hero/meta hit is enough; body-only evidence needs corroboration.
-    enterprise_primary = _phrase_hits(hero_meta, ENTERPRISE_TERMS)
-    enterprise_home = _phrase_hits(surfaces.get("home_body", ""), ENTERPRISE_TERMS)
-    enterprise_journey = _phrase_hits(journey_text, ENTERPRISE_TERMS) if journey_text else []
-    enterprise_body = _phrase_hits(body_text, ENTERPRISE_TERMS)
-    enterprise_hits: List[str] = list(enterprise_primary)
-    if len(enterprise_home) >= 2:
-        enterprise_hits.extend(enterprise_home[:6])
-    elif enterprise_journey:
-        enterprise_hits.extend(enterprise_journey[:4])
-    elif len(enterprise_body) >= 2:
-        enterprise_hits.extend(enterprise_body[:4])
-    if journey_model == "demo_sales":
-        enterprise_hits.append("demo/sales journey")
+    enterprise_hits = [term for term in ENTERPRISE_TERMS if term in text]
+    if journey_model == "demo_sales" or business_type in {"b2b", "saas", "agency"}:
+        enterprise_hits.append("enterprise/considered-purchase business or journey")
     mark("enterprise_considered_purchase", enterprise_hits)
 
-    # ``event`` and ``reserve`` are common legal/privacy boilerplate ("in the event...", "we reserve...").
-    # They can never create hospitality/event context on their own. Strong domain terms or an actual
-    # reservation journey are required.
-    strong_hospitality = ("wedding", "venue", "cruise", "charter", "yacht", "restaurant", "catering", "hotel", "banquet")
-    weak_hospitality = ("event", "tour", "reservation", "reserve", "rental")
-    hospitality_hits: List[str] = []
-    if journey_model == "reservation_event":
-        hospitality_hits.append("reservation/event journey")
-    hero_strong = _phrase_hits(hero_meta, strong_hospitality)
-    journey_strong = _phrase_hits(journey_text, strong_hospitality) if journey_text else []
-    journey_weak = _phrase_hits(journey_text, weak_hospitality) if journey_text else []
-    body_strong = _phrase_hits(body_text, strong_hospitality)
-    body_weak = _phrase_hits(body_text, weak_hospitality)
-    if hero_strong:
-        hospitality_hits.extend(hero_strong)
-    elif journey_strong and (len(journey_strong) >= 2 or journey_weak or data.get("reservation_present")):
-        hospitality_hits.extend(journey_strong + journey_weak[:2])
-    elif len(body_strong) >= 2 or (body_strong and body_weak and (data.get("reservation_present") or journey_model == "general")):
-        hospitality_hits.extend(body_strong[:3] + body_weak[:2])
+    hospitality_hits = [term for term in HOSPITALITY_EVENT_TERMS if re.search(r"\b" + re.escape(term) + r"\b", text)]
+    if journey_model == "reservation_event" or business_type in {"restaurant", "hospitality_event"}:
+        hospitality_hits.append("hospitality/reservation business or journey")
     mark("hospitality_event", hospitality_hits)
 
-    # Keep deterministic order for reports/diffs.
+    recurring_hits: List[str] = []
+    if journey_model == "membership_subscription" or business_type in {"saas", "membership_creator"}:
+        recurring_hits.append("recurring/subscription model")
+    if any(token in text for token in ("monthly", "annual plan", "subscription", "membership", "auto-renew")):
+        recurring_hits.append("recurring terms detected")
+    mark("recurring_commitment", recurring_hits)
+
+    donation_hits: List[str] = []
+    if journey_model == "donation_support" or business_type == "nonprofit":
+        donation_hits.append("donation/nonprofit model")
+    if any(token in text for token in ("donate", "registered charity", "tax receipt", "our impact")):
+        donation_hits.append("donation/impact language")
+    mark("donation_public_trust", donation_hits)
+
     ordered = [tag for tag in CONTEXT_LABELS if tag in tags]
     return ordered, reasons
 
 
 def infer_architecture_profile(data: Mapping[str, Any], requested_hint: Any = "auto") -> Dict[str, Any]:
-    """Infer customer-journey model and context tags from public evidence.
+    """Infer business type, customer journey and context from public evidence.
 
-    This is intentionally not an industry classifier.  The optional legacy business type is a weak
-    tie-breaker only and cannot outweigh strong customer-action/hero evidence.
+    Business type influences the expected importance and journey priors. Observed actions still
+    dominate enough to reveal hybrid behavior instead of blindly forcing an industry template.
     """
+    hint = _normalize_hint(requested_hint)
+    force_general_journey = hint == "general"
+    direct_journey_hint = hint if hint in JOURNEY_LABELS and hint != "general" else ""
+    business_hint = "auto" if direct_journey_hint else hint
+    business = infer_business_type(data, business_hint)
+    business_type = str(business.get("business_type") or "general")
+
     surfaces = _text_surfaces(data)
     scores: Dict[str, float] = {model: 0.0 for model in JOURNEY_LABELS if model != "general"}
     signals: Dict[str, List[str]] = {model: [] for model in scores}
@@ -449,13 +626,15 @@ def infer_architecture_profile(data: Mapping[str, Any], requested_hint: Any = "a
         "add_to_cart": ("direct_purchase", 12.0), "buy": ("direct_purchase", 10.0),
         "demo": ("demo_sales", 10.0), "trial": ("demo_sales", 9.0),
         "subscribe": ("membership_subscription", 10.0), "join": ("membership_subscription", 10.0),
+        "donate": ("donation_support", 12.0), "support": ("donation_support", 5.0),
+        "apply": ("application_enrollment", 11.0), "register": ("application_enrollment", 8.0),
+        "enroll": ("application_enrollment", 9.0), "enrol": ("application_enrollment", 9.0),
     }
     for action, (model, weight) in action_weights.items():
         if action in actions:
             scores[model] += weight
             signals[model].append(f"action:{action}")
     if "book" in actions:
-        # Book alone is ambiguous; strong surrounding terms decide whether it is appointment vs event.
         scores["appointment_consultation"] += 4.0
         scores["reservation_event"] += 4.0
         signals["appointment_consultation"].append("action:book")
@@ -481,72 +660,17 @@ def infer_architecture_profile(data: Mapping[str, Any], requested_hint: Any = "a
     if data.get("forms_present") and any(token in surfaces["all"] for token in ("quote", "estimate", "enquiry", "inquiry")):
         scores["lead_quote"] += 4.0
 
-    # Primary-surface precedence / diversified-company guardrail.
-    #
-    # The bounded journey crawl is intentionally driven by the first-pass model. Without this
-    # guardrail, a weak initial "medical clinic" or "consultation" hit can select a medical
-    # secondary page, which then self-confirms Appointment / Consultation even when the company
-    # actually sells broad B2B project/support services. Company-level proposition + global action
-    # therefore outrank incidental secondary-service vocabulary.
-    primary_company_text = f"{surfaces['hero']} {surfaces['meta']} {surfaces.get('home_body', '')}"
-    b2b_primary_hits = _phrase_hits(primary_company_text, B2B_SERVICE_TERMS)
-    appointment_primary_hits = _phrase_hits(
-        f"{surfaces['hero']} {surfaces['meta']}", APPOINTMENT_PRIMARY_TERMS
-    )
-    appointment_home_action_hits = _phrase_hits(
-        surfaces.get("home_body", ""),
-        ("book appointment", "schedule appointment", "new patient", "patient portal", "book a consultation", "schedule a consultation"),
-    )
-    appointment_primary_hits.extend(appointment_home_action_hits)
-    verified_booking = bool(data.get("booking_provider_links") or data.get("booking_action_present") or "book" in actions)
-    verified_reservation = bool(data.get("reservation_present") or "reserve" in actions)
-    normal_b2b_contact = bool(
-        "contact" in actions or "quote" in actions or data.get("forms_present")
-        or data.get("phone_number_visible") is True or data.get("click_to_call_present") is True
-    )
-    diversified_b2b_pattern = bool(len(set(b2b_primary_hits)) >= 2 and normal_b2b_contact)
-    secondary_service_suppression = False
-    if diversified_b2b_pattern:
-        # Broad project/operations/service language plus a corporate contact path is itself a
-        # meaningful lead-generation signal even when the site never says "request a quote".
-        b2b_boost = min(8.0, 4.0 + 0.75 * len(set(b2b_primary_hits)))
-        scores["lead_quote"] += b2b_boost
-        signals["lead_quote"].extend(f"primary_b2b:{x}" for x in list(dict.fromkeys(b2b_primary_hits))[:6])
+    # Business type is intentionally meaningful. It supplies a bounded prior rather than a forced journey.
+    for model, weight in BUSINESS_TYPE_JOURNEY_PRIORS.get(business_type, {}).items():
+        if model in scores:
+            scores[model] += float(weight)
+            signals[model].append(f"business_type_prior:{business_type}")
 
-        # Do not suppress a genuine appointment/reservation business when its primary surface or
-        # actual action architecture corroborates that journey. Suppression applies only when the
-        # competing signal is coming from secondary/service-page language.
-        if not appointment_primary_hits and not verified_booking:
-            scores["appointment_consultation"] *= 0.45
-            secondary_service_suppression = True
-        if not verified_reservation:
-            scores["reservation_event"] *= 0.55
-            secondary_service_suppression = True
-
-    # Appointment requires stronger corroboration than an isolated service-line term. A genuine
-    # clinic/law/consultation homepage still qualifies through primary terms, while a secondary
-    # medical page on a B2B company does not.
-    if scores["appointment_consultation"] >= 5.0 and not (appointment_primary_hits or verified_booking):
-        appointment_journey_only = any(
-            str(sig).startswith("journey:") for sig in signals["appointment_consultation"]
-        )
-        if appointment_journey_only:
-            scores["appointment_consultation"] *= 0.70
-            secondary_service_suppression = True
-
-    hint = _normalize_hint(requested_hint)
-    if hint in scores:
-        # A direct V7 journey selection is an operator/user hint strong enough to resolve a close
-        # ambiguity, but it cannot manufacture high confidence by itself. Unsupported manual
-        # selections therefore remain provisional and are score-capped.
-        scores[hint] += 6.0
-        signals[hint].append(f"direct_journey_hint:{hint}")
-    else:
-        hinted_model = LEGACY_HINT_TO_JOURNEY.get(hint)
-        if hint not in {"auto", "general"} and hinted_model and hinted_model in scores:
-            # Old industry values remain intentionally weak for backward compatibility.
-            scores[hinted_model] += 1.5
-            signals[hinted_model].append(f"legacy_journey_hint:{hint}")
+    # Direct journey hints remain possible and are stronger than priors, but still do not create
+    # perfect confidence without corroborating observed evidence.
+    if direct_journey_hint in scores:
+        scores[direct_journey_hint] += 8.0
+        signals[direct_journey_hint].append(f"direct_journey_hint:{direct_journey_hint}")
 
     ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
     top_model, top_score = ranked[0] if ranked else ("general", 0.0)
@@ -558,45 +682,69 @@ def infer_architecture_profile(data: Mapping[str, Any], requested_hint: Any = "a
         confidence = 0.45 if top_score <= 0 else min(0.64, 0.48 + top_score * 0.025)
         winning_signals: List[str] = []
     else:
-        # Absolute evidence and separation both matter.  This avoids confident misclassification from
-        # many weak incidental words such as menu/food while rewarding a strong hero/action signal.
-        confidence = 0.52 + min(0.26, top_score * 0.012) + min(0.20, margin * 0.025)
-        confidence = max(0.52, min(0.98, confidence))
+        confidence = 0.50 + min(0.27, top_score * 0.011) + min(0.17, margin * 0.022)
+        # Explicit business type is useful context, but a close multi-journey site should not receive 98% certainty.
+        if second_score > 0 and second_score / max(top_score, 0.01) >= 0.72:
+            confidence = min(confidence, 0.84)
+        confidence = max(0.52, min(0.96, confidence))
         journey_model = top_model
         winning_signals = list(dict.fromkeys(signals[top_model]))[:12]
 
-    context_tags, context_reasons = infer_context_tags(data, journey_model)
-    provisional = bool(journey_model == "general" or confidence < 0.75)
+    # An explicit "general" choice is a deliberate neutral scoring mode, not auto-detect.
+    # Keep observed candidates as secondary diagnostics, but do not silently replace the requested
+    # general journey with a specialized one. Auto mode remains the way to infer a primary journey.
+    if force_general_journey:
+        journey_model = "general"
+        confidence = 1.0
+        winning_signals = ["requested:general"]
+
+    secondary_journeys: List[Dict[str, Any]] = []
+    if top_score > 0:
+        for model, score in ranked[1:4]:
+            if score < 4.0:
+                continue
+            ratio = score / top_score
+            if ratio < 0.32:
+                continue
+            secondary_journeys.append({
+                "journey_model": model,
+                "journey_label": JOURNEY_LABELS.get(model, model.replace("_", " ").title()),
+                "relative_strength": round(ratio, 2),
+                "score": round(score, 2),
+                "signals": list(dict.fromkeys(signals.get(model) or []))[:6],
+            })
+
+    context_tags, context_reasons = infer_context_tags(data, journey_model, business_type)
+    provisional = bool(journey_model == "general" or confidence < 0.72 or (business_type == "general" and float(business.get("confidence") or 0.0) < 0.60))
     secondary = JOURNEY_SECONDARY_CONVERSIONS.get(journey_model, JOURNEY_SECONDARY_CONVERSIONS["general"])
     return {
-        "model_basis": "journey_context_v1",
+        "model_basis": "business_type_journey_context_v2",
+        "business_type": business_type,
+        "business_type_label": business.get("business_type_label") or BUSINESS_TYPE_LABELS.get(business_type, business_type.replace("_", " ").title()),
+        "business_type_confidence": round(float(business.get("confidence") or 0.0), 2),
+        "business_type_source": business.get("source") or "auto_inference",
+        "business_type_signals": list(business.get("signals") or []),
+        "business_type_candidates": business.get("score_candidates") or {},
         "journey_model": journey_model,
         "journey_label": JOURNEY_LABELS.get(journey_model, JOURNEY_LABELS["general"]),
         "confidence": round(confidence, 2),
         "provisional": provisional,
+        "journey_resolved": not provisional,
         "primary_conversion": JOURNEY_PRIMARY_CONVERSION.get(journey_model, JOURNEY_PRIMARY_CONVERSION["general"]),
         "secondary_conversions": list(secondary),
+        "secondary_journeys": secondary_journeys,
         "context_tags": context_tags,
         "context_labels": [CONTEXT_LABELS[tag] for tag in context_tags],
         "journey_signals": winning_signals,
         "context_reasons": context_reasons,
-        "requested_journey_hint": hint,
-        "direct_journey_hint": hint if hint in scores else "",
-        "legacy_business_hint": hint if hint not in scores else "",
-        "legacy_hint_used_only_as_tiebreaker": bool(hint not in {"auto", "general"} and hint not in scores),
+        "requested_hint": hint,
+        "requested_business_type": business_type if business.get("source") == "explicit_request" else "",
+        "direct_journey_hint": direct_journey_hint,
         "score_candidates": {k: round(v, 2) for k, v in ranked},
-        "classification_guardrails": {
-            "primary_surface_precedence": True,
-            "diversified_b2b_pattern": diversified_b2b_pattern,
-            "secondary_service_suppression_applied": secondary_service_suppression,
-            "primary_b2b_signals": list(dict.fromkeys(b2b_primary_hits))[:8],
-            "primary_appointment_signals": list(dict.fromkeys(appointment_primary_hits))[:8],
-            "verified_booking_action": verified_booking,
-            "verified_reservation_action": verified_reservation,
-        },
-        # Legacy keys retained so older report/frontend code does not break.  They now describe
-        # journey architecture rather than an asserted industry taxonomy.
-        "vertical": journey_model,
+        # Compatibility aliases. Unlike v7.2, vertical now describes the business type while
+        # journey_model always describes the customer journey.
+        "vertical": business_type,
+        "legacy_business_type": business_type,
         "inferred_subtype": "",
         "signals": winning_signals,
     }
@@ -619,4 +767,8 @@ def context_has(profile: Mapping[str, Any], tag: str) -> bool:
 
 
 def journey_is(profile: Mapping[str, Any], *models: str) -> bool:
-    return str(profile.get("journey_model") or profile.get("vertical") or "general") in set(models)
+    return str(profile.get("journey_model") or "general") in set(models)
+
+
+def business_is(profile: Mapping[str, Any], *business_types: str) -> bool:
+    return str(profile.get("business_type") or profile.get("legacy_business_type") or profile.get("vertical") or "general") in set(business_types)

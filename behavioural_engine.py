@@ -1,4 +1,4 @@
-"""Trilloka behavioural-risk heuristics (v7.1 Journey + Context).
+"""Trilloka behavioural-risk heuristics (v7.3 Business Type + Journey + Context).
 
 These outputs are modeled diagnostic indices, not observed analytics. They supplement the
 observable architecture scan and never pretend to be real conversion/bounce telemetry.
@@ -9,12 +9,18 @@ from typing import Any, Dict, List
 
 
 class BehaviouralEngine:
-    def analyze_behavioral_friction(self, scraped_data: Dict[str, Any], business_type: str = "general") -> Dict[str, Any]:
-        """Analyze generic friction with a light customer-journey sensitivity.
+    def analyze_behavioral_friction(
+        self,
+        scraped_data: Dict[str, Any],
+        journey_model: str = "general",
+        business_type: str = "general",
+    ) -> Dict[str, Any]:
+        """Analyze modeled friction using separate journey and business-type context.
 
-        ``business_type`` is retained for call compatibility but v7 treats it as a journey model.
+        The output remains heuristic and never claims observed bounce/conversion analytics.
         """
-        journey = str(business_type or "general")
+        journey = str(journey_model or "general")
+        business_type = str(business_type or "general")
         title = str(scraped_data.get("title") or "")
         meta_desc = str(scraped_data.get("meta_description") or "")
         h1_tags = scraped_data.get("h1_tags") or []
@@ -29,16 +35,27 @@ class BehaviouralEngine:
         trust_anchor_score = self._calc_trust_anchors(has_ssl, missing_alt, img_count)
         estimated_bounce_risk_index = self._estimate_bounce_risk_index(perf_score, cognitive_load_score, journey)
 
+        # Business type changes the *importance* of trust/clarity, not the observed evidence itself.
+        trust_weight = 0.35
+        value_weight = 0.35
+        if business_type in {"healthcare", "medspa", "legal", "financial_services", "nonprofit"}:
+            trust_weight = 0.42
+            value_weight = 0.30
+        elif business_type in {"saas", "b2b", "agency", "professional_service", "education"}:
+            value_weight = 0.40
+            trust_weight = 0.35
+        cognitive_weight = max(0.15, 1.0 - trust_weight - value_weight)
         behavioral_score = round(
-            (value_prop_score * 0.35) + (trust_anchor_score * 0.35) + (cognitive_load_score * 0.30), 1
+            (value_prop_score * value_weight) + (trust_anchor_score * trust_weight) + (cognitive_load_score * cognitive_weight), 1
         )
         leaks = self._extract_behavioral_leaks(
             value_prop_score, trust_anchor_score, cognitive_load_score,
-            estimated_bounce_risk_index, journey, scraped_data,
+            estimated_bounce_risk_index, journey, business_type, scraped_data,
         )
         return {
             "status": "modeled",
-            "model_basis": "journey_sensitive_heuristic_v1",
+            "model_basis": "business_type_journey_sensitive_heuristic_v2",
+            "business_type": business_type,
             "journey_model": journey,
             "behavioral_score": behavioral_score,
             "estimated_bounce_risk_index": estimated_bounce_risk_index,
@@ -48,6 +65,7 @@ class BehaviouralEngine:
                 "cognitive_load_score": cognitive_load_score,
                 "value_prop_prominence": value_prop_score,
                 "trust_anchor_score": trust_anchor_score,
+                "weights": {"value_proposition": round(value_weight, 2), "trust": round(trust_weight, 2), "cognitive_load": round(cognitive_weight, 2)},
             },
             "behavioral_friction_leaks": leaks,
             "note": "Heuristic behavioral indicators are not observed visitor analytics and do not replace real funnel/session data.",
@@ -105,7 +123,7 @@ class BehaviouralEngine:
 
     def _extract_behavioral_leaks(
         self, value_prop: float, trust: float, cog_load: float, bounce_index: float,
-        journey: str, scraped_data: Dict[str, Any],
+        journey: str, business_type: str, scraped_data: Dict[str, Any],
     ) -> List[str]:
         leaks: List[str] = []
         data = scraped_data or {}
@@ -121,10 +139,13 @@ class BehaviouralEngine:
                 "direct_purchase": "the purchase value proposition",
                 "demo_sales": "the demo/sales value proposition",
                 "membership_subscription": "the membership/subscription value proposition",
+                "donation_support": "the donation/support value proposition",
+                "application_enrollment": "the application/enrollment value proposition",
             }.get(journey, "the primary customer value proposition")
             leaks.append(f"Weak Above-the-Fold Journey Clarity: verified title/meta/H1 signals do not strongly support {journey_copy}.")
-        if trust < 65.0:
-            leaks.append("Modeled Trust Friction: verified security/accessibility signals are weaker than the diagnostic baseline.")
+        trust_floor = 72.0 if business_type in {"healthcare", "medspa", "legal", "financial_services", "nonprofit"} else 65.0
+        if trust < trust_floor:
+            leaks.append(f"Modeled Trust Friction: verified security/accessibility signals are weaker than the {business_type.replace('_',' ')} diagnostic baseline.")
         if cog_load < 60.0:
             leaks.append("Modeled Cognitive-Load Risk: page density may increase scanning friction.")
         if bounce_index > 40.0:

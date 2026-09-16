@@ -1,4 +1,4 @@
-"""Trilloka Architect Engine V7 API gateway with Journey + Context scoring and tiered paid-plan entitlements.
+"""Trilloka Architect Engine V7 API gateway with Business Type + Journey + Context scoring and tiered paid-plan entitlements.
 
 Scanner compatibility
 ---------------------
@@ -12,11 +12,11 @@ Commercial access
 * Free preview: one successful scan per IP/device per rolling 24h. Public score,
   SEO/performance surface metrics, modeled competitor-gap proxy, and revenue-exposure
   estimate remain visible; detailed leak identities and remediation are locked.
-* $350 Essential: Top 4 verified revenue findings + 3-angle fixes, full 50-check data,
+* $350 Essential: up to Top 4 verified revenue findings + 3-angle fixes, full 50-check data,
   2 scans/day for 30 days.
-* $550 Advanced: Top 8 verified revenue findings + 3-angle fixes + 14-day roadmap,
+* $550 Advanced: up to Top 8 verified revenue findings + 3-angle fixes + 14-day roadmap,
   full 50-check data, 3 scans/day for 30 days, one 15-minute guidance call.
-* $850 Architect: Top 10 verified revenue findings + 3-angle fixes + 30-day roadmap,
+* $850 Architect: up to Top 10 verified revenue findings + 3-angle fixes + 30-day roadmap,
   full 50-check data, 4 scans/day for 30 days, two 15-minute guidance calls and a
   15-hour email-support response target.
 * Paid access is bound to email + purchased domain + a secure purchase access pass.
@@ -106,7 +106,7 @@ _PROTECTED_DOMAIN_ROOTS = tuple(
 app = FastAPI(
     title="Trilloka Architect Engine API",
     description="Evidence-weighted Revenue Readiness Diagnostic, local competitor benchmark & tiered report gateway",
-    version="7.2.3",
+    version="7.3.0",
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -548,7 +548,7 @@ def handle_trilloka_guardrail(target_domain: str) -> Optional[Dict[str, Any]]:
 def health_check() -> Dict[str, Any]:
     return {
         "status": "online",
-        "system": "Trilloka Architect Engine v7.2.3",
+        "system": "Trilloka Architect Engine v7.3.0",
         "google_api_configured": bool(os.environ.get("PAGESPEED_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
         "places_api_configured": bool(os.environ.get("GOOGLE_PLACES_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("PAGESPEED_API_KEY")),
         "report_engine": REPORT_ENGINE_AVAILABLE,
@@ -1128,8 +1128,9 @@ async def _run_scan_async(
     business_type: str = "auto",
 ) -> Dict[str, Any]:
     # HybridScanner is already async; keep Playwright on the active event loop.
-    # The legacy business_type field now carries an optional customer-journey hint.
-    # Auto-detect remains the recommended path; explicit hints do not bypass evidence guardrails.
+    # V7.3 keeps business_type as a first-class scoring input. Auto-detect resolves business type
+    # from public evidence; an explicit recognized type is respected. Journey + context remain
+    # separately inferred from the observed website so scoring adapts without forcing one funnel.
     return await scanner.execute_hybrid_scan(domain, business_name, business_type)
 
 
@@ -1169,9 +1170,15 @@ def _base_success_payload(
         "top_10_financial_leaks": all_leaks[:10],
         "message": "Scan complete.",
         "architecture_profile": audit_results.get("architecture_profile", audit_results.get("business_profile", {})),
+        "business_type": audit_results.get("business_type", (audit_results.get("architecture_profile") or {}).get("business_type", "general")),
+        "business_type_label": audit_results.get("business_type_label", (audit_results.get("architecture_profile") or {}).get("business_type_label", "General / Unresolved Business")),
+        "business_type_confidence": audit_results.get("business_type_confidence", (audit_results.get("architecture_profile") or {}).get("business_type_confidence")),
         "journey_model": (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("journey_model", "general"),
         "journey_label": (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("journey_label", "General / Unresolved Journey"),
+        "secondary_journeys": (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("secondary_journeys", []),
         "context_tags": (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("context_tags", []),
+        "commercial_architecture_diagnostics": scan_data.get("commercial_architecture_diagnostics", {}),
+        "public_content_hygiene": scan_data.get("public_content_hygiene", {}),
         "analysis_layers": audit_results.get("analysis_layers", {}),
         # Legacy alias retained for existing consumers.
         "business_profile": audit_results.get("business_profile", audit_results.get("architecture_profile", {})),
@@ -1318,7 +1325,8 @@ def _apply_report_access(base_payload: Dict[str, Any], ticket: AccessTicket) -> 
             "plan_id": plan["plan_id"],
             "plan_name": plan["name"],
             "full_50_checkpoint_data": True,
-            "remediation_findings_unlocked": limit,
+            "remediation_findings_unlocked": len(unlocked),
+            "remediation_limit": limit,
             "roadmap_days": int(plan.get("roadmap_days") or 0),
             "guidance_calls": plan["guidance_calls"],
             "guidance_call_minutes": plan["guidance_call_minutes"],
@@ -1390,7 +1398,7 @@ def _attach_access_metadata(
         plan = PLAN_CATALOG.get(ticket.plan_id or "", {})
         result["message"] = (
             f"Paid {plan.get('name','audit')} scan complete. "
-            f"Detailed remediation is unlocked for the Top {plan.get('remediation_limit', ticket.remediation_limit or 0)} findings."
+            f"Detailed remediation is unlocked for up to the Top {plan.get('remediation_limit', ticket.remediation_limit or 0)} verified findings."
         )
     elif ticket.mode == "free":
         result["message"] = "Free preview complete. Detailed patch plans and full 50-checkpoint data unlock with a paid audit plan."
@@ -1405,9 +1413,18 @@ def _customer_report_for_ticket(admin_report: Dict[str, Any], ticket: AccessTick
     limit = int(plan["remediation_limit"])
     findings = [x for x in (report.get("top_10_financial_leaks") or []) if isinstance(x, dict)][:limit]
     report["top_10_financial_leaks"] = findings
+    report["verified_revenue_findings"] = copy.deepcopy(findings)
     # Backward-compatible aliases plus the current 8-finding middle tier.
     report["top_6_financial_leaks"] = findings[:6]
     report["top_8_financial_leaks"] = findings[:8]
+    # Do not let the summary table reveal locked finding identities from a higher plan.
+    if reporter is not None and hasattr(reporter, "_build_at_a_glance"):
+        report["at_a_glance"] = reporter._build_at_a_glance(
+            report.get("verified_revenue_findings") or [],
+            report.get("verification_priorities") or [],
+            report.get("verified_strengths") or [],
+            report.get("future_optimizations") or [],
+        )
     report["customer_plan"] = dict(plan)
     report["remediation_limit"] = limit
     report["purchased_domain"] = ticket.domain_key

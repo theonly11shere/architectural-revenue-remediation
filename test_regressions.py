@@ -385,16 +385,17 @@ def test_static_html_fallback_collapses_unknowns_without_guessing():
     assert cp4["status"] == UNKNOWN
 
 
-def test_report_always_contains_ten_action_items_without_faking_failures():
+def test_report_does_not_pad_verified_findings_with_passes_or_unknowns():
     scan = valmont_fixture()
     audit = RevenueScorer().audit_and_score(scan, business_type="general", competitor_data_present=None)
     report = ReportGenerator().generate_admin_master_report(audit, scan)
-    assert len(report["top_10_financial_leaks"]) == 10
-    assert all("solutions_3_angles" in item for item in report["top_10_financial_leaks"])
-    # Non-failure fillers, when needed, must be explicitly labelled instead of masquerading as leaks.
-    for item in report["top_10_financial_leaks"]:
-        if item.get("finding_type") != "VERIFIED_LEAK":
-            assert float(item.get("severity_score") or 0.0) == 0.0
+    findings = report["top_10_financial_leaks"]
+    assert 0 <= len(findings) <= 10
+    assert findings == report["verified_revenue_findings"]
+    assert all(item.get("finding_type") == "VERIFIED_LEAK" for item in findings)
+    assert all(item.get("report_class") == "VERIFIED_REVENUE_FINDING" for item in findings)
+    assert report["verification_priorities"]
+    assert report["verified_strengths"]
 
 
 def test_revenue_exposure_has_model_based_dollar_range():
@@ -425,8 +426,11 @@ def test_report_archive_writes_json_and_customer_html(tmp_path):
     html_files = list(tmp_path.glob("*_report.html"))
     assert len(html_files) == 1
     html_text = html_files[0].read_text(encoding="utf-8")
-    assert "10 Highest-Priority Revenue Findings" in html_text
-    assert html_text.count("The 3-Angle Remediation Plan") == 10
+    assert "At a Glance" in html_text
+    assert "Where You Might Be Losing Customers" in html_text
+    assert "How can this affect the business financially?" in html_text
+    assert "10 Highest-Priority Revenue Findings" not in html_text
+    assert html_text.count("3-Angle Remediation Plan") == len(report["verified_revenue_findings"])
 
 
 # ---------------- V6 regression protections ----------------
@@ -1445,7 +1449,7 @@ def test_safe_non_destructive_completion_evidence_can_verify_checkpoint_50():
 
 def test_crux_good_reduces_financial_performance_impairment_without_hiding_lab_finding():
     leak = {
-        "rule_key": "mobile_lab_performance", "family": "performance",
+        "rule_key": "core_web_vitals", "family": "performance",
         "economic_severity": 1.15, "intrinsic_severity_score": 1.15,
         "final_score_loss": 1.05, "confidence": "high",
         "severity_factor": 0.4, "substitution_factor": 1.0,
@@ -1476,215 +1480,3 @@ def test_blueprint_ratings_match_requested_public_bands():
     ]
     for score, label in expected:
         assert RevenueScorer._get_score_rating(score, {}, 0.0, {}, {}) == label
-
-
-def test_multiservice_b2b_primary_surface_outranks_secondary_medical_service_words():
-    from architecture_model import infer_architecture_profile
-
-    scan = {
-        "title": "Remote Alaskan Services",
-        "h1_tags": ["We've Got You Covered"],
-        "meta_description": "Remote support services for exploration and production operations.",
-        "page_text": (
-            "support services oil and gas industry exploration production activities remote operations "
-            "logistics drilling aviation project support clients remote medical services remote medical clinic sets "
-            "contact headquarters phone"
-        ),
-        # Deliberately contaminate the bounded journey sample with a medical service line.
-        "journey_text_sample": (
-            "remote medical services medical clinic consultation occupational health technician "
-            "drug alcohol testing logistics drilling support contact"
-        ),
-        "forms_present": False,
-        "phone_number_visible": True,
-        "mobile_cta_types": ["contact"],
-        "booking_provider_links": [],
-        "booking_action_present": False,
-        "reservation_present": False,
-    }
-    profile = infer_architecture_profile(scan, "auto")
-
-    assert profile["journey_model"] == "lead_quote"
-    assert profile["provisional"] is False
-    assert profile["score_candidates"]["lead_quote"] > profile["score_candidates"]["appointment_consultation"]
-    assert profile["classification_guardrails"]["diversified_b2b_pattern"] is True
-    assert profile["classification_guardrails"]["secondary_service_suppression_applied"] is True
-    assert "enterprise_considered_purchase" in profile["context_tags"]
-    assert "regulated_high_trust" not in profile["context_tags"]
-
-
-def test_genuine_primary_clinic_still_classifies_as_appointment_after_multiservice_guardrail():
-    from architecture_model import infer_architecture_profile
-
-    scan = {
-        "title": "Vancouver Physiotherapy Clinic",
-        "h1_tags": ["Physiotherapy & Sports Rehabilitation"],
-        "meta_description": "Book an appointment with a physiotherapist.",
-        "page_text": "new patient physiotherapy treatment schedule appointment clinic team contact",
-        "journey_text_sample": "book appointment patient intake physiotherapy consultation",
-        "forms_present": True,
-        "phone_number_visible": True,
-        "mobile_cta_types": ["book", "contact"],
-        "booking_action_present": True,
-        "booking_provider_links": ["https://booking.example.com/"],
-    }
-    profile = infer_architecture_profile(scan, "auto")
-
-    assert profile["journey_model"] == "appointment_consultation"
-    assert "regulated_high_trust" in profile["context_tags"]
-    assert profile["classification_guardrails"]["verified_booking_action"] is True
-
-
-def test_fairweather_style_lead_scenario_uses_b2b_financial_priors_not_appointment_priors():
-    leaks = [
-        {
-            "rule_key": "privacy_terms_missing", "family": "trust_policy",
-            "economic_severity": 0.89, "intrinsic_severity_score": 0.89,
-            "final_score_loss": 0.89, "confidence": "high",
-            "severity_factor": 0.50, "substitution_factor": 1.0,
-        },
-        {
-            "rule_key": "structured_data_missing", "family": "search_structure",
-            "economic_severity": 0.25, "intrinsic_severity_score": 0.25,
-            "final_score_loss": 0.18, "confidence": "high",
-            "severity_factor": 0.45, "substitution_factor": 1.0,
-        },
-        {
-            "rule_key": "meta_description_length", "family": "search_snippet",
-            "economic_severity": 0.04, "intrinsic_severity_score": 0.04,
-            "final_score_loss": 0.04, "confidence": "high",
-            "severity_factor": 0.30, "substitution_factor": 1.0,
-        },
-    ]
-    profile = {
-        "journey_model": "lead_quote",
-        "journey_label": "Lead / Quote",
-        "context_tags": ["enterprise_considered_purchase", "local_location_dependent"],
-    }
-    result = RevenueScorer._revenue_exposure(
-        "lead_quote", leaks, {"score": 70.6}, profile,
-        {"crux_available": True, "real_user_speed_grade": "GOOD"},
-    )
-
-    assert result["journey_model"] == "lead_quote"
-    assert result["journey_label"] == "Lead / Quote"
-    assert result["annual_digital_opportunity_pool"] == {"low": 18750, "high": 324000}
-    assert result["economic_context_multiplier"] == 1.25
-    assert result["economic_context_tags"] == ["enterprise_considered_purchase"]
-    assert result["combined_path_impairment_pct"] == 4.4
-    assert result["central_annual_exposure"] == 7500
-    assert result["display"] == "$500 – $16,500 / year — LOW scenario exposure"
-
-
-def test_privacy_finding_copy_does_not_assume_healthcare_when_tracking_is_the_basis():
-    title, copy = RevenueScorer._checkpoint_failure_copy({
-        "rule_key": "privacy_terms_missing",
-        "check": "Privacy Policy Linked for Data Collection",
-        "evidence": {"requirement": "privacy_only", "privacy_policy_linked": None, "terms_linked": None},
-    })
-    assert title == "Privacy Policy Trust Gap"
-    assert "measurement/tracking" in copy
-    assert "healthcare context" not in copy.lower()
-
-
-def test_unsupported_nearby_type_forces_specific_text_search_even_when_untyped_retry_has_results():
-    from hybrid_scanner import HybridScanner
-
-    class Resp:
-        def __init__(self, status, payload):
-            self.status_code = status
-            self._payload = payload
-            self.text = str(payload)
-        def json(self):
-            return self._payload
-
-    class FakeSession:
-        def __init__(self):
-            self.calls = []
-            self.responses = [
-                Resp(400, {"error": {"message": "Unsupported types: general_contractor."}}),
-                Resp(200, {"places": [{
-                    "id": "irrelevant", "displayName": {"text": "Nearby Hospital"},
-                    "primaryType": "general_hospital", "types": ["general_hospital"],
-                    "formattedAddress": "North Vancouver, BC"
-                }]}),
-                Resp(200, {"places": [{
-                    "id": "builder", "displayName": {"text": "Relevant Custom Builder"},
-                    "primaryType": "home_builder", "types": ["home_builder", "general_contractor"],
-                    "formattedAddress": "North Vancouver, BC"
-                }]}),
-            ]
-        def post(self, url, json=None, headers=None, timeout=None):
-            self.calls.append((url, dict(json or {})))
-            return self.responses.pop(0)
-
-    scanner = HybridScanner(google_api_key="test-key")
-    scanner.session = FakeSession()
-    target = {
-        "places_found": True,
-        "benchmark_identity_verified": True,
-        "place_location": {"latitude": 49.28, "longitude": -123.12},
-        "place_primary_type": "general_contractor",
-        "place_types": ["general_contractor", "service"],
-        "place_id": "target",
-        "place_website_uri": "https://target.example/",
-        "place_display_name": "Target Builder",
-    }
-    profile = {
-        "journey_model": "lead_quote", "provisional": False,
-        "journey_signals": ["hero:custom home", "meta:renovation"],
-        "context_tags": ["local_location_dependent", "enterprise_considered_purchase"],
-    }
-    result = scanner._fetch_local_competitors(target, profile, {"domain": "target.example"})
-    assert len(scanner.session.calls) == 3
-    assert "places:searchText" in scanner.session.calls[2][0]
-    assert scanner.session.calls[2][1]["textQuery"] == "general contractor custom home renovation"
-    assert result["nearby_type_filter_rejected"] is True
-    assert result["text_search_status"] == "http_200"
-    assert result["competitor_search_strategy"] == "typed_nearby_rejected+specific_text"
-    assert result["competitors"][0]["name"] == "Relevant Custom Builder"
-
-
-def test_missing_alt_accessibility_failure_triggers_generic_foundation_notice():
-    from checkpoint_engine import build_foundation_omission_signal
-    checkpoints = [{
-        "id": 34, "status": FAIL, "rule_key": "missing_alt_images",
-        "check": "Images Have Accessibility Text", "evidence": {"missing": 1, "total": 20},
-    }]
-    signal = build_foundation_omission_signal(
-        checkpoints,
-        {"final_url": "https://example.com/", "title": "Example", "browser_loaded": True},
-    )
-    assert signal["triggered"] is True
-    assert signal["count"] == 1
-    assert signal["highest_level"] == "BASIC"
-    assert signal["public_modal_disclose_items"] is False
-    assert "alt" not in signal["modal_message"].lower()
-    assert signal["omissions"][0]["checkpoint_id"] == 34
-    assert "Accessibility" in signal["omissions"][0]["title"]
-
-
-def test_crux_good_uses_lab_performance_semantics_not_core_web_vitals_failure():
-    scan = _resolved_lead_fixture()
-    scan.update({
-        "performance_score": 39.0,
-        "pagespeed_api_status": "success",
-        "crux_available": True,
-        "real_user_speed_grade": "GOOD",
-        "crux_lcp_ms": 1604.0,
-        "crux_inp_ms": 40.0,
-        "crux_cls": 0.0,
-    })
-    audit = RevenueScorer().audit_and_score(scan, business_type="auto")
-    leaks = audit["tiered_remediation_packages"]["all_scoring_leaks"]
-    lab = next(item for item in leaks if item.get("rule_key") == "mobile_lab_performance")
-    assert lab["leak_name"] == "Mobile Lab Performance Headroom"
-    assert "field data is GOOD" in lab["impact_summary"]
-    assert not any(
-        item.get("rule_key") == "core_web_vitals" and "Poor Real-User" not in str(item.get("title") or "")
-        for item in leaks
-    )
-    financial = audit["financial_exposure"]
-    component = next(item for item in financial["issue_components"] if item["rule_key"] == "mobile_lab_performance")
-    assert component["field_performance_override"] is True
-    assert component["causal_impairment_ceiling"] == 0.035

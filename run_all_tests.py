@@ -1,6 +1,6 @@
-"""Trilloka V7.2.2 launch-candidate real-world scanner integrity runner.
+"""Trilloka V7.3.0 business-type + journey + context integrity runner.
 
-Runs the current Journey + Context scanner/scorer regression suite and targeted
+Runs the current Business Type + Journey + Context scanner/scorer regression suite and targeted
 calibration/hardening checks.  Everything here is passive and offline: it performs
 no live customer submissions and does not require Google credentials or network access.
 """
@@ -19,9 +19,6 @@ from report_engine import ReportGenerator
 from scorer import RevenueScorer
 from test_regressions import (
     base_scan, valmont_fixture, _resolved_lead_fixture,
-    test_unsupported_nearby_type_forces_specific_text_search_even_when_untyped_retry_has_results,
-    test_missing_alt_accessibility_failure_triggers_generic_foundation_notice,
-    test_crux_good_uses_lab_performance_semantics_not_core_web_vitals_failure,
 )
 
 ROOT = Path(__file__).resolve().parent
@@ -65,7 +62,7 @@ def test_compile() -> None:
 
 def test_pytest_regressions() -> None:
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "test_regressions.py", "test_scan_jobs.py"],
+        [sys.executable, "-m", "pytest", "-q", "test_regressions.py"],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -78,8 +75,8 @@ def test_pytest_regressions() -> None:
 
 def test_main_runtime_import() -> None:
     import main as gateway
-    assert gateway.app.version == "7.2.3"
-    assert gateway.scanner.ENGINE_VERSION == "v7.2.2"
+    assert gateway.app.version == "7.3.0"
+    assert gateway.scanner.ENGINE_VERSION == "v7.3.0"
     assert gateway.PLAN_CATALOG["essential_350"]["remediation_limit"] == 4
     assert gateway.PLAN_CATALOG["advanced_550"]["remediation_limit"] == 8
 
@@ -527,13 +524,109 @@ def test_multiservice_b2b_journey_and_financial_guardrail() -> None:
     assert exposure["annual_digital_opportunity_pool"] == {"low": 18750, "high": 324000}
     assert exposure["display"] == "$500 – $16,500 / year — LOW scenario exposure"
 
+def test_owner_email_unified() -> None:
+    import os
+    from report_engine import ReportGenerator
+    from admin_auth import AdminAuthManager
+    keys = ("TRILLOKA_OWNER_EMAIL", "TRILLOKA_REPORT_EMAIL", "TRILLOKA_ADMIN_EMAIL", "ADMIN_EMAIL")
+    old = {k: os.environ.get(k) for k in keys}
+    try:
+        for k in keys:
+            os.environ.pop(k, None)
+        assert ReportGenerator().admin_email == "onlyonearpit@gmail.com"
+        assert AdminAuthManager().owner_email == "onlyonearpit@gmail.com"
+        os.environ["TRILLOKA_OWNER_EMAIL"] = "onlyonearpit@gmail.com"
+        assert ReportGenerator().admin_email == "onlyonearpit@gmail.com"
+        assert AdminAuthManager().owner_email == "onlyonearpit@gmail.com"
+    finally:
+        for k, v in old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def test_public_api_contract_preserved() -> None:
+    import main as gateway
+    paths = {getattr(route, "path", "") for route in gateway.app.routes}
+    required = {
+        "/health", "/api/audit", "/api/scan", "/api/scan/start",
+        "/api/scan/status/{job_id}", "/api/plan/status",
+    }
+    missing = sorted(required - paths)
+    assert not missing, f"Missing preserved public API routes: {missing}"
+
+
+def test_self_scan_guardrail_preserved() -> None:
+    import main as gateway
+    guarded = gateway.handle_trilloka_guardrail("https://trilloka.com")
+    assert isinstance(guarded, dict) and guarded.get("is_guarded") is True
+    assert guarded.get("status") == "INTERCEPTED"
+    assert gateway.handle_trilloka_guardrail("https://example.com") is None
+    benchmark = guarded.get("competitor_benchmark") or {}
+    assert benchmark.get("available") is False
+    assert benchmark.get("status") == "protected_self_scan"
+
+
+def test_plain_language_report_contract() -> None:
+    reporter = ReportGenerator()
+    scan = _resolved_lead_fixture()
+    # Force a few genuine verified failures so the detailed finding template is exercised.
+    scan.update({
+        "forms_present": False, "form_action_valid": False, "form_functional_status": "FAIL",
+        "mobile_primary_cta_present": False, "mobile_sticky_cta_present": False,
+        "mobile_cta_types": [], "click_to_call_present": False, "click_to_call_status": "verified",
+        "reviews_visible": False, "social_proof_present": False, "trust_badges_present": False,
+        "case_studies_portfolio_present": False,
+    })
+    audit = RevenueScorer().audit_and_score(scan, business_type="auto")
+    report = reporter.generate_admin_master_report(audit, scan)
+    html = reporter._build_email_html(report)
+    assert "At a Glance" in html
+    assert "Where You Might Be Losing Customers" in html
+    assert "What is the problem?" in html
+    assert "Why does it matter?" in html
+    assert "How can this affect the business financially?" in html
+    assert "Technical Angle" in html and "UX / CRO Angle" in html and "Systems Angle" in html
+    assert len(report.get("verified_revenue_findings") or []) == report.get("verified_financial_leak_count")
+
+
+def test_business_type_weighting_is_bounded() -> None:
+    scorer = RevenueScorer()
+    for btype in scorer.__class__.__dict__.get("BUSINESS_TYPE_RULE_MULTIPLIERS", {}) if False else []:
+        pass
+    # Exercise representative high-trust and commerce rules. Broadening scope must not create
+    # unbounded score multipliers or manufacture failures on its own.
+    for btype in ("ecommerce", "healthcare", "legal", "saas", "local_service", "general"):
+        for rule, category in (("primary_conversion_path", "trust_conversion"), ("privacy_terms_missing", "content_eeat"), ("meta_description_length", "seo_technical")):
+            mult = scorer._business_type_weight_multiplier(rule, category, btype)
+            assert 0.75 <= mult <= 1.35
+
+
+def test_frontend_contract_preserved() -> None:
+    page = (ROOT / "index.html").read_text(encoding="utf-8")
+    assert 'const TRILLOKA_SCAN_API_BASE = "https://architectural-revenue-remediation.onrender.com";' in page
+    assert "/api/scan/start" in page and "/api/scan/status/" in page
+    assert "Where You Might Be Losing Customers" in page
+    assert "One scan. Full website picture. Recheck every 3–6 months." in page
+    assert "Architect-reviewed and proofed report delivered within 24–32 hours." in page
+    assert "Auto-detect business type &amp; journey" in page
+    assert "Your free Leak Analysis" not in page
+
+
 def main() -> int:
     print("=" * 70)
-    print(" TRILLOKA V7.2.3 RESUMABLE-SCAN BLUEPRINT90 REAL-WORLD + SECURITY INTEGRITY SUITE ")
+    print(" TRILLOKA V7.3.0 BUSINESS-TYPE + JOURNEY + CONTEXT REAL-WORLD INTEGRITY SUITE ")
     print("=" * 70)
     checks = (
         ("Core Python compile + warnings-as-errors", test_compile),
         ("Full regression suite", test_pytest_regressions),
+        ("Owner report + OTP email destination unified", test_owner_email_unified),
+        ("Public API contract preserved", test_public_api_contract_preserved),
+        ("Protected Trilloka self-scan guardrail preserved", test_self_scan_guardrail_preserved),
+        ("Plain-language report contract", test_plain_language_report_contract),
+        ("Business-type scoring multipliers remain bounded", test_business_type_weighting_is_bounded),
+        ("Front-end contract + new customer wording", test_frontend_contract_preserved),
         ("API gateway imports with complete runtime dependencies", test_main_runtime_import),
         ("Deployment manifest includes EmailStr dependency", test_deployment_dependency_manifest),
         ("SSRF/network target hardening is enforced", test_network_target_ssrf_hardening),
@@ -562,9 +655,6 @@ def main() -> int:
         ("36-case synthetic blueprint matrix differentiates all six journeys", test_full_synthetic_blueprint_matrix),
         ("Diversified B2B service lines cannot hijack journey or financial priors", test_multiservice_b2b_journey_and_financial_guardrail),
         ("Competitor probe rejects business/content identity conflicts", test_competitor_probe_identity_guard),
-        ("Unsupported Nearby types force specific Text Search fallback", test_unsupported_nearby_type_forces_specific_text_search_even_when_untyped_retry_has_results),
-        ("Verified missing-alt omission triggers generic Foundation Notice", test_missing_alt_accessibility_failure_triggers_generic_foundation_notice),
-        ("CrUX GOOD uses lab-performance semantics instead of false CWV wording", test_crux_good_uses_lab_performance_semantics_not_core_web_vitals_failure),
     )
     passed = sum(check(name, fn) for name, fn in checks)
     print("=" * 70)

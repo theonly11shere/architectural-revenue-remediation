@@ -21,69 +21,86 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from checkpoint_engine import PASS, FAIL, UNKNOWN, NA, build_50_checkpoints, checkpoint_summary
-from architecture_model import JOURNEY_LABELS, CONTEXT_LABELS
+from architecture_model import BUSINESS_TYPE_LABELS, JOURNEY_LABELS, CONTEXT_LABELS
 
 
 class ReportGenerator:
     def __init__(self):
         self.resend_api_key = os.environ.get("RESEND_API_KEY", "")
         self.from_email = os.environ.get("FROM_EMAIL", "alerts@trilloka.com")
-        self.admin_email = os.environ.get("ADMIN_EMAIL", "arpitt22@trilloka.com")
+        self.admin_email = (os.environ.get("TRILLOKA_OWNER_EMAIL") or os.environ.get("TRILLOKA_REPORT_EMAIL") or "onlyonearpit@gmail.com").strip() or "onlyonearpit@gmail.com"
         self.vault_dir = os.environ.get("VAULT_DIR", "./vault_archives")
 
     def generate_admin_master_report(self, audit_data: Dict[str, Any], scan_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create the V7.3 plain-language, evidence-first master report.
+
+        Verified leaks are never padded to a fixed count. Unknowns, strengths and optional future
+        optimization ideas are stored in separate sections so a passing checkpoint cannot be
+        mistaken for a revenue problem.
+        """
         audit = audit_data or {}
         scan = scan_data or {}
-        business_profile = audit.get("architecture_profile") or audit.get("business_profile") or scan.get("architecture_profile") or scan.get("business_profile") or {"journey_model": audit.get("business_type", "general")}
+        business_profile = (
+            audit.get("architecture_profile") or audit.get("business_profile")
+            or scan.get("architecture_profile") or scan.get("business_profile")
+            or {"business_type": audit.get("business_type", "general"), "journey_model": audit.get("journey_model", "general")}
+        )
+        if not isinstance(business_profile, dict):
+            business_profile = {}
 
         checkpoints = audit.get("full_50_checkpoint_basis") or build_50_checkpoints(scan, audit)
         summary = audit.get("checkpoint_summary") or checkpoint_summary(checkpoints)
 
         packages = audit.get("tiered_remediation_packages") or {}
-        # V5 customer report prefers the family-consolidated Top-10 package.
-        # all_scoring_leaks remains raw/backward-compatible for integrations and Vault analysis.
+        # Architect/master report shows up to the genuine Top 10 family-consolidated verified findings.
+        # It does NOT manufacture ten items when the site has fewer verified problems.
         leaks = packages.get("tier_10_arch10") or packages.get("all_scoring_leaks") or []
-        # The scorer has already ordered tier_10_arch10 by commercial/revenue priority.
-        # Preserve that order here; re-sorting by raw severity would let ordinary technical
-        # hygiene jump above higher-consequence conversion friction.
         ordered_leaks = [item for item in leaks if isinstance(item, dict)]
 
-        enriched: List[Dict[str, Any]] = []
+        verified_findings: List[Dict[str, Any]] = []
         for leak in ordered_leaks[:10]:
             severity_factor = leak.get("severity_factor")
-            enriched.append(
-                {
-                    **leak,
-                    "finding_type": "VERIFIED_LEAK",
-                    "severity_label": self._get_severity_label(severity_factor),
-                    "solutions_3_angles": self._build_3_angle_solutions(
-                        str(leak.get("rule_key") or ""),
-                        leak,
-                        scan,
-                        business_profile,
-                    ),
-                }
-            )
+            item = {
+                **leak,
+                "finding_type": "VERIFIED_LEAK",
+                "report_class": "VERIFIED_REVENUE_FINDING",
+                "severity_label": self._get_severity_label(severity_factor),
+                "solutions_3_angles": self._build_3_angle_solutions(
+                    str(leak.get("rule_key") or ""), leak, scan, business_profile
+                ),
+            }
+            verified_findings.append(self._enrich_plain_language_finding(item, scan, business_profile))
 
-        # The attachment always contains 10 actionable priorities. Never fabricate a failure:
-        # if fewer than 10 verified leaks exist, fill remaining slots with explicitly-labelled
-        # optimization opportunities selected from verified PASS checkpoints.
-        findings = self._fill_to_ten_findings(enriched, checkpoints, scan, business_profile)
+        verification_priorities = self._build_verification_priorities(checkpoints)
+        verified_strengths = self._build_verified_strengths(checkpoints)
+        future_optimizations = self._build_future_optimizations(scan, checkpoints, business_profile)
+        at_a_glance = self._build_at_a_glance(
+            verified_findings, verification_priorities, verified_strengths, future_optimizations
+        )
 
         overall = audit.get("overall_health_score")
         if overall is None:
             overall = audit.get("overall_score")
         revenue_display = (audit.get("revenue_leak") or {}).get("est_annual_revenue_leak") or "Not measured"
+        business_type = str(audit.get("business_type") or business_profile.get("business_type") or "general")
+        business_type_label = str(
+            audit.get("business_type_label") or business_profile.get("business_type_label")
+            or BUSINESS_TYPE_LABELS.get(business_type.lower(), business_type.replace("_", " ").title())
+        )
+        journey_model = str(business_profile.get("journey_model") or audit.get("journey_model") or "general")
 
         return {
-            "report_type": "ADMIN_LEAD_ALERT",
+            "report_type": "ADMIN_LEAD_ALERT_V7_3",
             "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "target_domain": audit.get("target_domain", scan.get("domain", "Unknown")),
-            "business_type": str(audit.get("business_type", business_profile.get("journey_model", "general"))).upper(),
+            "business_type": business_type,
+            "business_type_label": business_type_label,
+            "business_type_confidence": business_profile.get("business_type_confidence"),
             "business_profile": business_profile,
             "architecture_profile": business_profile,
-            "journey_model": str(business_profile.get("journey_model") or audit.get("business_type") or "general"),
-            "journey_label": str(business_profile.get("journey_label") or JOURNEY_LABELS.get(str(business_profile.get("journey_model") or "general"), "General / Unresolved Journey")),
+            "journey_model": journey_model,
+            "journey_label": str(business_profile.get("journey_label") or JOURNEY_LABELS.get(journey_model, "General / Unresolved Journey")),
+            "secondary_journeys": list(business_profile.get("secondary_journeys") or []),
             "context_tags": list(business_profile.get("context_tags") or []),
             "context_labels": list(business_profile.get("context_labels") or []),
             "analysis_layers": audit.get("analysis_layers") or {},
@@ -99,17 +116,21 @@ class ReportGenerator:
             "scoring_methodology": self._build_scoring_methodology_explanation(audit),
             "score_level_impact": (
                 self._build_score_level_impact_explanation(float(overall), audit)
-                if overall is not None
-                else {
+                if overall is not None else {
                     "level": "SCORE UNAVAILABLE",
                     "impact_summary": "The scoring engine did not supply an overall score.",
                     "severity_behavior": "No synthetic zero was substituted.",
                 }
             ),
-            "top_10_financial_leaks": findings,
-            # Backward-compatible alias for any old template/client code.
-            "top_6_financial_leaks": findings[:6],
-            "verified_financial_leak_count": len(enriched),
+            "at_a_glance": at_a_glance,
+            "verified_revenue_findings": verified_findings,
+            "verification_priorities": verification_priorities,
+            "verified_strengths": verified_strengths,
+            "future_optimizations": future_optimizations,
+            # Backward-compatible aliases: actual verified findings only, never padded with passes/unknowns.
+            "top_10_financial_leaks": verified_findings,
+            "top_6_financial_leaks": verified_findings[:6],
+            "verified_financial_leak_count": len(verified_findings),
             "full_50_checkpoint_basis": checkpoints,
             "checkpoint_summary": summary,
             "verification_coverage_note": self._verification_coverage_note(summary),
@@ -132,6 +153,8 @@ class ReportGenerator:
             "browser_journey_probe": scan.get("browser_journey_probe") or {},
             "external_booking_provider_health": scan.get("external_booking_provider_health") or {},
             "business_type_validation": scan.get("business_type_validation") or {},
+            "commercial_architecture_diagnostics": scan.get("commercial_architecture_diagnostics") or {},
+            "public_content_hygiene": scan.get("public_content_hygiene") or {},
         }
 
 
@@ -312,15 +335,322 @@ class ReportGenerator:
             "cadence_text": "Fix genuine leaks first, establish a baseline, then test incremental improvement without weakening the passing implementation.",
         }
 
+
+    @staticmethod
+    def _priority_for_finding(finding: Dict[str, Any]) -> str:
+        """Business priority is distinct from raw score loss or intrinsic severity."""
+        try:
+            loss = float(finding.get("final_score_loss") or finding.get("severity_score") or 0.0)
+        except (TypeError, ValueError):
+            loss = 0.0
+        try:
+            severity = float(finding.get("severity_factor") or 0.0)
+        except (TypeError, ValueError):
+            severity = 0.0
+        try:
+            commercial = float(finding.get("commercial_priority") or finding.get("commercial_priority_score") or 0.0)
+        except (TypeError, ValueError):
+            commercial = 0.0
+        if loss >= 4.0 or (commercial >= 5.0 and severity >= 0.65):
+            return "CRITICAL"
+        if loss >= 2.0 or commercial >= 4.25 or severity >= 0.75:
+            return "HIGH"
+        if loss >= 0.75 or commercial >= 3.0 or severity >= 0.40:
+            return "MEDIUM"
+        return "LOW"
+
+    @staticmethod
+    def _finding_url(finding: Dict[str, Any], scan: Dict[str, Any]) -> str:
+        receipt = finding.get("evidence_receipt") if isinstance(finding.get("evidence_receipt"), dict) else {}
+        evidence = finding.get("evidence") if isinstance(finding.get("evidence"), dict) else {}
+        for candidate in (
+            receipt.get("url"), evidence.get("url"), evidence.get("observed_url"),
+            finding.get("url"), scan.get("final_url"), scan.get("url"), scan.get("domain"),
+        ):
+            if candidate:
+                return str(candidate)
+        urls = evidence.get("affected_urls") if isinstance(evidence.get("affected_urls"), list) else []
+        return str(urls[0]) if urls else "Site-wide / inspected customer journey"
+
+    @staticmethod
+    def _financial_mechanism_for_family(family: str, rule_key: str) -> str:
+        key = str(rule_key or "")
+        fam = str(family or "")
+        if key in {"checkout_cost_transparency", "guest_checkout_barrier", "checkout_complexity", "delivery_expectation_clarity", "shipping_info_discoverability", "return_policy_discoverability"}:
+            return "Checkout or purchase abandonment: customers who are already close to paying may hesitate, postpone or leave before completing the order."
+        if fam in {"conversion_execution", "mobile_direct_action"} or key in {"primary_conversion_path", "conversion_path_error", "form_architecture", "lead_form_friction"}:
+            return "Lost conversion opportunity: fewer visitors may complete the intended call, form, booking, quote, trial, donation, application or purchase path."
+        if fam in {"trust_proof", "trust_policy", "trust_identity", "trust_local"} or key in {"proof_placement_gap", "policy_content_consistency"}:
+            return "Lower decision confidence: uncertainty can reduce the share of qualified visitors who continue to the next commercial step and can increase support questions or hesitation."
+        if fam == "performance" or key in {"core_web_vitals", "mobile_lab_performance", "pagespeed_below_90"}:
+            return "Experience abandonment: slower or unstable pages can cause visitors to leave before reaching or completing the commercial action."
+        if fam == "measurement" or "telemetry" in key:
+            return "Measurement inefficiency: the business may spend on traffic or changes without reliably knowing which channels and journey steps create qualified outcomes."
+        if fam in {"search_snippet", "search_structure", "crawlability"}:
+            return "Search acquisition efficiency: weaker search presentation or crawlability can reduce qualified organic visibility or clicks, although the direct revenue effect is usually indirect."
+        if fam == "commercial_consistency" or key == "cross_page_consistency":
+            return "Commercial uncertainty: conflicting promises can create hesitation, extra support contact, cancellations or disputes and can weaken completion rates."
+        if fam in {"content_quality_control", "content_distinctiveness"} or key == "public_unfinished_content":
+            return "Credibility risk: customers or search engines discovering unfinished or contradictory public content can reduce trust and progression through the site."
+        return "Commercial friction: this condition can make the relevant customer decision harder or less certain, which may reduce progression or increase avoidable operating effort."
+
+    def _enrich_plain_language_finding(
+        self,
+        finding: Dict[str, Any],
+        scan: Dict[str, Any],
+        business_profile: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Turn one evidence-backed scoring record into a customer-readable explanation."""
+        item = dict(finding or {})
+        key = str(item.get("rule_key") or "")
+        family = str(item.get("family") or "")
+        title = str(item.get("leak_name") or item.get("title") or key.replace("_", " ").title() or "Revenue finding")
+        impact = str(item.get("impact_summary") or item.get("reason") or "A verified condition may create friction in the website's commercial architecture.")
+        url = self._finding_url(item, scan)
+        evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+        receipt = item.get("evidence_receipt") if isinstance(item.get("evidence_receipt"), dict) else {}
+
+        templates: Dict[str, Dict[str, str]] = {
+            "delivery_expectation_clarity": {
+                "problem": "Customers may reach the buying stage without a clear, concrete expectation for when their order should arrive.",
+                "why": "Delivery timing is part of the purchase decision. A buyer who cannot tell when the product will arrive has one more reason to delay or abandon the order.",
+                "action": "Show a consistent delivery date or delivery window at the relevant product/cart/checkout decision point and keep it synchronized with fulfilment reality.",
+            },
+            "shipping_info_discoverability": {
+                "problem": "Important shipping information is not easy enough to find before a customer commits to the purchase.",
+                "why": "Customers want to understand fulfilment conditions before paying. Buried shipping information increases uncertainty late in the journey.",
+                "action": "Surface the most important shipping terms before commitment and link clearly to the full policy.",
+            },
+            "return_policy_discoverability": {
+                "problem": "Customers may have to search too hard to understand the return/refund rules before buying.",
+                "why": "Return uncertainty increases perceived purchase risk, especially for considered or unfamiliar purchases.",
+                "action": "Make the applicable return/refund promise clear near the purchase decision and keep the detailed policy easy to reach.",
+            },
+            "proof_placement_gap": {
+                "problem": "Trust or customer proof exists on the site, but it is weak or absent near an important decision point.",
+                "why": "Proof is most useful when the visitor is deciding whether to act. Evidence buried on another page cannot reassure every visitor at the moment of hesitation.",
+                "action": "Bring the strongest relevant and verifiable proof closer to the high-consideration CTA without inventing or overstating outcomes.",
+            },
+            "cross_page_consistency": {
+                "problem": "Important commercial information is not fully consistent across the pages a customer may use to make a decision.",
+                "why": "Conflicting prices, delivery promises, refund periods, guarantees or other terms force customers to decide which statement to trust.",
+                "action": "Create one authoritative source for the affected commercial information and make all relevant pages use the same current value or policy wording.",
+            },
+            "public_unfinished_content": {
+                "problem": "The public site exposes content that appears unfinished, internal, test-oriented or placeholder-like.",
+                "why": "A polished main page can still lose credibility if a customer or search engine discovers a public page that looks accidental or incomplete.",
+                "action": "Finish the page, remove it from public access, or apply the appropriate noindex/unpublish controls if it is not customer-facing.",
+            },
+            "policy_content_consistency": {
+                "problem": "A public policy contains wording that appears inconsistent, stale, placeholder-like or mismatched with the observed website/business model.",
+                "why": "Policies are trust documents. Inconsistent wording can make customers uncertain about terms or data handling even when the policy link itself exists.",
+                "action": "Review the policy against current operations, tools and customer journeys; update inaccurate or legacy wording and obtain qualified legal review where appropriate. Trilloka is not making a legal-compliance determination.",
+            },
+            "primary_conversion_path": {
+                "problem": "The website does not expose a sufficiently clear or usable primary action for the business's intended customer journey.",
+                "why": "Visitors can understand the offer and still fail to become leads or customers if the next step is unclear, hidden or unsuitable for the business type.",
+                "action": "Make the highest-intent action clear, usable and appropriate to this business type and journey, with secondary actions kept subordinate.",
+            },
+            "conversion_path_error": {
+                "problem": "A key conversion path showed a verified technical or visible failure.",
+                "why": "A broken booking, form, checkout, external provider or CTA can block an otherwise willing customer at the point of action.",
+                "action": "Repair the exact failed destination or interaction, provide a sensible fallback, and re-test the same path after deployment.",
+            },
+            "form_architecture": {
+                "problem": "The form architecture is incomplete, broken or creates avoidable friction in a journey where forms matter.",
+                "why": "A form is often the handoff from website interest to a real lead, booking, application or sale. Friction or technical failure directly weakens that handoff.",
+                "action": "Repair the verified form problem, collect only information needed at that stage, and provide visible success/error states and response expectations.",
+            },
+            "lead_form_friction": {
+                "problem": "The lead or enquiry form asks for more effort than appears necessary at this stage of the journey.",
+                "why": "Each high-effort field increases the amount of work a prospect must do before receiving value or speaking with the business.",
+                "action": "Reduce or defer non-essential fields, explain sensitive/high-effort questions, and preserve the information the business genuinely needs to qualify the lead.",
+            },
+            "unsecured_ssl": {
+                "problem": "The site is not providing a fully verified secure HTTPS foundation.",
+                "why": "Browser security warnings or insecure transmission can immediately undermine trust and can compromise forms or transactions.",
+                "action": "Repair TLS/certificate and redirect configuration, then verify all important pages and assets load securely.",
+            },
+            "measurement_telemetry": {
+                "problem": "The scanner could not verify a dependable measurement layer for key website actions.",
+                "why": "Without trustworthy measurement, the business may not know which campaigns, pages or changes actually produce qualified outcomes.",
+                "action": "First verify whether private/server-side measurement already exists; if not, implement appropriate analytics and validate the important conversion events with suitable consent handling.",
+            },
+            "b2b_pricing_transparency": {
+                "problem": "Pricing expectations are not sufficiently clear for a considered/demo-led buying journey.",
+                "why": "B2B pricing does not always need to be fully public, but visitors still need enough information to understand fit, scale or the reason a quote/demo is required.",
+                "action": "Provide an appropriate pricing frame—exact price, starting point, package logic or a clear explanation of what determines the quote.",
+            },
+        }
+        tpl = templates.get(key, {})
+        if family == "performance" and not tpl:
+            tpl = {
+                "problem": "Measured page performance is weaker than the readiness threshold on a commercially relevant part of the site.",
+                "why": "Slow loading, delayed interaction or layout movement makes it harder for visitors to consume information and complete the next step.",
+                "action": "Use the captured performance evidence to fix the measured bottleneck and re-test the same page rather than applying generic speed changes blindly.",
+            }
+        if family == "trust_proof" and not tpl:
+            tpl = {
+                "problem": "The inspected customer journey does not expose enough relevant proof or trust evidence for the decision being asked of the visitor.",
+                "why": "Visitors need reasons to believe the business, offer or outcome before committing money, personal information or time.",
+                "action": "Expose genuine, relevant and current proof close to the decision it supports, with an authoritative source where practical.",
+            }
+        if family == "search_snippet" and not tpl:
+            tpl = {
+                "problem": "The page's search-result metadata can be clearer or more complete.",
+                "why": "Search snippets help qualified searchers decide whether the result matches their need, although search engines may rewrite them.",
+                "action": "Improve the metadata naturally for the page's real intent; treat length ranges as Trilloka readability heuristics, not hard ranking rules.",
+            }
+
+        plain_problem = tpl.get("problem") or impact
+        observed = impact
+        if evidence:
+            # Keep a short human-readable summary while preserving the full receipt separately.
+            interesting = {k: v for k, v in evidence.items() if k not in {"html", "page_text", "raw"} and v not in (None, "", [], {})}
+            if interesting:
+                observed = f"{impact} Evidence captured: {json.dumps(interesting, ensure_ascii=False, default=str)[:700]}."
+        why = tpl.get("why") or "This matters because the condition occurs in, or supports, a customer decision path rather than being treated as an isolated technical checkbox."
+        action = tpl.get("action") or "Correct the verified condition at the affected page or journey stage, then re-scan the same path to confirm the evidence changed."
+        priority = self._priority_for_finding(item)
+        effort = "LOW" if key in {"meta_description_length", "meta_description_missing", "title_length", "diluted_h1", "public_unfinished_content"} else ("HIGH" if key in {"conversion_path_error", "core_web_vitals", "mobile_lab_performance"} else "MEDIUM")
+        financial = self._financial_mechanism_for_family(family, key)
+
+        item.update({
+            "plain_problem": plain_problem,
+            "what_we_found": observed,
+            "where_it_happens": url,
+            "why_it_matters": why,
+            "financial_effect": financial,
+            "financial_mechanism": financial,
+            "what_should_be_done": action,
+            "priority": priority,
+            "implementation_effort": effort,
+            "evidence_receipt": receipt or item.get("evidence_receipt") or {
+                "url": url,
+                "observed": evidence or item.get("observed") or item.get("impact_summary"),
+                "method": item.get("source") or "Trilloka evidence-weighted diagnostic",
+                "confidence": item.get("confidence") or "unknown",
+            },
+        })
+        return item
+
+    @staticmethod
+    def _build_verification_priorities(checkpoints: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        for cp in checkpoints or []:
+            if not isinstance(cp, dict) or str(cp.get("status") or "").upper() != UNKNOWN:
+                continue
+            name = str(cp.get("check") or f"Checkpoint {cp.get('id')}")
+            note = str(cp.get("customer_note") or cp.get("reason") or "The scanner could not independently verify this signal from the available public evidence.")
+            out.append({
+                "checkpoint_id": cp.get("id"),
+                "title": name,
+                "finding": name,
+                "type": "VERIFICATION_REQUIRED",
+                "priority": "VERIFY",
+                "simple_explanation": note,
+                "confidence": "unknown",
+                "where": "Public website evidence",
+                "evidence": cp.get("evidence"),
+                "unknown_reason_code": cp.get("unknown_reason_code"),
+                "score_loss": 0.0,
+                "note": "UNKNOWN is not FAIL and creates no direct score deduction.",
+            })
+        return out
+
+    @staticmethod
+    def _build_verified_strengths(checkpoints: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        for cp in checkpoints or []:
+            if not isinstance(cp, dict) or str(cp.get("status") or "").upper() != PASS:
+                continue
+            name = str(cp.get("check") or f"Checkpoint {cp.get('id')}")
+            out.append({
+                "checkpoint_id": cp.get("id"),
+                "title": name,
+                "finding": name,
+                "type": "VERIFIED_STRENGTH",
+                "priority": "STRENGTH",
+                "simple_explanation": f"The scanner found positive evidence that '{name}' is working at the minimum verified readiness level.",
+                "confidence": "high",
+                "where": "Inspected public evidence",
+                "evidence": cp.get("evidence"),
+                "preserve": "Preserve the working implementation and re-check it after material site changes.",
+            })
+        return out
+
+    @staticmethod
+    def _build_future_optimizations(
+        scan: Dict[str, Any], checkpoints: List[Dict[str, Any]], business_profile: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        diagnostics = scan.get("commercial_architecture_diagnostics") if isinstance(scan.get("commercial_architecture_diagnostics"), dict) else {}
+        cta = diagnostics.get("cta_competition") if isinstance(diagnostics.get("cta_competition"), dict) else {}
+        if cta.get("detected"):
+            out.append({
+                "title": "Review Competing Calls to Action",
+                "finding": "Review Competing Calls to Action",
+                "type": "FUTURE_OPTIMIZATION",
+                "priority": "OPTIONAL",
+                "simple_explanation": "The inspected page exposes several similarly prominent actions. This is not automatically a failure, but analytics or user testing can verify whether the choices compete with the primary journey.",
+                "confidence": str(cta.get("confidence") or "medium"),
+                "where": str(cta.get("url") or scan.get("final_url") or scan.get("domain") or "Primary journey"),
+            })
+        # A small set of passed advanced checks can be monitored without being relabelled as defects.
+        monitor_ids = {21, 29, 44, 47}
+        for cp in checkpoints or []:
+            if not isinstance(cp, dict) or str(cp.get("status") or "").upper() != PASS or int(cp.get("id") or 0) not in monitor_ids:
+                continue
+            name = str(cp.get("check") or "Verified capability")
+            out.append({
+                "title": f"Preserve & Monitor — {name}",
+                "finding": f"Preserve & Monitor — {name}",
+                "type": "FUTURE_OPTIMIZATION",
+                "priority": "OPTIONAL",
+                "simple_explanation": "This already passed. Future optimization should be driven by real analytics or a stronger benchmark, not by treating the current implementation as broken.",
+                "confidence": "high",
+                "where": "Relevant public pages",
+            })
+        return out
+
+    @staticmethod
+    def _build_at_a_glance(
+        findings: List[Dict[str, Any]],
+        verification: List[Dict[str, Any]],
+        strengths: List[Dict[str, Any]],
+        optimizations: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        for item in findings or []:
+            rows.append({
+                "priority": item.get("priority") or "MEDIUM",
+                "finding": item.get("leak_name") or item.get("title"),
+                "type": "WHERE CUSTOMERS MAY BE LOST",
+                "where": item.get("where_it_happens") or "Relevant customer journey",
+                "simple_explanation": item.get("plain_problem") or item.get("impact_summary"),
+                "confidence": item.get("confidence") or (item.get("evidence_receipt") or {}).get("confidence") or "unknown",
+            })
+        for source, type_label in ((verification, "VERIFICATION REQUIRED"), (strengths, "VERIFIED STRENGTH"), (optimizations, "FUTURE OPTIMIZATION")):
+            for item in source or []:
+                rows.append({
+                    "priority": item.get("priority") or ("VERIFY" if type_label.startswith("VERIFICATION") else "STRENGTH"),
+                    "finding": item.get("finding") or item.get("title"),
+                    "type": type_label,
+                    "where": item.get("where") or "Relevant public evidence",
+                    "simple_explanation": item.get("simple_explanation") or "",
+                    "confidence": item.get("confidence") or "unknown",
+                })
+        return rows
+
     @staticmethod
     def _get_severity_label(severity_factor: Optional[float]) -> str:
         if severity_factor is None:
             return "SEVERITY UNKNOWN"
         factor = max(0.0, min(1.0, float(severity_factor)))
         if factor >= 0.85:
-            return "CRITICAL LEAK"
+            return "CRITICAL CUSTOMER-LOSS RISK"
         if factor >= 0.65:
-            return "HIGH-IMPACT LEAK"
+            return "HIGH CUSTOMER-LOSS RISK"
         if factor >= 0.40:
             return "MODERATE FRICTION"
         if factor > 0.0:
@@ -330,14 +660,15 @@ class ReportGenerator:
     @staticmethod
     def _build_scoring_methodology_explanation(audit_data: Dict[str, Any]) -> Dict[str, str]:
         profile = audit_data.get("architecture_profile") or audit_data.get("business_profile") or {}
-        journey = str(profile.get("journey_label") or profile.get("journey_model") or audit_data.get("business_type") or "General")
+        journey = str(profile.get("journey_label") or profile.get("journey_model") or "General / Unresolved Journey")
+        business = str(profile.get("business_type_label") or audit_data.get("business_type_label") or profile.get("business_type") or audit_data.get("business_type") or "General")
         contexts = ", ".join(str(x) for x in (profile.get("context_labels") or [])) or "No special context tags verified"
         return {
-            "core_philosophy": "Trilloka measures observable website Revenue Readiness, not literal conversion percentage, product-market fit, demand, sales-team performance or actual revenue. Readiness is earned across three unequal layers—Foundation, Revenue/User Architecture and Elite Architecture—while verified leaks retain separate score impact, severity and evidence confidence.",
-            "graded_continuum": "Every deduction is scaled by implementation severity, evidence confidence and journey/context relevance. Unknown telemetry earns no strength and creates no penalty. Severe deductions require independent confirmation or corroboration.",
-            "architecture_model": f"Primary customer journey: {journey}. Context tags: {contexts}. Legacy industry selections are only weak hints; the score is driven by observed customer actions and context evidence.",
+            "core_philosophy": "Trilloka measures observable website Revenue Readiness, not literal conversion percentage, product-market fit, demand, sales-team performance or actual revenue. Readiness is earned across three unequal layers—Foundation, Revenue/User Architecture and Elite Architecture—while verified findings retain separate score impact, severity and evidence confidence.",
+            "graded_continuum": "Every scored issue is scaled by implementation severity, evidence confidence, business-type importance and journey/context relevance. Unknown telemetry creates no failure or deduction. Severe deductions require independent confirmation or corroboration.",
+            "architecture_model": f"Business type: {business}. Primary customer journey: {journey}. Context tags: {contexts}. Business type changes the importance of relevant checks, while observed website actions determine the actual journey and context obligations.",
             "two_layer_model": "Three earned canonical layers are used: Common Foundation (22 points), Revenue/User Architecture (60 points), and Elite Architecture (18 points). The 60-point Revenue/User layer is split into fixed conversion-execution, trust/decision-support, measurement/policy and supporting-experience pillars so low-value content/SEO passes cannot compensate for a weak primary customer path. Elite points require strong verified core architecture first. The canonical 0–100 strength is then mapped monotonically onto the stricter public 0–90 commercial-readiness blueprint; this is not a percentile curve or forced distribution.",
-            "vertical_weighting": "Journey + Context weighting replaces broad industry scoring. The same technical condition can have different commercial importance depending on the verified customer action, substitution paths and contextual obligations; legacy industry labels are weak hints only.",
+            "vertical_weighting": "Business Type + Journey + Context weighting work together. Business type defines the commercial importance of relevant evidence, journey identifies where value is created, and context adds obligations such as local, regulated, commerce, enterprise, recurring or sensitive-data trust. The same technical condition can therefore carry different importance on different businesses without becoming a rigid checklist.",
             "hygiene_gatekeeping": "Verified conversion friction and customer-path blockers are prioritized ahead of ordinary SEO hygiene. Ecommerce checkout weighting is Baymard-informed only when purchase-context evidence exists and does not claim full Baymard certification; measured performance uses Google/web.dev evidence. Research percentages are never copied directly into site-specific deductions.",
             "financial_exposure_model": "Potential commercial exposure uses an expected-value scenario: annual digital opportunity pool × combined verified path impairment. Overlapping findings are compounded by family instead of added blindly, alternate conversion paths reduce exposure, and score deductions are never converted directly into dollars. Business-supplied economic inputs replace scenario priors when available.",
         }
@@ -355,7 +686,7 @@ class ReportGenerator:
                 "severity_behavior": f"Verified penalty burden is {penalty:.2f} canonical points. UNKNOWN evidence remains neutral; the unresolved journey limits what can be earned, rather than creating a hidden deduction.",
             }
         if score >= 80:
-            return {"level":"NEAR-PERFECT VERIFIED OBSERVABLE ARCHITECTURE (80–90)","impact_summary":"The observable customer journey, trust, measurement and supporting architecture are near-complete, with almost no verified commercial leakage. The score still does not claim 100% visitor conversion or guaranteed revenue performance.","severity_behavior":"This band is reserved for near-perfect canonical 22/60/18 strength after the transparent 0–90 blueprint calibration; ordinary technical hygiene cannot reach it."}
+            return {"level":"NEAR-PERFECT VERIFIED OBSERVABLE ARCHITECTURE (80–90)","impact_summary":"The observable customer journey, trust, measurement and supporting architecture are near-complete, with almost no verified customer-path weakness. The score still does not claim 100% visitor conversion or guaranteed revenue performance.","severity_behavior":"This band is reserved for near-perfect canonical 22/60/18 strength after the transparent 0–90 blueprint calibration; ordinary technical hygiene cannot reach it."}
         if score >= 70:
             return {"level":"GENUINELY EXCEPTIONAL OBSERVABLE ARCHITECTURE (70–79)","impact_summary":"The website demonstrates unusually complete, evidence-backed commercial architecture with only limited observable headroom.","severity_behavior":"Exceptional scores require strong Revenue/User Architecture plus difficult-to-earn Elite evidence; UNKNOWN completion evidence still withholds readiness points."}
         if score >= 59:
@@ -380,6 +711,46 @@ class ReportGenerator:
         evidence = leak.get("evidence") or {}
         family = str(leak.get("family") or "")
         supporting = set(str(x) for x in (leak.get("supporting_rule_keys") or []) if x)
+
+        if rule_key == "proof_placement_gap":
+            return {
+                "technical": "Surface the existing verified proof component on the relevant decision page or section without creating duplicate, stale or unverifiable review widgets.",
+                "cro_ux": "Place the strongest relevant proof close to the high-consideration CTA so the visitor sees reassurance at the moment of decision, not only on a separate testimonials page.",
+                "systems": "Define an authoritative proof source, ownership and refresh cadence so testimonials, reviews, credentials or case studies remain genuine and current.",
+                "why_recommend": "The scanner found proof somewhere on the site but weaker proof at an important decision point; the recommendation improves placement rather than falsely claiming proof is absent everywhere.",
+                "cadence_title": "Weeks 1–2",
+                "cadence_text": "Move or surface the strongest existing proof first, verify the decision-point experience, then measure progression before adding more proof volume.",
+            }
+
+        if rule_key == "cross_page_consistency":
+            return {
+                "technical": "Centralize the affected commercial value or policy in one source of truth and make templates/components read the same current value wherever practical.",
+                "cro_ux": "Use one clear promise across the pages a customer compares so they do not have to decide which price, delivery window, refund term or guarantee is correct.",
+                "systems": "Add publishing/QA checks for material commercial fields and assign ownership so policy, fulfilment and offer changes are propagated across all relevant pages.",
+                "why_recommend": "The recommendation is based on conflicting or materially inconsistent public statements found across the inspected site, not on a generic content preference.",
+                "cadence_title": "Weeks 1–2",
+                "cadence_text": "Resolve the highest-commercial-impact inconsistency first, publish one authoritative value, then re-scan the affected pages together.",
+            }
+
+        if rule_key == "public_unfinished_content":
+            return {
+                "technical": "Finish, unpublish, restrict or noindex the verified test/internal/placeholder page according to its real intended audience; remove it from public navigation and sitemap exposure where appropriate.",
+                "cro_ux": "Prevent customers from encountering unfinished or internal-looking content that can make an otherwise credible website appear accidental or unreliable.",
+                "systems": "Add a release checklist or CMS guard so draft/test/internal pages cannot become publicly discoverable without an explicit publication decision.",
+                "why_recommend": "The scanner detected public content with unfinished, placeholder or internal-use signals. This is a quality-control finding, not an assumption about the rest of the website.",
+                "cadence_title": "Immediate / Week 1",
+                "cadence_text": "Remove accidental public exposure first, then verify sitemap/internal-link cleanup and rescan the known URL.",
+            }
+
+        if rule_key == "policy_content_consistency":
+            return {
+                "technical": "Update the public policy content so names, processors/tools, addresses, business model references and linked terms reflect the current operation; preserve version/date controls where used.",
+                "cro_ux": "Use clear current wording around the customer decision or data-entry point so visitors understand what the policy means without reading contradictory legacy text.",
+                "systems": "Trigger policy review when data processors, forms, fulfilment, subscriptions, locations or business terms materially change, and obtain qualified legal review where appropriate.",
+                "why_recommend": "The scanner found wording that appears inconsistent with the observed site or with other public policy text. Trilloka is flagging a review need, not making a legal-compliance determination.",
+                "cadence_title": "Review priority",
+                "cadence_text": "Confirm the current operational facts with the business owner, update the public wording, obtain appropriate legal review, and re-scan for internal consistency.",
+            }
 
         if family == "performance" or rule_key == "core_web_vitals":
             return {
@@ -926,266 +1297,265 @@ class ReportGenerator:
         return False
 
     def _build_email_html(self, report: Dict[str, Any]) -> str:
+        """Render the V7.3 plain-language report used in email and the HTML attachment."""
         report = report or {}
-        domain = html.escape(str(report.get("target_domain", "Unknown")))
-        score = float(report.get("overall_health_score") or 0.0)
-        rating = html.escape(str(report.get("score_rating", "")))
-        vault_id = html.escape(str(report.get("vault_id", "")))
-        journey_label = html.escape(str(report.get("journey_label") or report.get("business_type", "GENERAL")).replace("_", " "))
-        context_display = html.escape(", ".join(str(x) for x in (report.get("context_labels") or [])) or "No special context tags verified")
-        business_profile = report.get("business_profile") or {}
-        provisional_journey = bool(business_profile.get("provisional"))
-        journey_confidence = business_profile.get("confidence")
-        journey_confidence_text = "N/A" if journey_confidence is None else f"{float(journey_confidence)*100:.0f}%"
-        revenue_exposure = html.escape(str(report.get("estimated_revenue_leak", "Not measured")))
-        cms = html.escape(str(report.get("cms_platform") or "Not confidently identified"))
+
+        def esc(value: Any) -> str:
+            return html.escape(str(value if value is not None else ""))
+
+        def fmt_num(value: Any, digits: int = 1, default: str = "N/A") -> str:
+            try:
+                return f"{float(value):.{digits}f}"
+            except (TypeError, ValueError):
+                return default
+
+        def badge(text: str, tone: str = "neutral") -> str:
+            tones = {
+                "high": ("#FEE2E2", "#991B1B"), "critical": ("#FEE2E2", "#991B1B"),
+                "medium": ("#FEF3C7", "#92400E"), "low": ("#E0F2FE", "#075985"),
+                "verify": ("#F3E8FF", "#6B21A8"), "strength": ("#DCFCE7", "#166534"),
+                "optional": ("#EDE9FE", "#5B21B6"), "neutral": ("#F3F4F6", "#374151"),
+            }
+            bg, fg = tones.get(str(tone).lower(), tones["neutral"])
+            return f'<span style="display:inline-block;background:{bg};color:{fg};font:700 10px Inter,sans-serif;padding:4px 8px;border-radius:999px;letter-spacing:.4px;">{esc(text)}</span>'
+
+        domain = esc(report.get("target_domain") or "Unknown")
+        score = report.get("overall_health_score")
+        score_text = fmt_num(score, 1)
+        rating = esc(report.get("score_rating") or "")
+        vault_id = esc(report.get("vault_id") or "")
+        business_type = esc(report.get("business_type_label") or report.get("business_type") or "General / unresolved")
+        bt_conf = report.get("business_type_confidence")
+        if bt_conf is None:
+            bt_conf = (report.get("business_profile") or {}).get("business_type_confidence")
+        bt_conf_text = "N/A" if bt_conf is None else f"{float(bt_conf)*100:.0f}%"
+        journey = esc(report.get("journey_label") or report.get("journey_model") or "General / unresolved")
+        profile = report.get("business_profile") if isinstance(report.get("business_profile"), dict) else {}
+        journey_conf = profile.get("confidence")
+        journey_conf_text = "N/A" if journey_conf is None else f"{float(journey_conf)*100:.0f}%"
+        secondaries = report.get("secondary_journeys") or []
+        secondary_text = esc(", ".join(
+            str((x or {}).get("label") or (x or {}).get("journey_label") or (x or {}).get("journey_model") or x)
+            if isinstance(x, dict) else str(x) for x in secondaries
+        ) or "None strongly verified")
+        context_text = esc(", ".join(str(x) for x in (report.get("context_labels") or [])) or "No special context tags verified")
+        cms = esc(report.get("cms_platform") or "Not confidently identified")
         ai_pct = report.get("ai_spectrum_pct")
         ai_display = "Unknown" if ai_pct is None else f"{float(ai_pct):.1f}/100"
-        methodology = report.get("scoring_methodology") or {}
-        score_impact = report.get("score_level_impact") or {}
+        evidence_conf = report.get("evidence_confidence") if isinstance(report.get("evidence_confidence"), dict) else {}
+        evidence_text = f"{esc(evidence_conf.get('level') or 'UNKNOWN')} ({fmt_num(evidence_conf.get('score'),1)}/100)"
+        scope = esc(report.get("score_scope") or "Observable website Revenue Readiness only; not product-market fit, demand, traffic quality, pricing, sales execution or actual revenue.")
+        revenue = esc(report.get("estimated_revenue_leak") or "Not measured")
+        methodology = report.get("scoring_methodology") if isinstance(report.get("scoring_methodology"), dict) else {}
+        score_impact = report.get("score_level_impact") if isinstance(report.get("score_level_impact"), dict) else {}
         summary = report.get("checkpoint_summary") or self._checkpoint_summary(report.get("full_50_checkpoint_basis") or [])
-        coverage_note = html.escape(str(report.get("verification_coverage_note") or self._verification_coverage_note(summary)))
-        evidence_confidence = report.get("evidence_confidence") if isinstance(report.get("evidence_confidence"), dict) else {}
-        maturity_gate = report.get("maturity_gate") if isinstance(report.get("maturity_gate"), dict) else {}
-        score_scope = html.escape(str(report.get("score_scope") or "Observable website Revenue Readiness only; not product-market fit, demand, traffic quality, pricing, sales execution or actual revenue."))
-        foundation_signal = report.get("foundation_omission_signal") if isinstance(report.get("foundation_omission_signal"), dict) else {}
-        foundation_triggered = bool(foundation_signal.get("triggered"))
-        foundation_count = int(foundation_signal.get("count") or 0)
-        foundation_level = html.escape(str(foundation_signal.get("highest_level") or "NONE"))
-        foundation_href = html.escape(str(report.get("foundation_omission_report_filename") or "#foundation-omissions"), quote=True)
-        foundation_notice = ""
-        if foundation_triggered:
-            plural = "s" if foundation_count != 1 else ""
-            foundation_notice = (
-                '<div style="border:1px solid #8B5E3C; background:#FFF7ED; border-radius:14px; padding:20px; margin:0 0 24px 0;">'
-                f'<p style="font-family:Inter,sans-serif; font-size:11px; color:#9A3412; text-transform:uppercase; letter-spacing:1.5px; margin:0 0 7px 0; font-weight:800;">MOST IMPORTANTLY — {foundation_level} FOUNDATION NOTICE</p>'
-                f'<p style="font-family:Georgia,serif; font-size:23px; color:#1F2937; margin:0 0 10px 0; line-height:1.25;">{foundation_count} verified basic website omission{plural} should be corrected before advanced optimization.</p>'
-                '<p style="font-family:Inter,sans-serif; font-size:13px; color:#4B5563; line-height:1.6; margin:0 0 14px 0;">These are foundational implementation requirements, not automatically the site\'s largest revenue leaks. They are surfaced separately so small point values do not hide obvious basics.</p>'
-                f'<a href="{foundation_href}" style="font-family:Inter,sans-serif; font-size:13px; color:#7C2D12; text-decoration:underline; font-weight:700;">Review Foundation Omissions →</a>'
-                '</div>'
-            )
+        coverage_note = esc(report.get("verification_coverage_note") or self._verification_coverage_note(summary))
+        formula = report.get("score_formula") if isinstance(report.get("score_formula"), dict) else {}
 
-        evidence_level = html.escape(str(evidence_confidence.get("level") or "UNKNOWN"))
-        evidence_score = evidence_confidence.get("score")
-        evidence_score_text = "N/A" if evidence_score is None else f"{float(evidence_score):.1f}/100"
-        maturity_band = html.escape(str(maturity_gate.get("band") or "UNAVAILABLE").replace("_", " "))
-        maturity_threshold = maturity_gate.get("advisory_score_threshold", maturity_gate.get("score_cap"))
-        maturity_threshold_text = "N/A" if maturity_threshold is None else f"{float(maturity_threshold):.0f}"
-        failed_gate_names = [str(x).replace("_", " ") for x in (maturity_gate.get("failed_gate_names") or [])]
-        failed_gate_text = html.escape(", ".join(failed_gate_names[:6]) if failed_gate_names else "None at the active maturity tier")
-        analysis_layers = report.get("analysis_layers") if isinstance(report.get("analysis_layers"), dict) else {}
-        common_layer = analysis_layers.get("common_foundation") if isinstance(analysis_layers.get("common_foundation"), dict) else {}
-        adaptive_layer = analysis_layers.get("adaptive_architecture") if isinstance(analysis_layers.get("adaptive_architecture"), dict) else {}
-        common_summary = common_layer.get("checkpoint_summary") if isinstance(common_layer.get("checkpoint_summary"), dict) else {}
-        adaptive_summary = adaptive_layer.get("checkpoint_summary") if isinstance(adaptive_layer.get("checkpoint_summary"), dict) else {}
-        common_verified = int(common_summary.get("verified") or 0)
-        common_applicable = int(common_summary.get("applicable") or common_summary.get("total") or common_layer.get("checkpoint_count") or 0)
-        adaptive_verified = int(adaptive_summary.get("verified") or 0)
-        adaptive_applicable = int(adaptive_summary.get("applicable") or adaptive_layer.get("checkpoint_count") or 0)
-        common_strength = float(common_layer.get("strength_awarded") or 0.0)
-        adaptive_strength = float(adaptive_layer.get("strength_awarded") or 0.0)
-        common_penalty = float(common_layer.get("verified_penalty") or 0.0)
-        adaptive_penalty = float(adaptive_layer.get("verified_penalty") or 0.0)
-        rescan = report.get("rescan_comparison") if isinstance(report.get("rescan_comparison"), dict) else {}
-        confirmation = report.get("high_impact_confirmation") if isinstance(report.get("high_impact_confirmation"), dict) else {}
-        confirmation_results = confirmation.get("results") if isinstance(confirmation.get("results"), dict) else {}
-        confirmed_count = sum(1 for x in confirmation_results.values() if isinstance(x, dict) and str(x.get("status") or "").upper() == "CONFIRMED")
-        corroborated_count = sum(1 for x in confirmation_results.values() if isinstance(x, dict) and str(x.get("status") or "").upper() == "CORROBORATED")
-        unresolved_count = sum(1 for x in confirmation_results.values() if isinstance(x, dict) and str(x.get("status") or "").upper() in {"DISPUTED", "UNCONFIRMED", ""})
-
-        score_color = "#22C55E" if score >= 70 else "#D8B66A" if score >= 46 else "#EF4444"
-        findings = report.get("top_10_financial_leaks") or report.get("top_6_financial_leaks") or []
-        findings_count = len([item for item in findings if isinstance(item, dict)])
-        leaks_html = ""
-        for idx, leak in enumerate(findings, 1):
-            if not isinstance(leak, dict):
+        glance_rows = []
+        for row in report.get("at_a_glance") or []:
+            if not isinstance(row, dict):
                 continue
-            angles = leak.get("solutions_3_angles") or {}
-            factor = leak.get("severity_factor")
-            factor_display = "Unknown" if factor is None else str(factor)
-            research = leak.get("research_basis") or {}
-            research_source = html.escape(str(research.get("source") or "Trilloka verified evidence model"))
-            research_class = html.escape(str(research.get("class") or "evidence-weighted diagnostic"))
-            receipt = leak.get("evidence_receipt") if isinstance(leak.get("evidence_receipt"), dict) else {}
-            receipt_confirmation = receipt.get("confirmation") if isinstance(receipt.get("confirmation"), dict) else {}
-            receipt_status = html.escape(str(receipt_confirmation.get("status") or "single-pass / below severe threshold"))
-            receipt_url = html.escape(str(receipt.get("url") or domain))
-            receipt_signal = html.escape(str(receipt.get("observed_signal") or "Evidence attached in telemetry ledger"))
-            receipt_method = html.escape(str(receipt.get("collection_method") or leak.get("source") or "public evidence inspection"))
-            receipt_time = html.escape(str(receipt.get("observed_at") or report.get("generated_at") or ""))
-            receipt_conf = html.escape(str(receipt.get("confidence") or leak.get("confidence") or "unknown"))
-            screenshot_html = ""
-            if receipt.get("screenshot_available") and receipt.get("screenshot_data_uri"):
-                screenshot_html = (
-                    '<div style="margin-top:10px;">'
-                    '<p style="font-family:Inter,sans-serif;font-size:10px;color:#6B7280;margin:0 0 5px 0;"><strong>Rendered evidence screenshot:</strong> SHA-256 ' + html.escape(str(receipt.get("screenshot_sha256") or "")) + '</p>'
-                    '<img src="' + html.escape(str(receipt.get("screenshot_data_uri") or ""), quote=True) + '" alt="Public page evidence" style="max-width:100%;border:1px solid #E5E7EB;border-radius:8px;">'
-                    '</div>'
-                )
-            receipt_html = (
-                '<div style="background:#F8FAFC;border:1px solid #DCE3EA;border-radius:8px;padding:12px;margin:10px 0 12px 0;">'
-                '<p style="font-family:Inter,sans-serif;font-size:10px;color:#5A7A9E;margin:0 0 5px 0;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Evidence Receipt</p>'
-                '<p style="font-family:Inter,sans-serif;font-size:11px;color:#374151;margin:0;line-height:1.55;"><strong>URL:</strong> ' + receipt_url + '<br><strong>Observed:</strong> ' + receipt_signal + '<br><strong>Method:</strong> ' + receipt_method + '<br><strong>Timestamp:</strong> ' + receipt_time + '<br><strong>Confidence:</strong> ' + receipt_conf + '<br><strong>Severe-finding confirmation:</strong> ' + receipt_status + '</p>'
-                + screenshot_html + '</div>'
+            priority = str(row.get("priority") or "")
+            tone = "strength" if priority == "STRENGTH" else ("verify" if priority == "VERIFY" else ("optional" if priority == "OPTIONAL" else priority.lower()))
+            glance_rows.append(
+                '<tr>'
+                f'<td style="padding:9px;border-bottom:1px solid #E5E7EB;vertical-align:top;">{badge(priority or "—", tone)}</td>'
+                f'<td style="padding:9px;border-bottom:1px solid #E5E7EB;vertical-align:top;font:600 12px Inter,sans-serif;color:#111827;">{esc(row.get("finding"))}</td>'
+                f'<td style="padding:9px;border-bottom:1px solid #E5E7EB;vertical-align:top;font:11px Inter,sans-serif;color:#4B5563;">{esc(row.get("type"))}</td>'
+                f'<td style="padding:9px;border-bottom:1px solid #E5E7EB;vertical-align:top;font:11px Inter,sans-serif;color:#4B5563;">{esc(row.get("where"))}</td>'
+                f'<td style="padding:9px;border-bottom:1px solid #E5E7EB;vertical-align:top;font:12px/1.5 Inter,sans-serif;color:#374151;">{esc(row.get("simple_explanation"))}</td>'
+                f'<td style="padding:9px;border-bottom:1px solid #E5E7EB;vertical-align:top;font:11px Inter,sans-serif;color:#4B5563;">{esc(row.get("confidence"))}</td>'
+                '</tr>'
             )
-            leaks_html += f"""
-            <div style="margin-bottom:32px; border-left:4px solid #D8B66A; padding-left:16px;">
-                <h3 style="font-family:Georgia,serif; font-size:18px; color:#090B12; margin:0 0 6px 0; font-weight:700;">{idx}. {html.escape(str(leak.get('leak_name','')))}</h3>
-                <p style="font-family:Inter,sans-serif; font-size:13px; color:#555; margin:0 0 8px 0; line-height:1.5;">{html.escape(str(leak.get('impact_summary','')))}</p>
-                <p style="font-family:Inter,sans-serif; font-size:10px; color:#6B7280; margin:0 0 6px 0; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">{html.escape(str(leak.get('finding_type','VERIFIED_LEAK')).replace('_',' '))}</p>
-                <p style="font-family:Inter,sans-serif; font-size:11px; color:#C85A5A; margin:0 0 6px 0; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">{html.escape(str(leak.get('severity_label','SEVERITY UNKNOWN')))} &nbsp;|&nbsp; Severity Scale: {factor_display} &nbsp;|&nbsp; Score Loss: -{float(leak.get('severity_score') or 0):.2f} pts</p>
-                <p style="font-family:Inter,sans-serif; font-size:10px; color:#6B7280; margin:0 0 12px 0;"><strong>Evidence basis:</strong> {research_source} — {research_class}. Research affects relative priority only after this site-specific condition is verified.</p>
-                {receipt_html}
-                <div style="background:#fdfdfd; border:1px solid #f0f0f0; border-radius:8px; padding:16px; margin-top:10px;">
-                    <p style="font-family:Inter,sans-serif; font-size:12px; color:#111; font-weight:700; margin:0 0 10px 0; text-transform:uppercase; letter-spacing:0.5px;">The 3-Angle Remediation Plan:</p>
-                    <p style="font-family:Inter,sans-serif; font-size:13px; color:#222; margin:0 0 8px 0; line-height:1.6;"><strong>Technical Angle:</strong> {html.escape(str(angles.get('technical','')))}</p>
-                    <p style="font-family:Inter,sans-serif; font-size:13px; color:#222; margin:0 0 8px 0; line-height:1.6;"><strong>UX / CRO Angle:</strong> {html.escape(str(angles.get('cro_ux','')))}</p>
-                    <p style="font-family:Inter,sans-serif; font-size:13px; color:#222; margin:0 0 12px 0; line-height:1.6;"><strong>Systems Angle:</strong> {html.escape(str(angles.get('systems','')))}</p>
-                    <p style="font-family:Inter,sans-serif; font-size:13px; color:#111; margin:0 0 8px 0; line-height:1.6;"><strong>Why We Recommend This:</strong> {html.escape(str(angles.get('why_recommend','')))}</p>
-                    <p style="font-family:Inter,sans-serif; font-size:13px; color:#111; margin:0; line-height:1.6;"><strong>Implementation Cadence ({html.escape(str(angles.get('cadence_title','Week 1')))}):</strong> {html.escape(str(angles.get('cadence_text','')))}</p>
-                </div>
-            </div>
-            """
+        at_glance_html = (
+            '<table role="presentation" style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #E5E7EB;border-radius:10px;overflow:hidden;">'
+            '<thead><tr style="background:#111827;color:#fff;">'
+            '<th style="padding:10px;text-align:left;font:700 10px Inter,sans-serif;">PRIORITY</th>'
+            '<th style="padding:10px;text-align:left;font:700 10px Inter,sans-serif;">FINDING</th>'
+            '<th style="padding:10px;text-align:left;font:700 10px Inter,sans-serif;">TYPE</th>'
+            '<th style="padding:10px;text-align:left;font:700 10px Inter,sans-serif;">WHERE</th>'
+            '<th style="padding:10px;text-align:left;font:700 10px Inter,sans-serif;">SIMPLE EXPLANATION</th>'
+            '<th style="padding:10px;text-align:left;font:700 10px Inter,sans-serif;">CONFIDENCE</th>'
+            '</tr></thead><tbody>' + ''.join(glance_rows) + '</tbody></table>'
+        ) if glance_rows else '<p style="font:13px Inter,sans-serif;color:#6B7280;">No material summary rows were available.</p>'
 
-
-        roadmap_html = ""
-        roadmap = report.get("implementation_roadmap") or []
-        if roadmap:
-            phase_html = ""
-            for phase in roadmap:
-                actions_html = ""
-                for action in phase.get("actions") or []:
-                    actions_html += (
-                        "<li style=\"margin:0 0 8px 0; line-height:1.5;\">"
-                        f"<strong>{html.escape(str(action.get('finding') or 'Action'))}:</strong> "
-                        f"{html.escape(str(action.get('technical_action') or action.get('cro_ux_action') or 'Implement the verified correction and re-scan.'))}"
-                        "</li>"
-                    )
-                phase_html += f"""
-                <div style="margin:0 0 18px 0;">
-                    <h3 style="font-family:Georgia,serif; font-size:16px; color:#090B12; margin:0 0 6px 0;">{html.escape(str(phase.get('phase') or 'Phase'))} — {html.escape(str(phase.get('objective') or 'Implementation'))}</h3>
-                    <ul style="font-family:Inter,sans-serif; font-size:12px; color:#4B5563; padding-left:20px; margin:0;">{actions_html}</ul>
-                </div>
-                """
-            roadmap_html = f"""
-            <div style="background:#F9FAFB; border:1px solid #E5E7EB; border-radius:12px; padding:20px; margin:28px 0;">
-                <h2 style="font-family:Georgia,serif; font-size:20px; color:#090B12; margin:0 0 16px 0;">Implementation Roadmap</h2>
-                {phase_html}
-            </div>
-            """
-
-        if rescan.get("has_previous_snapshot"):
-            delta = rescan.get("score_delta")
-            try:
-                delta_number = float(delta) if delta is not None else None
-            except Exception:
-                delta_number = None
-            delta_text = "N/A" if delta_number is None else (f"+{delta_number:.1f}" if delta_number > 0 else f"{delta_number:.1f}")
-            fixed = len(rescan.get("fixed_findings") or [])
-            new_count = len(rescan.get("new_findings") or [])
-            improved_cp = len(rescan.get("checkpoint_improvements") or [])
-            regressed_cp = len(rescan.get("checkpoint_regressions") or [])
-            methodology_changed = bool(rescan.get("methodology_changed"))
-            comparison_note = html.escape(str(rescan.get("comparison_basis") or ""))
-            rescan_html = (
-                '<div style="background:#ECFDF5;border:1px solid #A7F3D0;border-radius:12px;padding:18px;margin:20px 0;">'
-                '<h3 style="font-family:Georgia,serif;font-size:17px;color:#065F46;margin:0 0 8px 0;">Before / After Verification</h3>'
-                '<p style="font-family:Inter,sans-serif;font-size:13px;color:#065F46;margin:0;line-height:1.6;"><strong>Previous:</strong> ' + html.escape(str(rescan.get("score_before"))) + ' &nbsp;→&nbsp; <strong>Current:</strong> ' + html.escape(str(rescan.get("score_after"))) + ' &nbsp;(<strong>' + html.escape(delta_text) + '</strong>)<br><strong>Previously flagged findings no longer present:</strong> ' + str(fixed) + '<br><strong>Newly flagged findings:</strong> ' + str(new_count) + '<br><strong>Checkpoint improvements:</strong> ' + str(improved_cp) + ' &nbsp;|&nbsp; <strong>Regressions:</strong> ' + str(regressed_cp) + '</p>'
-                '<p style="font-family:Inter,sans-serif;font-size:10px;color:#047857;margin:8px 0 0 0;line-height:1.5;">' + comparison_note + '</p>'
-                '</div>'
-            )
-        else:
-            rescan_html = (
-                '<div style="background:#F8FAFC;border:1px solid #E5E7EB;border-radius:12px;padding:16px;margin:20px 0;">'
-                '<h3 style="font-family:Georgia,serif;font-size:16px;color:#111827;margin:0 0 6px 0;">Baseline Snapshot Created</h3>'
-                '<p style="font-family:Inter,sans-serif;font-size:11px;color:#4B5563;margin:0;line-height:1.5;">A future forced re-scan can compare this domain against the current evidence to show verified architectural changes.</p>'
-                '</div>'
-            )
-
-        confirmation_html = (
-            '<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:12px;padding:16px;margin:20px 0;">'
-            '<h3 style="font-family:Georgia,serif;font-size:16px;color:#1E3A8A;margin:0 0 6px 0;">High-Impact Confirmation Guardrail</h3>'
-            '<p style="font-family:Inter,sans-serif;font-size:11px;color:#1E40AF;margin:0;line-height:1.55;">Potential deductions at or above ' + html.escape(str(confirmation.get("threshold_points") or "3.5")) + ' points require independent passive confirmation. Confirmed: <strong>' + str(confirmed_count) + '</strong>. Corroborated with reduced score effect: <strong>' + str(corroborated_count) + '</strong>. Disputed/unconfirmed and therefore unscored: <strong>' + str(unresolved_count) + '</strong>.</p>'
-            '</div>'
+        f_score = formula.get("foundation_layer_score")
+        f_max = formula.get("foundation_layer_max")
+        r_score = formula.get("revenue_user_architecture_score")
+        r_max = formula.get("revenue_user_architecture_max")
+        e_score = formula.get("elite_architecture_score")
+        e_max = formula.get("elite_architecture_max")
+        canonical = formula.get("canonical_three_layer_score")
+        penalty = formula.get("total_final_penalty")
+        scoring_math = (
+            '<div style="background:#F8FAFC;border:1px solid #CBD5E1;border-radius:12px;padding:16px;margin:16px 0;">'
+            '<p style="font:700 13px Inter,sans-serif;color:#0F172A;margin:0 0 8px;">Score arithmetic</p>'
+            '<p style="font:12px/1.65 Inter,sans-serif;color:#334155;margin:0;">'
+            f'Foundation: <strong>{fmt_num(f_score,2)} / {fmt_num(f_max,0)}</strong><br>'
+            f'Revenue/User Architecture: <strong>{fmt_num(r_score,2)} / {fmt_num(r_max,0)}</strong><br>'
+            f'Elite Architecture: <strong>{fmt_num(e_score,2)} / {fmt_num(e_max,0)}</strong><br>'
+            f'Canonical three-layer strength: <strong>{fmt_num(canonical,2)} / 100</strong><br>'
+            f'Public blueprint calibration: <strong>{fmt_num(canonical,2)} canonical → {score_text} / 90</strong><br>'
+            f'Verified penalty ledger: <strong>{fmt_num(penalty,2)}</strong> canonical points — already reflected in the layer scores above, not subtracted again.'
+            '</p></div>'
         )
 
-        return f"""<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0; padding:0; background:#f5f5f5; font-family:Inter, -apple-system, sans-serif;">
-<div style="max-width:640px; margin:0 auto; background:#fff; padding:32px 28px;">
-    <h1 style="font-family:Georgia, serif; font-size:28px; color:#090B12; margin:0 0 8px 0; line-height:1.2;">Trilloka Telemetry & Executive Audit</h1>
-    <p style="font-family:Inter,sans-serif; font-size:14px; color:#5A7A9E; margin:0 0 20px 0;"><strong>Report Vault ID:</strong> {vault_id}<br><strong>Target Domain:</strong> {domain}<br><strong>Customer Journey:</strong> {journey_label}<br><strong>Journey Confidence:</strong> {journey_confidence_text}{' — PROVISIONAL' if provisional_journey else ''}<br><strong>Context Tags:</strong> {context_display}<br><strong>CMS Detected:</strong> {cms}<br><strong>AI / Template Pattern Spectrum:</strong> {ai_display}</p>
+        finding_cards = []
+        for idx, item in enumerate(report.get("verified_revenue_findings") or [], 1):
+            if not isinstance(item, dict):
+                continue
+            title = esc(item.get("leak_name") or item.get("title") or "Customer-loss finding")
+            priority = str(item.get("priority") or "MEDIUM")
+            angles = item.get("solutions_3_angles") if isinstance(item.get("solutions_3_angles"), dict) else {}
+            receipt = item.get("evidence_receipt") if isinstance(item.get("evidence_receipt"), dict) else {}
+            receipt_text = esc(json.dumps(receipt, ensure_ascii=False, default=str)[:1800])
+            finding_cards.append(f'''
+            <section style="background:#FFFFFF;border:1px solid #D1D5DB;border-radius:14px;padding:22px;margin:0 0 22px;">
+              <div style="margin-bottom:8px;">{badge(f"{idx:02d} — {priority}", priority.lower())}</div>
+              <h3 style="font:700 22px Georgia,serif;color:#111827;margin:8px 0 14px;">{title}</h3>
+              <p style="font:13px/1.65 Inter,sans-serif;color:#374151;"><strong>What is the problem?</strong><br>{esc(item.get('plain_problem'))}</p>
+              <p style="font:13px/1.65 Inter,sans-serif;color:#374151;"><strong>What did we find?</strong><br>{esc(item.get('what_we_found'))}</p>
+              <p style="font:13px/1.65 Inter,sans-serif;color:#374151;"><strong>Where does it happen?</strong><br>{esc(item.get('where_it_happens'))}</p>
+              <p style="font:13px/1.65 Inter,sans-serif;color:#374151;"><strong>Why does it matter?</strong><br>{esc(item.get('why_it_matters'))}</p>
+              <div style="background:#FFF7ED;border-left:4px solid #EA580C;padding:12px 14px;margin:12px 0;">
+                <p style="font:13px/1.6 Inter,sans-serif;color:#7C2D12;margin:0;"><strong>How can this affect the business financially?</strong><br>{esc(item.get('financial_effect'))}</p>
+              </div>
+              <p style="font:12px/1.6 Inter,sans-serif;color:#6B7280;"><strong>Evidence receipt:</strong><br>{receipt_text}</p>
+              <p style="font:13px/1.65 Inter,sans-serif;color:#111827;"><strong>What should be done?</strong><br>{esc(item.get('what_should_be_done'))}</p>
+              <div style="background:#F8FAFC;border-radius:10px;padding:14px;margin-top:14px;">
+                <p style="font:700 13px Inter,sans-serif;color:#0F172A;margin:0 0 8px;">3-Angle Remediation Plan</p>
+                <p style="font:12px/1.6 Inter,sans-serif;color:#334155;"><strong>Technical Angle:</strong> {esc(angles.get('technical'))}</p>
+                <p style="font:12px/1.6 Inter,sans-serif;color:#334155;"><strong>UX / CRO Angle:</strong> {esc(angles.get('cro_ux'))}</p>
+                <p style="font:12px/1.6 Inter,sans-serif;color:#334155;"><strong>Systems Angle:</strong> {esc(angles.get('systems'))}</p>
+                <p style="font:12px/1.6 Inter,sans-serif;color:#475569;margin-bottom:0;"><strong>Why Trilloka recommends this:</strong> {esc(angles.get('why_recommend'))}</p>
+              </div>
+              <p style="font:12px Inter,sans-serif;color:#6B7280;margin:12px 0 0;"><strong>Priority:</strong> {esc(priority)} &nbsp;•&nbsp; <strong>Estimated effort:</strong> {esc(item.get('implementation_effort'))} &nbsp;•&nbsp; <strong>Cadence:</strong> {esc(angles.get('cadence_title'))} — {esc(angles.get('cadence_text'))}</p>
+            </section>''')
+        findings_html = ''.join(finding_cards) or '<p style="font:13px Inter,sans-serif;color:#166534;">No verified customer-loss findings were produced in the unlocked report scope.</p>'
 
-    <div style="background:#121621; color:#F2F0E8; border-radius:12px; padding:24px; margin:20px 0; text-align:center;">
-        <p style="font-family:Inter,sans-serif; font-size:12px; color:#A9A7A0; text-transform:uppercase; letter-spacing:2px; margin:0 0 8px 0;">Revenue Readiness Index</p>
-        <p style="font-family:Georgia,serif; font-size:48px; color:{score_color}; margin:0; line-height:1;">{score:.1f}<span style="font-size:20px;color:#A9A7A0;"> / 90</span></p>
-        <p style="font-family:Inter,sans-serif; font-size:14px; color:#D8B66A; margin:8px 0 0 0; font-weight:600;">{rating}</p>
-    </div>
+        verification_cards = []
+        for item in report.get("verification_priorities") or []:
+            if not isinstance(item, dict):
+                continue
+            verification_cards.append(
+                '<div style="border:1px solid #E9D5FF;background:#FAF5FF;border-radius:10px;padding:14px;margin:0 0 10px;">'
+                f'{badge("VERIFY", "verify")} <strong style="font:13px Inter,sans-serif;color:#3B0764;">{esc(item.get("title"))}</strong>'
+                f'<p style="font:12px/1.55 Inter,sans-serif;color:#6B21A8;margin:8px 0 0;">{esc(item.get("simple_explanation"))}</p>'
+                '<p style="font:11px/1.5 Inter,sans-serif;color:#7E22CE;margin:6px 0 0;">Not scored as a failure. Verify the evidence source before deciding whether remediation is required.</p>'
+                '</div>'
+            )
+        verification_html = ''.join(verification_cards) or '<p style="font:13px Inter,sans-serif;color:#166534;">No unresolved applicable verification priorities were recorded.</p>'
 
-    <div style="background:#F8FAFC;border:1px solid #DCE3EA;border-radius:12px;padding:16px;margin:16px 0;">
-        <p style="font-family:Inter,sans-serif;font-size:11px;color:#5A7A9E;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px 0;font-weight:700;">Evidence & Score Scope</p>
-        <p style="font-family:Inter,sans-serif;font-size:12px;color:#374151;margin:0;line-height:1.6;"><strong>Evidence Confidence:</strong> {evidence_level} ({html.escape(evidence_score_text)})<br><strong>Maturity Band:</strong> {maturity_band}<br><strong>Advisory maturity threshold:</strong> {html.escape(maturity_threshold_text)} / 90 <span style="color:#6B7280;">(not a score cap)</span><br><strong>Unmet gate(s) at next band:</strong> {failed_gate_text}</p>
-        <p style="font-family:Inter,sans-serif;font-size:10px;color:#6B7280;margin:8px 0 0 0;line-height:1.5;"><strong>Scope:</strong> {score_scope}</p>
-    </div>
+        strength_cards = []
+        for item in report.get("verified_strengths") or []:
+            if not isinstance(item, dict):
+                continue
+            strength_cards.append(
+                '<div style="border-bottom:1px solid #DCFCE7;padding:9px 0;">'
+                f'{badge("STRENGTH", "strength")} <strong style="font:12px Inter,sans-serif;color:#14532D;">{esc(item.get("title"))}</strong>'
+                f'<p style="font:11px/1.5 Inter,sans-serif;color:#3F6212;margin:5px 0 0;">{esc(item.get("simple_explanation"))}</p>'
+                '</div>'
+            )
+        strengths_html = ''.join(strength_cards) or '<p style="font:13px Inter,sans-serif;color:#6B7280;">No verified strengths were recorded.</p>'
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0;">
-        <div style="background:#F8FAFC;border:1px solid #DCE3EA;border-radius:12px;padding:14px;">
-            <p style="font-family:Inter,sans-serif;font-size:10px;color:#5A7A9E;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px 0;font-weight:700;">Common Foundation</p>
-            <p style="font-family:Inter,sans-serif;font-size:12px;color:#374151;margin:0;line-height:1.55;"><strong>Verified:</strong> {common_verified}/{common_applicable}<br><strong>Strength earned:</strong> {common_strength:.2f}<br><strong>Verified penalty:</strong> {common_penalty:.2f}</p>
-            <p style="font-family:Inter,sans-serif;font-size:9px;color:#6B7280;margin:6px 0 0 0;line-height:1.45;">Universal HTTPS, SEO/search structure, performance, mobile and accessibility hygiene. Visible in the analysis but deliberately lower-weight.</p>
-        </div>
-        <div style="background:#FFFDF7;border:1px solid #E8D9B6;border-radius:12px;padding:14px;">
-            <p style="font-family:Inter,sans-serif;font-size:10px;color:#8A6A2F;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px 0;font-weight:700;">Adaptive Architecture</p>
-            <p style="font-family:Inter,sans-serif;font-size:12px;color:#374151;margin:0;line-height:1.55;"><strong>Verified:</strong> {adaptive_verified}/{adaptive_applicable}<br><strong>Strength earned:</strong> {adaptive_strength:.2f}<br><strong>Verified penalty:</strong> {adaptive_penalty:.2f}</p>
-            <p style="font-family:Inter,sans-serif;font-size:9px;color:#6B7280;margin:6px 0 0 0;line-height:1.45;">Higher-value conversion, trust, policy, proof and completion checks selected from the observed journey + context, not an industry checklist.</p>
-        </div>
-    </div>
+        optional_cards = []
+        for item in report.get("future_optimizations") or []:
+            if not isinstance(item, dict):
+                continue
+            optional_cards.append(
+                '<div style="border-bottom:1px solid #EDE9FE;padding:9px 0;">'
+                f'{badge("OPTIONAL", "optional")} <strong style="font:12px Inter,sans-serif;color:#4C1D95;">{esc(item.get("title"))}</strong>'
+                f'<p style="font:11px/1.5 Inter,sans-serif;color:#5B21B6;margin:5px 0 0;">{esc(item.get("simple_explanation"))}</p>'
+                '</div>'
+            )
+        optional_html = ''.join(optional_cards) or '<p style="font:13px Inter,sans-serif;color:#6B7280;">No separate future optimizations were promoted in this scan.</p>'
 
-    {rescan_html}
-    {confirmation_html}
+        foundation = report.get("foundation_omission_signal") if isinstance(report.get("foundation_omission_signal"), dict) else {}
+        foundation_notice = ""
+        if foundation.get("triggered"):
+            count = int(foundation.get("count") or 0)
+            foundation_notice = f'''<div style="border:1px solid #FDBA74;background:#FFF7ED;border-radius:12px;padding:16px;margin:18px 0;">
+            <p style="font:700 11px Inter,sans-serif;color:#9A3412;margin:0 0 6px;text-transform:uppercase;">Foundation Notice</p>
+            <p style="font:13px/1.6 Inter,sans-serif;color:#7C2D12;margin:0;">{count} verified basic implementation omission(s) were detected. These are reported separately because a basic omission is not automatically the largest customer-loss risk.</p></div>'''
 
-    {foundation_notice}
+        checkpoint_rows = []
+        for cp in report.get("full_50_checkpoint_basis") or []:
+            if not isinstance(cp, dict):
+                continue
+            status = str(cp.get("status") or "UNKNOWN")
+            tone = "strength" if status == PASS else ("high" if status == FAIL else ("verify" if status == UNKNOWN else "neutral"))
+            checkpoint_rows.append(
+                '<tr>'
+                f'<td style="padding:7px;border-bottom:1px solid #E5E7EB;font:11px Inter,sans-serif;color:#6B7280;">{esc(cp.get("id"))}</td>'
+                f'<td style="padding:7px;border-bottom:1px solid #E5E7EB;font:11px Inter,sans-serif;color:#111827;">{esc(cp.get("check"))}</td>'
+                f'<td style="padding:7px;border-bottom:1px solid #E5E7EB;">{badge(status, tone)}</td>'
+                f'<td style="padding:7px;border-bottom:1px solid #E5E7EB;font:10px/1.45 Inter,sans-serif;color:#6B7280;">{esc(cp.get("customer_note") or cp.get("reason") or "")}</td>'
+                '</tr>'
+            )
+        checkpoint_html = '<table style="width:100%;border-collapse:collapse;"><thead><tr style="background:#F3F4F6;"><th style="padding:7px;text-align:left;">#</th><th style="padding:7px;text-align:left;">Checkpoint</th><th style="padding:7px;text-align:left;">Status</th><th style="padding:7px;text-align:left;">Evidence note</th></tr></thead><tbody>' + ''.join(checkpoint_rows) + '</tbody></table>'
 
-    <div style="background:rgba(200,90,90,0.08); border:1px solid rgba(200,90,90,0.25); border-radius:12px; padding:20px; margin:16px 0; text-align:center;">
-        <p style="font-family:Inter,sans-serif; font-size:11px; color:#C85A5A; text-transform:uppercase; letter-spacing:1.5px; margin:0 0 6px 0; font-weight:700;">MODELED COMMERCIAL EXPOSURE</p>
-        <p style="font-family:Georgia,serif; font-size:28px; color:#C85A5A; margin:0; font-weight:700;">{revenue_exposure}</p>
-        <p style="font-family:Inter,sans-serif; font-size:10px; color:#6B7280; margin:7px 0 0 0; line-height:1.45;">Scenario estimate from verified customer-journey issues and explicit economic assumptions; not measured accounting loss or guaranteed uplift.</p>
-    </div>
+        return f'''<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trilloka Revenue Readiness Audit — {domain}</title></head>
+<body style="margin:0;background:#F4F1EB;padding:0;">
+<main style="max-width:920px;margin:0 auto;background:#FCFBF8;padding:32px 24px 60px;">
+  <div style="font:700 11px Inter,sans-serif;color:#9A7A31;letter-spacing:1.5px;text-transform:uppercase;">TRILLOKA TELEMETRY & EXECUTIVE AUDIT — V7.3</div>
+  <h1 style="font:700 34px Georgia,serif;color:#111827;margin:8px 0 8px;">Revenue Readiness Audit</h1>
+  <p style="font:13px Inter,sans-serif;color:#6B7280;margin:0 0 22px;">Target: <strong>{domain}</strong> &nbsp;•&nbsp; Vault ID: <strong>{vault_id}</strong></p>
 
-    <div style="margin:24px 0 28px 0; padding:0 4px;"><p style="font-family:Georgia,serif; font-size:14px; font-style:italic; color:#333333; margin:0; line-height:1.6;">According to the Architect, these are the strongest evidence-backed ways to address the verified issues from technical, conversion and operational angles. Unknown telemetry is not treated as failure.</p></div>
+  <div style="display:flex;flex-wrap:wrap;gap:12px;margin:0 0 20px;">
+    <div style="flex:1;min-width:180px;background:#111827;color:#fff;border-radius:12px;padding:18px;"><div style="font:700 10px Inter,sans-serif;color:#D1D5DB;">REVENUE READINESS INDEX</div><div style="font:700 34px Georgia,serif;margin-top:6px;">{score_text} / 90</div><div style="font:11px/1.4 Inter,sans-serif;color:#D1D5DB;margin-top:5px;">{rating}</div></div>
+    <div style="flex:1;min-width:220px;background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:18px;"><div style="font:700 10px Inter,sans-serif;color:#6B7280;">BUSINESS TYPE</div><div style="font:700 18px Georgia,serif;color:#111827;margin-top:5px;">{business_type}</div><div style="font:11px Inter,sans-serif;color:#6B7280;margin-top:5px;">Type confidence: {esc(bt_conf_text)}</div></div>
+    <div style="flex:1;min-width:220px;background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:18px;"><div style="font:700 10px Inter,sans-serif;color:#6B7280;">PRIMARY CUSTOMER JOURNEY</div><div style="font:700 18px Georgia,serif;color:#111827;margin-top:5px;">{journey}</div><div style="font:11px Inter,sans-serif;color:#6B7280;margin-top:5px;">Journey confidence: {esc(journey_conf_text)}</div></div>
+  </div>
+  <p style="font:12px/1.6 Inter,sans-serif;color:#475569;"><strong>Secondary journeys:</strong> {secondary_text}<br><strong>Context:</strong> {context_text}<br><strong>CMS:</strong> {cms}<br><strong>AI / Template Pattern Spectrum:</strong> {esc(ai_display)}<br><strong>Evidence confidence:</strong> {evidence_text}</p>
 
-    <div style="background:#F9FAFB; border:1px solid #E5E7EB; border-radius:12px; padding:18px; margin:24px 0;">
-        <h3 style="font-family:Georgia,serif; font-size:16px; color:#090B12; margin:0 0 8px 0;">📐 Score Rating Impact: {html.escape(str(score_impact.get('level','N/A')))}</h3>
-        <p style="font-family:Inter,sans-serif; font-size:13px; color:#4B5563; margin:0 0 8px 0; line-height:1.5;"><strong>Business Impact:</strong> {html.escape(str(score_impact.get('impact_summary','')))}</p>
-        <p style="font-family:Inter,sans-serif; font-size:12px; color:#6B7280; margin:0; line-height:1.5;"><strong>Engine Behavior:</strong> {html.escape(str(score_impact.get('severity_behavior','')))}</p>
-    </div>
+  <div style="background:#F8FAFC;border:1px solid #CBD5E1;border-radius:12px;padding:16px;margin:18px 0 24px;">
+    <p style="font:700 12px Inter,sans-serif;color:#0F172A;margin:0 0 6px;">What this one scan covers</p>
+    <p style="font:12px/1.6 Inter,sans-serif;color:#475569;margin:0;">Commercial path, trust and proof, technical foundation, mobile usability, performance, SEO/discoverability, measurement, policy signals, cross-page consistency, public-content hygiene and local competitor context where verifiable.</p>
+  </div>
 
-    <div style="background:#121621; color:#F2F0E8; border-radius:12px; padding:20px; margin:24px 0;">
-        <h3 style="font-family:Georgia,serif; font-size:16px; color:#D8B66A; margin:0 0 10px 0;">🧠 Scoring Methodology & Reasonability</h3>
-        <p style="font-family:Inter,sans-serif; font-size:12px; color:#D1D5DB; margin:0 0 8px 0; line-height:1.5;">• <strong>Graded Continuum:</strong> {html.escape(str(methodology.get('graded_continuum','')))}</p>
-        <p style="font-family:Inter,sans-serif; font-size:12px; color:#D1D5DB; margin:0 0 8px 0; line-height:1.5;">• <strong>Journey + Context Weighting:</strong> {html.escape(str(methodology.get('vertical_weighting','')))}</p>
-        <p style="font-family:Inter,sans-serif; font-size:12px; color:#D1D5DB; margin:0; line-height:1.5;">• <strong>Hygiene:</strong> {html.escape(str(methodology.get('hygiene_gatekeeping','')))}</p>
-    </div>
+  <h2 style="font:700 24px Georgia,serif;color:#111827;margin:30px 0 12px;">At a Glance</h2>
+  <p style="font:12px/1.6 Inter,sans-serif;color:#6B7280;">This table integrates the report's verified problems, unresolved verification items, verified strengths and optional future opportunities. It deliberately does <strong>not</strong> include solutions; detailed remediation appears later.</p>
+  {at_glance_html}
 
-    <h2 style="font-family:Georgia,serif; font-size:22px; color:#090B12; margin:32px 0 20px 0; font-weight:700;">🎯 {findings_count} Highest-Priority Revenue Findings & 3-Angle Fixes</h2>
-    {leaks_html}
-    {roadmap_html}
+  <h2 style="font:700 24px Georgia,serif;color:#111827;margin:30px 0 12px;">What the score means</h2>
+  <p style="font:13px/1.65 Inter,sans-serif;color:#374151;">{esc(score_impact.get('impact_summary'))}</p>
+  <p style="font:12px/1.6 Inter,sans-serif;color:#6B7280;"><strong>Scope:</strong> {scope}</p>
+  {scoring_math}
+  <p style="font:12px/1.6 Inter,sans-serif;color:#475569;"><strong>Evidence coverage:</strong> {coverage_note}</p>
+  <p style="font:12px/1.6 Inter,sans-serif;color:#475569;"><strong>Advisory maturity threshold:</strong> {esc((report.get('maturity_gate') or {}).get('advisory_score_threshold', (report.get('maturity_gate') or {}).get('score_cap', 'N/A')))} / 90 — diagnostic reference only, not a score cap.</p>
+  <p style="font:12px/1.6 Inter,sans-serif;color:#475569;"><strong>Business Type + Journey + Context weighting:</strong> {esc(methodology.get('vertical_weighting'))}</p>
+  {foundation_notice}
 
-    <div style="background:#121621; color:#F2F0E8; border-radius:12px; padding:20px; margin:24px 0;">
-        <h3 style="font-family:Georgia,serif; font-size:16px; color:#D8B66A; margin:0 0 12px 0;">📊 Full 50-Point Checkpoint Basis</h3>
-        <p style="font-family:Inter,sans-serif; font-size:14px; margin:0 0 8px 0;">Verified: <strong>{summary.get('verified',0)}</strong> &nbsp;|&nbsp; Passed: <span style="color:#22C55E; font-weight:700;">{summary.get('passed',0)}</span> &nbsp;|&nbsp; Failed: <span style="color:#EF4444; font-weight:700;">{summary.get('failed',0)}</span></p>
-        <p style="font-family:Inter,sans-serif; font-size:12px; color:#A9A7A0; margin:0 0 5px 0;">Unknown: {summary.get('unknown',0)} &nbsp;|&nbsp; N/A: {summary.get('not_applicable',0)}</p>
-        <p style="font-family:Inter,sans-serif; font-size:12px; color:#D1D5DB; margin:8px 0 5px 0; line-height:1.5;"><strong>Verification Coverage:</strong> {coverage_note}</p>
-        <p style="font-family:Inter,sans-serif; font-size:12px; color:#A9A7A0; margin:0;">Trust & Conversion: 15 checks | SEO & Technical: 20 checks | Content & E-E-A-T: 15 checks</p>
-    </div>
+  <div style="background:#FFF1F2;border:1px solid #FECDD3;border-radius:12px;padding:18px;margin:24px 0;">
+    <div style="font:700 10px Inter,sans-serif;color:#9F1239;letter-spacing:1px;">MODELED COMMERCIAL EXPOSURE</div>
+    <div style="font:700 25px Georgia,serif;color:#BE123C;margin-top:5px;">{revenue}</div>
+    <p style="font:11px/1.55 Inter,sans-serif;color:#881337;margin:7px 0 0;">Scenario estimate from verified issues and explicit assumptions; not measured accounting loss, guaranteed uplift or proof that this amount has been lost.</p>
+  </div>
 
-    <div style="text-align:center; margin:28px 0 20px 0;"><a href="#" style="font-family:Inter,sans-serif; font-size:13px; color:#2563EB; text-decoration:none; font-weight:600;">Access Complete Raw Vault Telemetry Entry</a></div>
+  <h2 style="font:700 24px Georgia,serif;color:#111827;margin:32px 0 16px;">Where You Might Be Losing Customers</h2>
+  <p style="font:12px/1.6 Inter,sans-serif;color:#6B7280;">Only verified scored findings appear here. These are evidence-backed places where the website may create friction or lose customers; the list is never padded with passing checkpoints simply to reach a fixed count.</p>
+  {findings_html}
 
-    <div style="border-top:1px solid #e0e0e0; margin-top:24px; padding-top:20px;"><p style="font-family:Inter,sans-serif; font-size:11px; color:#555555; line-height:1.6; margin:0;"><strong>DISCLAIMER & TERMS OF SALE:</strong> This diagnostic report reflects evidence available to the scanner at the recorded time. Unknown or inaccessible telemetry is not treated as a failure. Revenue exposure labels are model-based unless the business supplied validated traffic, conversion and transaction-value inputs. Maturity-band thresholds are advisory diagnostics only; they do not clamp the earned score and do not represent measured lost revenue. The Revenue Readiness Index evaluates observable website architecture only; product-market fit, demand, traffic quality, pricing, sales follow-up and offline operations are outside its scope. Results and performance improvements depend on correct implementation and later platform changes.</p></div>
-</div>
-</body>
-</html>"""
+  <h2 style="font:700 24px Georgia,serif;color:#111827;margin:32px 0 12px;">Verification Required</h2>
+  {verification_html}
+
+  <h2 style="font:700 24px Georgia,serif;color:#111827;margin:32px 0 12px;">Verified Strengths</h2>
+  <p style="font:12px/1.6 Inter,sans-serif;color:#6B7280;">These items passed. They are not problems and should generally be preserved while higher-priority customer-loss risks are addressed.</p>
+  {strengths_html}
+
+  <h2 style="font:700 24px Georgia,serif;color:#111827;margin:32px 0 12px;">Future Optimization Opportunities</h2>
+  {optional_html}
+
+  <h2 style="font:700 24px Georgia,serif;color:#111827;margin:32px 0 12px;">Full 50-Point Checkpoint Basis</h2>
+  <p style="font:12px/1.6 Inter,sans-serif;color:#475569;">Verified: <strong>{esc(summary.get('verified',0))}</strong> &nbsp;•&nbsp; Passed: <strong>{esc(summary.get('passed',0))}</strong> &nbsp;•&nbsp; Failed: <strong>{esc(summary.get('failed',0))}</strong> &nbsp;•&nbsp; Unknown: <strong>{esc(summary.get('unknown',0))}</strong> &nbsp;•&nbsp; N/A: <strong>{esc(summary.get('not_applicable',0))}</strong></p>
+  {checkpoint_html}
+
+  <div style="margin-top:30px;padding-top:18px;border-top:1px solid #D1D5DB;">
+    <p style="font:11px/1.6 Inter,sans-serif;color:#6B7280;"><strong>Disclaimer:</strong> This diagnostic reflects evidence available at the recorded scan time. UNKNOWN does not mean FAILED. Revenue exposure is modeled unless validated business inputs are supplied. Trilloka evaluates observable website commercial architecture; it does not determine product-market fit, market demand, legal/medical compliance, offline operations or actual accounting loss. Recommendations should be verified after implementation and specialist legal/security/medical advice should be obtained where relevant.</p>
+  </div>
+</main></body></html>'''
 
     def _build_foundation_omissions_html(self, report: Dict[str, Any]) -> str:
         signal = report.get("foundation_omission_signal") if isinstance(report.get("foundation_omission_signal"), dict) else {}
@@ -1217,7 +1587,7 @@ class ReportGenerator:
             '<main style="max-width:820px;margin:0 auto;padding:32px 18px 60px;">'
             '<div style="font:700 11px Inter,sans-serif;color:#9A3412;letter-spacing:1.5px;text-transform:uppercase;">TRILLOKA — FOUNDATION OMISSIONS</div>'
             '<h1 style="font:700 34px Georgia,serif;color:#111827;margin:8px 0 10px;">Basic website requirements detected as missing</h1>'
-            '<p style="font:14px/1.7 Inter,sans-serif;color:#4B5563;margin:0 0 28px;">These items are intentionally separated from the main Revenue Readiness findings. They are basic implementation omissions, not automatically the largest financial leaks, and UNKNOWN evidence is never included here.</p>'
+            '<p style="font:14px/1.7 Inter,sans-serif;color:#4B5563;margin:0 0 28px;">These items are intentionally separated from the main Revenue Readiness findings. They are basic implementation omissions, not automatically the largest customer-loss risks, and UNKNOWN evidence is never included here.</p>'
             + ''.join(cards) + '</main></body></html>'
         )
 

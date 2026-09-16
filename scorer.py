@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from behavioural_engine import BehaviouralEngine
 from checkpoint_engine import FAIL, PASS, UNKNOWN, NA, build_50_checkpoints, checkpoint_summary, build_foundation_omission_signal
-from architecture_model import COMMON_FOUNDATION_IDS, ARCHITECTURAL_CHECKPOINT_IDS, context_has, infer_architecture_profile
+from architecture_model import BUSINESS_TYPE_LABELS, COMMON_FOUNDATION_IDS, ARCHITECTURAL_CHECKPOINT_IDS, context_has, infer_architecture_profile
 
 
 # -------------------------------
@@ -76,7 +76,7 @@ def _baymard_weight(*reason_keys: str) -> float:
 
 
 CATEGORY_WEIGHTS_BY_BIZ: Dict[str, Dict[str, float]] = {
-    # V7: journey model, not industry. SEO/common-foundation influence is deliberately modest.
+    # Journey-model weighting. V7.3 adds a separate first-class business-type multiplier below.
     "general": {"seo_technical": 0.55, "trust_conversion": 1.00, "content_eeat": 0.80, "measurement": 0.85},
     "lead_quote": {"seo_technical": 0.60, "trust_conversion": 1.35, "content_eeat": 1.00, "measurement": 1.00},
     "appointment_consultation": {"seo_technical": 0.60, "trust_conversion": 1.40, "content_eeat": 1.10, "measurement": 1.00},
@@ -84,6 +84,8 @@ CATEGORY_WEIGHTS_BY_BIZ: Dict[str, Dict[str, float]] = {
     "direct_purchase": {"seo_technical": 0.70, "trust_conversion": 1.40, "content_eeat": 0.90, "measurement": 1.10},
     "demo_sales": {"seo_technical": 0.60, "trust_conversion": 1.30, "content_eeat": 1.10, "measurement": 1.10},
     "membership_subscription": {"seo_technical": 0.55, "trust_conversion": 1.20, "content_eeat": 1.00, "measurement": 1.00},
+    "donation_support": {"seo_technical": 0.50, "trust_conversion": 1.35, "content_eeat": 1.10, "measurement": 0.95},
+    "application_enrollment": {"seo_technical": 0.60, "trust_conversion": 1.30, "content_eeat": 1.10, "measurement": 0.95},
 }
 
 BUSINESS_MODEL_MATRIX: Dict[str, Dict[str, float]] = {
@@ -94,6 +96,53 @@ BUSINESS_MODEL_MATRIX: Dict[str, Dict[str, float]] = {
     "direct_purchase": {"trust": 1.15, "conversion": 1.35, "seo": 0.75, "measurement": 1.10},
     "demo_sales": {"trust": 1.20, "conversion": 1.30, "seo": 0.65, "measurement": 1.10},
     "membership_subscription": {"trust": 1.05, "conversion": 1.20, "seo": 0.60, "measurement": 1.00},
+    "donation_support": {"trust": 1.25, "conversion": 1.30, "seo": 0.55, "measurement": 0.95},
+    "application_enrollment": {"trust": 1.15, "conversion": 1.30, "seo": 0.65, "measurement": 0.95},
+}
+
+# V7.3 business-type importance layer. These multipliers are intentionally bounded: business type
+# changes what matters commercially, while Journey + Context still determine applicability and evidence.
+BUSINESS_TYPE_CATEGORY_MULTIPLIERS: Dict[str, Dict[str, float]] = {
+    "general": {"seo_technical": 1.00, "trust_conversion": 1.00, "content_eeat": 1.00, "measurement": 1.00},
+    "ecommerce": {"seo_technical": 1.02, "trust_conversion": 1.12, "content_eeat": 0.98, "measurement": 1.08},
+    "marketplace": {"seo_technical": 1.00, "trust_conversion": 1.15, "content_eeat": 1.03, "measurement": 1.10},
+    "local_service": {"seo_technical": 1.02, "trust_conversion": 1.12, "content_eeat": 1.00, "measurement": 1.00},
+    "professional_service": {"seo_technical": 1.00, "trust_conversion": 1.12, "content_eeat": 1.08, "measurement": 1.02},
+    "healthcare": {"seo_technical": 0.98, "trust_conversion": 1.20, "content_eeat": 1.12, "measurement": 1.00},
+    "medspa": {"seo_technical": 0.98, "trust_conversion": 1.18, "content_eeat": 1.08, "measurement": 1.02},
+    "legal": {"seo_technical": 0.98, "trust_conversion": 1.20, "content_eeat": 1.12, "measurement": 1.00},
+    "financial_services": {"seo_technical": 0.98, "trust_conversion": 1.22, "content_eeat": 1.12, "measurement": 1.02},
+    "real_estate": {"seo_technical": 1.02, "trust_conversion": 1.12, "content_eeat": 1.05, "measurement": 1.00},
+    "restaurant": {"seo_technical": 1.00, "trust_conversion": 1.12, "content_eeat": 0.98, "measurement": 0.98},
+    "hospitality_event": {"seo_technical": 1.00, "trust_conversion": 1.12, "content_eeat": 1.00, "measurement": 1.00},
+    "saas": {"seo_technical": 0.98, "trust_conversion": 1.10, "content_eeat": 1.05, "measurement": 1.15},
+    "b2b": {"seo_technical": 0.98, "trust_conversion": 1.12, "content_eeat": 1.12, "measurement": 1.08},
+    "agency": {"seo_technical": 1.00, "trust_conversion": 1.10, "content_eeat": 1.10, "measurement": 1.05},
+    "membership_creator": {"seo_technical": 0.95, "trust_conversion": 1.08, "content_eeat": 1.05, "measurement": 1.10},
+    "education": {"seo_technical": 1.00, "trust_conversion": 1.10, "content_eeat": 1.12, "measurement": 1.00},
+    "nonprofit": {"seo_technical": 0.96, "trust_conversion": 1.18, "content_eeat": 1.10, "measurement": 1.02},
+    "automotive": {"seo_technical": 1.02, "trust_conversion": 1.12, "content_eeat": 1.00, "measurement": 1.00},
+}
+
+BUSINESS_TYPE_RULE_MULTIPLIERS: Dict[str, Dict[str, float]] = {
+    "ecommerce": {"checkout_cost_transparency": 1.25, "guest_checkout_barrier": 1.20, "checkout_complexity": 1.20, "delivery_expectation_clarity": 1.18, "shipping_info_discoverability": 1.15, "return_policy_discoverability": 1.15, "measurement_telemetry": 1.05},
+    "marketplace": {"primary_conversion_path": 1.12, "form_architecture": 1.08, "trust_credentials": 1.10, "privacy_terms_missing": 1.12, "measurement_telemetry": 1.10},
+    "local_service": {"click_to_call": 1.22, "phone_visibility": 1.18, "location_visibility": 1.20, "form_architecture": 1.10, "lead_form_friction": 1.10, "reviews_social_proof": 1.10},
+    "professional_service": {"form_architecture": 1.12, "lead_form_friction": 1.10, "trust_credentials": 1.12, "about_team_signal": 1.08, "case_studies_missing": 1.08, "proof_placement_gap": 1.10},
+    "healthcare": {"trust_credentials": 1.28, "privacy_terms_missing": 1.22, "social_proof_signal": 1.10, "proof_placement_gap": 1.12, "form_architecture": 1.10, "policy_content_consistency": 1.18},
+    "medspa": {"trust_credentials": 1.22, "privacy_terms_missing": 1.18, "reviews_social_proof": 1.12, "proof_placement_gap": 1.12, "form_architecture": 1.08},
+    "legal": {"trust_credentials": 1.28, "privacy_terms_missing": 1.20, "about_team_signal": 1.12, "proof_placement_gap": 1.10, "form_architecture": 1.10},
+    "financial_services": {"trust_credentials": 1.30, "privacy_terms_missing": 1.25, "policy_content_consistency": 1.20, "form_architecture": 1.10, "measurement_telemetry": 1.05},
+    "real_estate": {"click_to_call": 1.12, "location_visibility": 1.12, "reviews_social_proof": 1.10, "form_architecture": 1.10},
+    "restaurant": {"click_to_call": 1.18, "location_visibility": 1.18, "reviews_social_proof": 1.15, "primary_conversion_path": 1.15, "conversion_path_error": 1.15},
+    "hospitality_event": {"location_visibility": 1.15, "reviews_social_proof": 1.12, "primary_conversion_path": 1.15, "conversion_path_error": 1.15, "form_architecture": 1.08},
+    "saas": {"primary_conversion_path": 1.12, "conversion_path_error": 1.12, "b2b_pricing_transparency": 1.12, "measurement_telemetry": 1.15, "case_studies_missing": 1.10},
+    "b2b": {"primary_conversion_path": 1.10, "b2b_pricing_transparency": 1.15, "case_studies_missing": 1.15, "trust_credentials": 1.08, "proof_placement_gap": 1.10},
+    "agency": {"form_architecture": 1.12, "case_studies_missing": 1.18, "proof_placement_gap": 1.15, "about_team_signal": 1.08},
+    "membership_creator": {"primary_conversion_path": 1.12, "privacy_terms_missing": 1.10, "measurement_telemetry": 1.12, "policy_content_consistency": 1.10},
+    "education": {"form_architecture": 1.15, "primary_conversion_path": 1.12, "proof_placement_gap": 1.08, "privacy_terms_missing": 1.08},
+    "nonprofit": {"trust_credentials": 1.12, "proof_placement_gap": 1.15, "policy_content_consistency": 1.12, "primary_conversion_path": 1.12},
+    "automotive": {"click_to_call": 1.15, "location_visibility": 1.15, "reviews_social_proof": 1.12, "form_architecture": 1.10},
 }
 
 RULE_BASE_WEIGHTS: Dict[str, Dict[str, float]] = {
@@ -104,18 +153,22 @@ RULE_BASE_WEIGHTS: Dict[str, Dict[str, float]] = {
     "form_architecture": {
         "default": 6.0, "lead_quote": 8.0, "appointment_consultation": 8.5,
         "reservation_event": 8.0, "direct_purchase": 7.5, "demo_sales": 8.0, "membership_subscription": 6.0,
+        "donation_support": 7.0, "application_enrollment": 8.0,
     },
     "primary_conversion_path": {
         "default": 7.0, "lead_quote": 9.0, "appointment_consultation": 9.5,
         "reservation_event": 9.5, "direct_purchase": 11.0, "demo_sales": 9.5, "membership_subscription": 7.5,
+        "donation_support": 9.0, "application_enrollment": 9.0,
     },
     "conversion_path_error": {
         "default": 8.0, "lead_quote": 10.0, "appointment_consultation": 10.5,
         "reservation_event": 10.5, "direct_purchase": 11.0, "demo_sales": 10.0, "membership_subscription": 8.5,
+        "donation_support": 9.5, "application_enrollment": 9.5,
     },
     "lead_form_friction": {
         "default": 4.0, "lead_quote": 6.0, "appointment_consultation": 6.0,
         "reservation_event": 5.5, "demo_sales": 6.5, "membership_subscription": 4.0,
+        "donation_support": 4.5, "application_enrollment": 6.0,
     },
 
     # Commerce-only rules. Baymard percentages calibrate relative importance only after site evidence exists.
@@ -128,6 +181,13 @@ RULE_BASE_WEIGHTS: Dict[str, Dict[str, float]] = {
 
     # Considered/demo-sales pricing evidence remains medium-confidence when pricing can legitimately be quote-based.
     "b2b_pricing_transparency": {"default": 0.0, "demo_sales": 4.0},
+
+    # Broad V7.3 commercial-architecture rules sourced from cross-page/placement evidence.
+    "proof_placement_gap": {"default": 3.2, "lead_quote": 3.8, "appointment_consultation": 4.0, "direct_purchase": 3.6, "demo_sales": 4.0, "donation_support": 4.0, "application_enrollment": 3.8},
+    "cross_page_consistency": {"default": 3.4},
+    "public_unfinished_content": {"default": 3.0},
+    "policy_content_consistency": {"default": 3.1},
+    "cta_competition": {"default": 2.0},
 
     # Supporting conversion signals.
     "click_to_call": {
@@ -177,6 +237,11 @@ RESEARCH_MULTIPLIER_BY_RULE: Dict[str, Any] = {
     "html_lang_attribute": 0.50,
     "ai_template_similarity": 0.60,
     "measurement_telemetry": 0.80,
+    "proof_placement_gap": 0.90,
+    "cross_page_consistency": 0.90,
+    "public_unfinished_content": 0.80,
+    "policy_content_consistency": 0.85,
+    "cta_competition": 0.70,
 
     # 50-checkpoint rules.
     "https_redirect": 0.90,
@@ -244,6 +309,10 @@ RESEARCH_BASIS_BY_RULE: Dict[str, Dict[str, str]] = {
     "click_to_call": {"source": "Google mobile/local research", "class": "local intent research", "scope": "call-relevant local/service businesses"},
     "phone_visibility": {"source": "Google mobile/local research", "class": "local intent research", "scope": "local/service businesses"},
     "location_visibility": {"source": "Google mobile/local research", "class": "local intent research", "scope": "location-relevant businesses"},
+    "proof_placement_gap": {"source": "Trilloka cross-page evidence model", "class": "decision-point evidence placement", "scope": "verified site-wide proof versus conversion-stage proof"},
+    "cross_page_consistency": {"source": "Trilloka cross-page evidence model", "class": "public commercial-information consistency", "scope": "materially conflicting public statements"},
+    "public_unfinished_content": {"source": "Trilloka public-content hygiene model", "class": "public quality-control evidence", "scope": "same-origin reachable test/internal/placeholder-like pages"},
+    "policy_content_consistency": {"source": "Trilloka policy-content consistency model", "class": "policy wording review signal", "scope": "observable placeholder/stale/internal wording; not a legal conclusion"},
 }
 
 
@@ -375,6 +444,11 @@ LEAK_FAMILY = {
     "html_lang_attribute": "technical_hygiene",
     "ai_template_similarity": "content_distinctiveness",
     "measurement_telemetry": "measurement",
+    "proof_placement_gap": "trust_proof",
+    "cross_page_consistency": "commercial_consistency",
+    "public_unfinished_content": "content_quality_control",
+    "policy_content_consistency": "trust_policy",
+    "cta_competition": "conversion_execution",
 }
 
 # Commercial priority is a tie-breaker only; actual evidence-weighted score loss
@@ -407,6 +481,8 @@ COMMERCIAL_PRIORITY_BY_FAMILY = {
     "search_snippet": 1.3,
     "crawlability": 1.2,
     "technical_hygiene": 1.0,
+    "commercial_consistency": 4.1,
+    "content_quality_control": 3.5,
 }
 
 # Family caps stop many small signals from collectively outweighing a verified
@@ -439,6 +515,8 @@ FAMILY_SCORE_CAPS = {
     "b2b_evaluation": 4.0,
     "mobile_foundation": 3.0,
     "mobile_usability": 3.0,
+    "commercial_consistency": 4.0,
+    "content_quality_control": 3.0,
 }
 
 # Combined cap across ordinary SEO/discovery hygiene. Performance is explicitly
@@ -466,6 +544,8 @@ CONSOLIDATED_FAMILY_LABELS = {
     "conversion_execution": "Conversion Execution Friction",
     "trust_proof": "Trust & Social Proof Gap",
     "commerce_policy": "Ecommerce Policy / Fulfilment Clarity",
+    "commercial_consistency": "Commercial Information Consistency Gap",
+    "content_quality_control": "Public Content Quality-Control Gap",
 }
 
 
@@ -490,6 +570,7 @@ class RevenueScorer:
             raise TypeError("scan_data must be a dictionary")
 
         profile, biz_type = self._resolve_business_profile(scan_data, business_type)
+        business_type_key = str(profile.get("business_type") or "general")
         public_business_type = self._public_business_type(scan_data, business_type, profile, biz_type)
         scan_quality_raw = scan_data.get("scan_quality")
         scan_quality = scan_quality_raw if isinstance(scan_quality_raw, dict) else {}
@@ -501,7 +582,7 @@ class RevenueScorer:
 
         checkpoints = build_50_checkpoints(
             scan_data,
-            {"business_profile": profile, "architecture_profile": profile, "business_type": biz_type},
+            {"business_profile": profile, "architecture_profile": profile, "business_type": business_type_key},
         )
         cp_summary = checkpoint_summary(checkpoints)
         # Do not issue a confident commercial score when almost nothing was actually inspected.
@@ -512,7 +593,7 @@ class RevenueScorer:
             )
 
         try:
-            behavioral = self.behavioral_engine.analyze_behavioral_friction(scan_data, biz_type)
+            behavioral = self.behavioral_engine.analyze_behavioral_friction(scan_data, biz_type, business_type_key)
         except Exception as exc:
             behavioral = {"status": "unavailable", "error": str(exc)}
 
@@ -529,6 +610,7 @@ class RevenueScorer:
                 biz_type=biz_type,
             )
         )
+        raw_leaks = self._apply_business_type_weighting(raw_leaks, business_type_key)
         raw_leaks, unconfirmed_high_impact = self._apply_high_impact_confirmation_guardrail(
             raw_leaks, scan_data
         )
@@ -549,12 +631,13 @@ class RevenueScorer:
         total_loss = round(common_loss + adaptive_loss, 2)
 
         foundation_score, foundation_detail = self._score_checkpoint_layer(
-            checkpoints, set(COMMON_FOUNDATION_IDS), FOUNDATION_LAYER_MAX, biz_type, leaks
+            checkpoints, set(COMMON_FOUNDATION_IDS), FOUNDATION_LAYER_MAX, biz_type, leaks, business_type_key
         )
         revenue_architecture_score, revenue_detail = self._score_adaptive_architecture(
             checkpoints=checkpoints,
             biz_type=biz_type,
             leaks=leaks,
+            business_type_key=business_type_key,
         )
 
         # A provisional/unresolved customer journey cannot earn the same 60-point architecture
@@ -733,7 +816,11 @@ class RevenueScorer:
         return {
             "target_domain": str(scan_data.get("domain") or ""),
             "business_type": public_business_type,
+            "business_type_label": str(profile.get("business_type_label") or BUSINESS_TYPE_LABELS.get(public_business_type, public_business_type.replace("_", " ").title())),
+            "business_type_confidence": profile.get("business_type_confidence"),
             "journey_model": biz_type,
+            "journey_label": profile.get("journey_label"),
+            "secondary_journeys": list(profile.get("secondary_journeys") or []),
             "business_profile": profile,
             "architecture_profile": profile,
             "overall_health_score": overall,
@@ -839,7 +926,7 @@ class RevenueScorer:
             "elite_strength_ledger": elite_ledger,
             "overlap_adjustments": overlap_adjustments,
             "score_semantics": "Revenue Readiness index for observable website architecture; not a literal visitor conversion percentage, sales forecast or business-quality score.",
-            "score_method_version": "real_world_v3_blueprint90",
+            "score_method_version": "v7.3_business_type_journey_context_blueprint90",
             "score_scope_exclusions": ["product-market fit", "market demand", "traffic quality", "pricing", "sales-team execution", "offline operations", "actual revenue"],
             "score_ceiling": MAX_REVENUE_READINESS_SCORE,
             "score_ceiling_note": "The public Revenue Readiness Index is calibrated to a 0–90 blueprint. 90/90 is theoretically available only from perfect canonical 22/60/18 strength; the score is not a visitor conversion percentage.",
@@ -849,10 +936,16 @@ class RevenueScorer:
                 "nng_basis": "Primary conversion paths, B2B information needs and form friction are calibrated with Nielsen Norman Group usability/conversion research.",
                 "google_basis": "Core Web Vitals/performance and local mobile-intent signals use Google/web.dev or Google mobile/local evidence where applicable.",
                 "seo_policy": "SEO and discovery hygiene remain measured and visible, but low-value SEO families are capped so they cannot collectively outrank a verified commercial blocker.",
-                "guardrail": "Research changes relative priority only after the scanner verifies a site-specific condition. Unknown evidence remains neutral.",
+                "guardrail": "Research and business-type weighting change relative priority only after the scanner verifies a site-specific condition. Unknown evidence remains neutral.",
             },
             "score_formula": {
-                "method": "three_unequal_earned_layers_non_compensatory_v3_blueprint90",
+                "method": "business_type_journey_context_three_layer_v4_blueprint90",
+                "scoring_business_type": business_type_key,
+                "scoring_business_type_label": str(profile.get("business_type_label") or BUSINESS_TYPE_LABELS.get(business_type_key, business_type_key.replace("_", " ").title())),
+                "journey_model": biz_type,
+                "journey_label": str(profile.get("journey_label") or biz_type.replace("_", " ").title()),
+                "context_tags": list(profile.get("context_tags") or []),
+                "weighting_policy": "Business type changes the importance of relevant evidence; journey determines customer-path relevance; context tags add local, regulated, commerce, enterprise, recurring or sensitive-data obligations.",
                 "operating_baseline": 0.0,
                 "foundation_layer_score": foundation_score,
                 "foundation_layer_max": FOUNDATION_LAYER_MAX,
@@ -901,6 +994,7 @@ class RevenueScorer:
         layer_max: float,
         biz_type: str,
         leaks: List[Dict[str, Any]],
+        business_type_key: str = "general",
     ) -> Tuple[float, Dict[str, Any]]:
         """Earn a layer score only from verified positive evidence.
 
@@ -936,6 +1030,8 @@ class RevenueScorer:
                 and str(cp.get("unknown_reason_code") or "") == "SAFE_SUBMISSION_LIMIT"
             )
             weight = generic if safe_completion_unknown else max(generic, min(12.0, journey_weight))
+            if not safe_completion_unknown:
+                weight *= self._business_type_weight_multiplier(rule, str(cp.get("category") or ""), business_type_key)
             applicable_weight += weight
             if status == PASS:
                 known_weight += weight
@@ -991,6 +1087,7 @@ class RevenueScorer:
         checkpoints: List[Dict[str, Any]],
         biz_type: str,
         leaks: List[Dict[str, Any]],
+        business_type_key: str = "general",
     ) -> Tuple[float, Dict[str, Any]]:
         """Score the 60-point customer/revenue layer through non-compensatory pillars.
 
@@ -1009,6 +1106,7 @@ class RevenueScorer:
                 layer_max=max_points,
                 biz_type=biz_type,
                 leaks=[],  # extra non-checkpoint leak penalties are handled once below
+                business_type_key=business_type_key,
             )
             pillar_details[key] = {
                 "label": spec["label"],
@@ -1043,109 +1141,119 @@ class RevenueScorer:
         }
 
     def _resolve_business_profile(self, scan_data: Dict[str, Any], requested: str) -> Tuple[Dict[str, Any], str]:
-        """Resolve the internal Journey + Context profile without breaking explicit caller intent.
+        """Resolve first-class Business Type + Journey + Context scoring inputs.
 
-        The scorer uses a journey model internally.  Legacy industry values are retained only as
-        compatibility metadata/output labels.  An explicit ``general`` request is never silently
-        promoted to a more specific journey: uncertainty belongs in the evidence/profile metadata,
-        not in an inferred category the caller explicitly declined.
+        The requested business type is respected when recognized. Auto mode uses the scanner profile.
+        Journey remains separately inferred from observed website actions, so a business type changes
+        importance without forcing every site in that business into one identical funnel.
         """
         requested_raw = str(requested or "auto").strip()
-        requested_norm = requested_raw.lower().replace("-", "_").replace(" ", "_")
-
         architecture_raw = scan_data.get("architecture_profile") if isinstance(scan_data, dict) else {}
-        legacy_raw = scan_data.get("business_profile") if isinstance(scan_data, dict) else {}
         if not isinstance(architecture_raw, dict):
             architecture_raw = {}
-        if not isinstance(legacy_raw, dict):
-            legacy_raw = {}
 
-        legacy_vertical = str(legacy_raw.get("vertical") or "").strip().lower().replace("-", "_").replace(" ", "_")
-
-        # Explicit general means exactly general.  We still infer context tags from public evidence
-        # so policy/local/commerce obligations are not lost, but we do not overwrite the journey.
-        if requested_norm == "general":
-            inferred = infer_architecture_profile(scan_data, "auto")
-            profile = dict(inferred)
-            profile.update({k: v for k, v in legacy_raw.items() if k not in {"vertical", "journey_model", "model_basis"}})
-            profile["journey_model"] = "general"
-            profile["journey_label"] = "General / Unresolved Journey"
-            profile["vertical"] = "general"
-            profile["source"] = "explicit_request"
-            profile["requested_journey_hint"] = "general"
-            profile["direct_journey_hint"] = "general"
-            profile["provisional"] = True
-            profile["journey_resolved"] = False
-            if legacy_vertical and legacy_vertical not in {"general", "auto", "unknown", "none"}:
-                profile["legacy_business_type"] = legacy_vertical
-            return profile, "general"
-
-        # Prefer a scanner-produced architecture profile when it already has a journey model.
-        if architecture_raw.get("journey_model"):
+        # Re-infer if the profile predates v7.3 or the caller supplied an explicit business type that
+        # must be honored for scoring.
+        requested_norm = requested_raw.lower().replace("-", "_").replace(" ", "_")
+        recognized_business = requested_norm in BUSINESS_TYPE_LABELS
+        profile_has_v73_business = bool(architecture_raw.get("business_type"))
+        if recognized_business and requested_norm not in {"auto", ""}:
+            profile = infer_architecture_profile(scan_data, requested_norm)
+        elif profile_has_v73_business and architecture_raw.get("journey_model"):
             profile = dict(architecture_raw)
-        elif legacy_raw.get("journey_model"):
-            profile = dict(legacy_raw)
         else:
-            # A legacy vertical is a weak hint only.  Strong page/action evidence can still select
-            # a different internal journey, preserving the V7 Journey + Context architecture.
-            hint = legacy_vertical if legacy_vertical and legacy_vertical not in {"general", "auto", "unknown", "none"} else requested_raw
-            profile = infer_architecture_profile(scan_data, hint)
-            for key in ("primary_conversion", "secondary_conversions", "signals"):
-                if key in legacy_raw and legacy_raw.get(key) not in (None, "", []):
-                    profile[f"legacy_{key}"] = legacy_raw.get(key)
-            if legacy_vertical and legacy_vertical not in {"general", "auto", "unknown", "none"}:
-                profile["legacy_business_type"] = legacy_vertical
+            profile = infer_architecture_profile(scan_data, requested_raw)
 
-        journey = self._normalize_business_type(profile.get("journey_model") or profile.get("vertical"))
+        journey = self._normalize_journey(profile.get("journey_model") or "general")
+        business_key = self._normalize_business_type(profile.get("business_type") or requested_norm)
         profile["journey_model"] = journey
         profile["journey_label"] = profile.get("journey_label") or journey.replace("_", " ").title()
-        profile["vertical"] = journey  # journey compatibility alias; legacy value lives separately above
-        profile["inferred_subtype"] = ""
-        profile["model_basis"] = profile.get("model_basis") or "journey_context_v1"
-        profile["source"] = profile.get("source") or "observed_journey_context"
+        profile["business_type"] = business_key
+        profile["business_type_label"] = profile.get("business_type_label") or BUSINESS_TYPE_LABELS.get(business_key, business_key.replace("_", " ").title())
+        profile["vertical"] = business_key
+        profile["model_basis"] = profile.get("model_basis") or "business_type_journey_context_v2"
+        if str(profile.get("business_type_source") or "") == "explicit_request":
+            profile["source"] = "explicit_request"
+        else:
+            profile["source"] = profile.get("source") or "observed_business_type_journey_context"
         return profile, journey
 
     @staticmethod
     def _public_business_type(scan_data: Dict[str, Any], requested: str, profile: Dict[str, Any], journey: str) -> str:
-        """Backward-compatible public label while Journey + Context remains the internal scorer model."""
-        requested_norm = str(requested or "auto").strip().lower().replace("-", "_").replace(" ", "_")
-        if requested_norm == "general":
-            return "general"
-        if requested_norm not in {"", "auto", "unknown", "none"} and requested_norm not in {
-            "lead_quote", "appointment_consultation", "reservation_event", "direct_purchase",
-            "demo_sales", "membership_subscription",
-        }:
-            return requested_norm
-        legacy = str(profile.get("legacy_business_type") or "").strip().lower()
-        if requested_norm in {"", "auto", "unknown", "none"} and legacy:
-            return legacy
-        return journey
+        return str(profile.get("business_type") or "general")
 
     @staticmethod
     def _normalize_business_type(raw: Any) -> str:
-        """Normalize either a v7 journey model or a legacy business hint to a journey model."""
+        value = str(raw or "general").lower().replace("-", "_").replace(" ", "_")
+        aliases = {
+            "professional_services": "professional_service", "home_service": "local_service", "aesthetics": "medspa",
+            "medical": "healthcare", "health": "healthcare", "clinic": "healthcare", "law": "legal",
+            "software": "saas", "commerce": "ecommerce", "e_commerce": "ecommerce", "store": "ecommerce",
+            "creator": "membership_creator", "content_creator": "membership_creator", "finance": "financial_services",
+            "financial": "financial_services", "realty": "real_estate", "charity": "nonprofit", "non_profit": "nonprofit",
+            "school": "education", "training": "education", "hotel": "hospitality_event", "events": "hospitality_event",
+            "food_service": "restaurant", "cafe": "restaurant", "café": "restaurant", "auto_repair": "automotive",
+        }
+        value = aliases.get(value, value)
+        return value if value in BUSINESS_TYPE_LABELS else "general"
+
+    @staticmethod
+    def _normalize_journey(raw: Any) -> str:
         value = str(raw or "general").lower().replace("-", "_").replace(" ", "_")
         journeys = {
             "lead_quote", "appointment_consultation", "reservation_event", "direct_purchase",
-            "demo_sales", "membership_subscription", "general",
+            "demo_sales", "membership_subscription", "donation_support", "application_enrollment", "general",
         }
-        if value in journeys:
-            return value
-        legacy = {
-            "restaurant": "reservation_event", "cafe": "reservation_event", "café": "reservation_event",
-            "food_service": "reservation_event", "local_service": "lead_quote", "home_service": "lead_quote",
-            "professional_service": "lead_quote", "professional_services": "lead_quote", "consulting": "lead_quote",
-            "medspa": "appointment_consultation", "aesthetics": "appointment_consultation",
-            "legal": "appointment_consultation", "law": "appointment_consultation",
-            "ecommerce": "direct_purchase", "e_commerce": "direct_purchase", "store": "direct_purchase",
-            "saas": "demo_sales", "software": "demo_sales", "b2b": "demo_sales",
-            "business_to_business": "demo_sales", "enterprise": "demo_sales", "wholesale": "demo_sales",
-            "agency": "lead_quote", "marketing_agency": "lead_quote", "design_agency": "lead_quote",
-            "creative_agency": "lead_quote", "creator": "membership_subscription",
-            "content_creator": "membership_subscription", "newsletter": "membership_subscription",
-            "auto": "general", "unknown": "general", "none": "general", "": "general",
+        return value if value in journeys else "general"
+
+    @staticmethod
+    def _build_evidence_confidence(
+        cp_summary: Dict[str, Any],
+        scan_quality: Dict[str, Any],
+        coverage: Dict[str, Any],
+        browser_loaded: bool,
+        unconfirmed_high_impact: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Describe confidence in the score separately from the site's quality."""
+        verified_ratio = RevenueScorer._safe_float(cp_summary.get("verified_applicable_ratio")) or 0.0
+        coverage_ratio = RevenueScorer._safe_float(coverage.get("ratio")) or 0.0
+        quality_label = str(scan_quality.get("confidence") or "unknown").lower()
+        quality_factor = {"high": 1.0, "medium": 0.78, "moderate": 0.72, "low": 0.52, "unknown": 0.45}.get(quality_label, 0.45)
+        blended = (0.58 * verified_ratio) + (0.27 * coverage_ratio) + (0.15 * quality_factor)
+        unresolved_count = len([x for x in (unconfirmed_high_impact or []) if isinstance(x, dict)])
+        if unresolved_count:
+            blended = min(blended, 0.79)
+        if not browser_loaded:
+            blended = min(blended, 0.72)
+        score = round(max(0.0, min(1.0, blended)) * 100.0, 1)
+        level = "HIGH" if score >= 82 else ("MEDIUM" if score >= 65 else "LIMITED")
+        return {
+            "level": level,
+            "score": score,
+            "verified_applicable_ratio": round(verified_ratio, 3),
+            "scanner_coverage_ratio": round(coverage_ratio, 3),
+            "scan_quality_confidence": quality_label,
+            "verified_checkpoints": int(cp_summary.get("verified") or 0),
+            "applicable_checkpoints": int(cp_summary.get("applicable") or 0),
+            "unknown_checkpoints": int(cp_summary.get("unknown") or 0),
+            "not_applicable_checkpoints": int(cp_summary.get("not_applicable") or 0),
+            "unresolved_high_impact_observations": unresolved_count,
+            "note": "Evidence Confidence describes how much applicable public evidence was independently verified. It is not a grade for the business.",
         }
-        return legacy.get(value, "general")
+
+    @staticmethod
+    def _checkpoint_surface_index(checkpoints: List[Dict[str, Any]], checkpoint_ids: set[int]) -> Optional[float]:
+        relevant = [cp for cp in (checkpoints or []) if int(cp.get("id") or 0) in checkpoint_ids and str(cp.get("status") or "") != NA]
+        if not relevant:
+            return None
+        verified = [cp for cp in relevant if str(cp.get("status") or "") in {PASS, FAIL}]
+        if len(verified) < 2:
+            return None
+        passed = sum(1 for cp in verified if str(cp.get("status") or "") == PASS)
+        pass_ratio = passed / len(verified)
+        verification_ratio = len(verified) / len(relevant)
+        index = 100.0 * ((0.90 * pass_ratio) + (0.10 * verification_ratio))
+        return round(max(0.0, min(100.0, index)), 1)
 
     def _evaluate_strengths(
         self,
@@ -1284,14 +1392,19 @@ class RevenueScorer:
 
         return strengths
 
+
     def _business_conversion_strength(
         self, data: Dict[str, Any], biz_type: str, profile: Dict[str, Any]
     ) -> Tuple[float, Dict[str, Any]]:
-        """Score the observed customer journey rather than an asserted industry category."""
+        """Score whether the observed action matches the resolved customer journey.
+
+        Business type affects importance elsewhere; this helper verifies the actual journey action.
+        """
         ctas = {str(x).lower() for x in (data.get("mobile_cta_types") or []) if x}
         evidence: Dict[str, Any] = {
             "journey_model": biz_type,
             "journey_label": profile.get("journey_label"),
+            "business_type": profile.get("business_type"),
             "primary_conversion": profile.get("primary_conversion"),
         }
         primary = bool(data.get("mobile_primary_cta_present"))
@@ -1306,14 +1419,17 @@ class RevenueScorer:
         elif biz_type == "reservation_event":
             qualified = bool(({"reserve", "book", "contact", "order"} & ctas) or data.get("reservation_present") or forms or call)
         elif biz_type == "direct_purchase":
-            qualified = bool(data.get("add_to_cart_visible") or data.get("checkout_context_detected") or {"buy", "order", "add_to_cart"} & ctas)
+            qualified = bool(data.get("add_to_cart_visible") or data.get("checkout_context_detected") or ({"buy", "order", "add_to_cart"} & ctas))
         elif biz_type == "demo_sales":
             qualified = bool(({"demo", "trial", "contact", "quote", "book"} & ctas) or forms)
         elif biz_type == "membership_subscription":
             qualified = bool(({"subscribe", "join", "buy", "contact"} & ctas) or forms)
+        elif biz_type == "donation_support":
+            qualified = bool(({"donate", "support", "give", "contribute"} & ctas) or data.get("donation_present") or forms)
+        elif biz_type == "application_enrollment":
+            qualified = bool(({"apply", "enroll", "enrol", "register", "admissions", "contact"} & ctas) or data.get("application_present") or forms)
         else:
-            # A generic visible action is useful evidence, but when the journey itself is unresolved
-            # it cannot be called a *qualified* primary conversion merely because something clickable exists.
+            # A visible action is not called a qualified conversion while the journey is unresolved.
             qualified = False
 
         if qualified and primary:
@@ -1542,6 +1658,7 @@ class RevenueScorer:
         verification_ratio = len(verified) / len(relevant)
         index = 100.0 * ((0.90 * pass_ratio) + (0.10 * verification_ratio))
         return round(max(0.0, min(100.0, index)), 1)
+
 
     def _conversion_path_readiness_index(
         self,
@@ -1980,6 +2097,44 @@ class RevenueScorer:
                     f"At least one customer form exposes about {int(max_fields)} input fields, increasing completion effort on the observed journey.",
                     "trust_conversion", biz_type, severity, "medium", 1.0, False,
                     {"form_max_field_count": int(max_fields), "form_max_required_field_count": data.get("form_max_required_field_count")}, "Rendered form structure"))
+
+        # V7.3 broad cross-page / decision-point architecture. These rules are site-agnostic and
+        # activate only when the bounded scanner directly captured enough evidence.
+        diagnostics = data.get("commercial_architecture_diagnostics") if isinstance(data.get("commercial_architecture_diagnostics"), dict) else {}
+        decision = diagnostics.get("decision_point_evidence") if isinstance(diagnostics.get("decision_point_evidence"), dict) else {}
+        if decision.get("proof_placement_gap") is True:
+            leaks.append(self._build_leak(
+                "proof_placement_gap", "Decision-Point Proof Placement Gap",
+                "Relevant proof exists somewhere on the inspected site, but no strong proof signal was verified on the inspected high-intent decision pages. The issue is placement, not a claim that the business has no proof.",
+                "trust_conversion", biz_type, 0.45, "medium", 1.0, False,
+                {"proof_exists_sitewide": True, "proof_visible_at_decision_point": False, "decision_pages_verified": decision.get("decision_pages_verified")},
+                "Bounded cross-page decision-point evidence comparison"))
+
+        consistency = diagnostics.get("cross_page_consistency") if isinstance(diagnostics.get("cross_page_consistency"), dict) else {}
+        consistency_issues = [x for x in (consistency.get("issues") or []) if isinstance(x, dict)]
+        if consistency_issues:
+            leaks.append(self._build_leak(
+                "cross_page_consistency", "Commercial Information Consistency Gap",
+                "The inspected public pages expose materially inconsistent commercial wording (for example delivery, refund or cancellation timing). Conflicting promises can create uncertainty even when each page looks reasonable by itself.",
+                "trust_conversion", biz_type, min(0.70, 0.45 + 0.08 * len(consistency_issues)), "high", 1.0, False,
+                {"issues": consistency_issues[:5]}, "Bounded cross-page public-information comparison"))
+
+        hygiene = diagnostics.get("public_content_hygiene") if isinstance(diagnostics.get("public_content_hygiene"), dict) else {}
+        suspicious_pages = [x for x in (hygiene.get("suspicious_pages") or []) if isinstance(x, dict)]
+        if suspicious_pages:
+            leaks.append(self._build_leak(
+                "public_unfinished_content", "Public Unfinished / Internal-Looking Content",
+                "One or more publicly reachable pages appear test, draft, internal or placeholder-like. This can weaken trust if customers or search engines discover the page.",
+                "content_eeat", biz_type, min(0.68, 0.40 + 0.08 * len(suspicious_pages)), "high", 1.0, False,
+                {"suspicious_pages": suspicious_pages[:5]}, "Bounded same-origin public-content hygiene inspection"))
+
+        policy_review = diagnostics.get("policy_content_review") if isinstance(diagnostics.get("policy_content_review"), dict) else {}
+        if policy_review.get("review_recommended") is True:
+            leaks.append(self._build_leak(
+                "policy_content_consistency", "Policy Content Consistency Review",
+                "A public policy page contains wording that appears placeholder-like, internal or potentially stale relative to the observed site. This is a trust/consistency review signal, not a legal-compliance determination.",
+                "content_eeat", biz_type, 0.42, "medium", 1.0, False,
+                {"items": list(policy_review.get("items") or [])[:5]}, "Public policy-content consistency inspection"))
 
         # Low-value common presentation/accessibility signals remain visible and score lightly.
         h1_status = str(data.get("h1_status") or "unknown").lower()
@@ -2438,6 +2593,38 @@ class RevenueScorer:
             consolidated.append(primary)
         return consolidated
 
+    @staticmethod
+    def _business_type_weight_multiplier(rule_key: str, category: str, business_type_key: str) -> float:
+        btype = str(business_type_key or "general")
+        rule_map = BUSINESS_TYPE_RULE_MULTIPLIERS.get(btype, {})
+        if rule_key in rule_map:
+            return max(0.75, min(1.35, float(rule_map[rule_key])))
+        category_map = BUSINESS_TYPE_CATEGORY_MULTIPLIERS.get(btype, BUSINESS_TYPE_CATEGORY_MULTIPLIERS["general"])
+        return max(0.85, min(1.25, float(category_map.get(category, 1.0))))
+
+    def _apply_business_type_weighting(self, leaks: List[Dict[str, Any]], business_type_key: str) -> List[Dict[str, Any]]:
+        """Apply first-class business-type importance after site-specific failures are verified.
+
+        This cannot manufacture a leak. It only changes the relative commercial weight of evidence
+        that already exists, and it is bounded so Journey + Context remain meaningful.
+        """
+        weighted: List[Dict[str, Any]] = []
+        for raw in leaks or []:
+            if not isinstance(raw, dict):
+                continue
+            leak = dict(raw)
+            mult = self._business_type_weight_multiplier(
+                str(leak.get("rule_key") or ""), str(leak.get("category") or ""), business_type_key
+            )
+            leak["scoring_business_type"] = business_type_key
+            leak["business_type_multiplier"] = round(mult, 3)
+            for key in ("intrinsic_severity_score", "economic_severity", "pre_dedupe_penalty", "final_score_loss", "score_impact_points", "final_severity_score"):
+                value = self._safe_float(leak.get(key))
+                if value is not None:
+                    leak[key] = round(value * mult, 2)
+            weighted.append(leak)
+        return weighted
+
     def _conversion_substitution(
         self, rule_key: str, biz_type: str, data: Dict[str, Any], profile: Dict[str, Any]
     ) -> float:
@@ -2482,6 +2669,8 @@ class RevenueScorer:
             "base_impact_weight": leak.get("base_impact_weight"),
             "category_multiplier": leak.get("category_multiplier"),
             "business_multiplier": leak.get("business_multiplier"),
+            "business_type_multiplier": leak.get("business_type_multiplier", 1.0),
+            "scoring_business_type": leak.get("scoring_business_type"),
             "research_multiplier": leak.get("research_multiplier"),
             "research_basis": leak.get("research_basis") or {},
             "confidence_multiplier": leak.get("confidence_multiplier"),
@@ -2506,6 +2695,8 @@ class RevenueScorer:
             "base_impact_weight",
             "category_multiplier",
             "business_multiplier",
+            "business_type_multiplier",
+            "scoring_business_type",
             "research_multiplier",
             "research_basis",
             "severity_factor",
@@ -2705,7 +2896,7 @@ class RevenueScorer:
                 str(scan_data.get("real_user_speed_grade") or "UNKNOWN").upper() == "GOOD"
                 and bool(scan_data.get("crux_available"))
             )
-            if rule == "mobile_lab_performance" and field_perf_good:
+            if rule in {"mobile_lab_performance", "core_web_vitals"} and field_perf_good:
                 base = min(base, 0.035)
             substitution = max(0.20, min(1.0, float(leak.get("substitution_factor") or 1.0)))
             # Intrinsic severity is already evidence-independent; severity_factor expresses how much
@@ -2717,7 +2908,7 @@ class RevenueScorer:
                 "family": family,
                 "severity_factor": round(severity, 3),
                 "causal_impairment_ceiling": round(base, 3),
-                "field_performance_override": bool(rule == "mobile_lab_performance" and field_perf_good),
+                "field_performance_override": bool(rule in {"mobile_lab_performance", "core_web_vitals"} and field_perf_good),
                 "substitution_factor": round(substitution, 3),
                 "modeled_path_impairment": round(fraction, 4),
                 "confidence": str(leak.get("confidence") or "unknown").lower(),

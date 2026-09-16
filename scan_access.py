@@ -13,20 +13,20 @@ ESSENTIAL_350
 * CAD $350
 * 30 days for the purchased domain
 * 2 fresh successful scans per calendar day
-* full 50-checkpoint evidence + detailed remediation for Top 4 findings
+* full 50-checkpoint evidence + detailed remediation for up to Top 4 verified findings
 
 ADVANCED_550
 * CAD $550
 * 30 days for the purchased domain
 * 3 fresh successful scans per calendar day
-* full 50-checkpoint evidence + detailed remediation for Top 8 findings
+* full 50-checkpoint evidence + detailed remediation for up to Top 8 verified findings
 * one 15-minute implementation guidance call
 
 ARCHITECT_850
 * CAD $850
 * 30 days for the purchased domain
 * 4 fresh successful scans per calendar day
-* full 50-checkpoint evidence + detailed remediation for Top 10 findings
+* full 50-checkpoint evidence + detailed remediation for up to Top 10 verified findings
 * two 15-minute implementation guidance calls
 * email support with a 15-hour response target
 

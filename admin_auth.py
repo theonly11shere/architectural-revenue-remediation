@@ -9,8 +9,11 @@ This module is deliberately small and self-contained:
 - browser cookies remain HttpOnly/Secure/Strict through ``main.py``.
 
 Required production configuration:
-    ADMIN_EMAIL or TRILLOKA_ADMIN_EMAIL
     RESEND_API_KEY
+Owner destination:
+    TRILLOKA_OWNER_EMAIL  (recommended shared destination for reports + OTP)
+    default: onlyonearpit@gmail.com
+Legacy TRILLOKA_ADMIN_EMAIL / ADMIN_EMAIL remain supported as fallbacks.
 Optional:
     TRILLOKA_ADMIN_SESSION_SECRET  (recommended; otherwise a stable key is derived
                                     from the Resend key and owner email)
@@ -78,7 +81,7 @@ class AdminAuthManager:
     challenge_cookie_name = "trilloka_admin_challenge"
 
     def __init__(self) -> None:
-        self.owner_email = (os.environ.get("TRILLOKA_ADMIN_EMAIL") or os.environ.get("ADMIN_EMAIL") or "").strip().lower()
+        self.owner_email = (os.environ.get("TRILLOKA_OWNER_EMAIL") or os.environ.get("TRILLOKA_ADMIN_EMAIL") or os.environ.get("ADMIN_EMAIL") or "onlyonearpit@gmail.com").strip().lower()
         self.resend_api_key = os.environ.get("RESEND_API_KEY", "").strip()
         self.from_email = (os.environ.get("TRILLOKA_ADMIN_FROM_EMAIL") or os.environ.get("FROM_EMAIL") or "alerts@trilloka.com").strip()
         explicit_secret = os.environ.get("TRILLOKA_ADMIN_SESSION_SECRET", "").strip()

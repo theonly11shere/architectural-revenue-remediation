@@ -250,7 +250,7 @@ class _StaticHTMLProbe(HTMLParser):
 
 
 class HybridScanner:
-    ENGINE_VERSION = "v7.2.2"
+    ENGINE_VERSION = "v7.3.0"
     """Three-phase scanner with evidence confidence and business context."""
 
     def __init__(self, google_api_key: Optional[str] = None):
@@ -272,9 +272,9 @@ class HybridScanner:
         # Fixed Google API calls use this session. Disable environment proxy inheritance so
         # deployment-level proxy variables cannot silently reroute security-sensitive traffic.
         self.session.trust_env = False
-        self.session.headers.update({"User-Agent": "TrillokaBot/3.2 Secure Revenue Architecture Auditor"})
+        self.session.headers.update({"User-Agent": "TrillokaBot/3.3 Business-Type Revenue Architecture Auditor"})
         # Every user/page-derived destination goes through a DNS-validated, IP-pinned client.
-        self.safe_http = SafeHTTPClient(default_headers={"User-Agent": "TrillokaBot/3.2 Secure Revenue Architecture Auditor"})
+        self.safe_http = SafeHTTPClient(default_headers={"User-Agent": "TrillokaBot/3.3 Business-Type Revenue Architecture Auditor"})
 
     async def execute_hybrid_scan(self, target_domain: str, business_name: str = "", business_type: str = "auto") -> Dict[str, Any]:
         """Run HTTP, Google and mobile-browser evidence collection."""
@@ -346,8 +346,8 @@ class HybridScanner:
             urllib.parse.urlparse(combined.get("final_url") or url).scheme == "https"
         )
 
-        # First-pass journey/context inference chooses the most commercially relevant internal pages.
-        # Legacy business_type values are weak hints only; strong page/action evidence wins.
+        # First-pass Business Type + Journey + Context inference chooses the most commercially relevant internal pages.
+        # Business type is a first-class scoring signal; observed actions still resolve the actual website journey.
         initial_architecture_profile = infer_architecture_profile(combined, business_type)
 
         # Bounded multi-page journey inspection. This is passive: GET requests only, same origin,
@@ -391,8 +391,19 @@ class HybridScanner:
             combined["conversion_error_signals"] = existing + list(provider_health.get("error_signals") or [])
             combined["conversion_path_error_detected"] = True
 
-        # Re-infer after the bounded journey sample because booking/quote/checkout/proof pages can
-        # expose a clearer revenue path than a generic homepage.
+        # V7.3 broad commercial architecture diagnostics.  These are bounded, passive and evidence-first:
+        # they compare page placement/consistency and look for accidentally public unfinished content,
+        # but never submit forms or claim legal non-compliance.
+        public_content_hygiene = await asyncio.to_thread(
+            self._scan_public_content_hygiene, resolved_url, candidate_links
+        )
+        combined["public_content_hygiene"] = public_content_hygiene
+        combined["commercial_architecture_diagnostics"] = self._build_commercial_architecture_diagnostics(
+            combined, public_content_hygiene
+        )
+
+        # Re-infer Business Type + Journey + Context after the bounded journey sample because internal
+        # conversion/proof pages can expose a clearer commercial model than a generic homepage.
         architecture_profile = infer_architecture_profile(combined, business_type)
         combined["architecture_profile"] = architecture_profile
         # Legacy alias retained for current report/frontend integrations.
@@ -1938,13 +1949,28 @@ class HybridScanner:
                     "status_code": status,
                     "role": role,
                     "verified": True,
+                    "page_text_sample": str(evidence.get("page_text") or "")[:7000],
                     "forms_present": bool(evidence.get("forms_present")),
+                    "form_max_field_count": evidence.get("form_max_field_count"),
                     "cta_types": evidence.get("mobile_cta_types") or [],
                     "conversion_error_signals": page_errors,
                     "credential_signal_types": page_credential_types,
                     "reviews_visible": bool(evidence.get("reviews_visible")),
+                    "social_proof_present": bool(evidence.get("social_proof_present")),
+                    "trust_badges_present": bool(evidence.get("trust_badges_present")),
+                    "case_studies_portfolio_present": bool(evidence.get("case_studies_portfolio_present")),
+                    "faq_present": bool(evidence.get("faq_present")),
                     "privacy_policy_linked": bool(evidence.get("privacy_policy_linked")),
                     "terms_linked": bool(evidence.get("terms_linked")),
+                    "return_policy_linked": bool(evidence.get("return_policy_linked")),
+                    "shipping_info_linked": bool(evidence.get("shipping_info_linked")),
+                    "pricing_linked": bool(evidence.get("pricing_linked")),
+                    "guarantee_refund_visible": bool(evidence.get("guarantee_refund_visible")),
+                    "address_location_visible": bool(evidence.get("address_location_visible")),
+                    "phone_number_visible": bool(evidence.get("phone_number_visible")),
+                    "delivery_date_visible": evidence.get("delivery_date_visible"),
+                    "checkout_costs_disclosed_before_final_step": evidence.get("checkout_costs_disclosed_before_final_step"),
+                    "guest_checkout_available": evidence.get("guest_checkout_available"),
                 })
             except Exception as exc:
                 pages.append({"url": url, "status_code": None, "role": self._journey_role(url), "verified": False, "error": str(exc)[:220]})
@@ -2513,29 +2539,244 @@ class HybridScanner:
         }
 
     @staticmethod
+    def _extract_day_ranges(text: str) -> List[Dict[str, Any]]:
+        clean = " ".join(str(text or "").lower().split())
+        patterns = [
+            r"\b(\d{1,2})\s*(?:-|–|to)\s*(\d{1,2})\s*(business|working|calendar)?\s*days?\b",
+            r"\bwithin\s+(\d{1,2})\s*(business|working|calendar)?\s*days?\b",
+            r"\b(\d{1,2})\s*(business|working|calendar)?\s*days?\b",
+        ]
+        found: List[Dict[str, Any]] = []
+        for idx, pattern in enumerate(patterns):
+            for match in re.finditer(pattern, clean, re.I):
+                if idx == 0:
+                    lo, hi, unit = int(match.group(1)), int(match.group(2)), str(match.group(3) or "days")
+                else:
+                    lo = hi = int(match.group(1))
+                    unit = str(match.group(2) or "days")
+                found.append({"min_days": min(lo, hi), "max_days": max(lo, hi), "unit": unit, "text": match.group(0)[:80]})
+        unique: List[Dict[str, Any]] = []
+        seen = set()
+        for item in found:
+            marker = (item["min_days"], item["max_days"], item["unit"])
+            if marker not in seen:
+                seen.add(marker)
+                unique.append(item)
+        return unique[:8]
+
+    @staticmethod
+    def _extract_refund_ranges(text: str) -> List[Dict[str, Any]]:
+        clean = " ".join(str(text or "").lower().split())
+        found: List[Dict[str, Any]] = []
+        for match in re.finditer(r"\b(\d{1,3})\s*(?:-|–|to)?\s*(\d{1,3})?\s*days?\b.{0,45}\b(return|refund|cancel|cancellation)\b|\b(return|refund|cancel|cancellation)\b.{0,45}\b(\d{1,3})\s*days?\b", clean, re.I):
+            nums = [int(x) for x in match.groups() if str(x or "").isdigit()]
+            if not nums:
+                continue
+            found.append({"min_days": min(nums), "max_days": max(nums), "text": match.group(0)[:120]})
+        return found[:6]
+
+    @staticmethod
+    def _page_has_proof(page: Dict[str, Any]) -> bool:
+        return bool(page.get("reviews_visible") or page.get("social_proof_present") or page.get("case_studies_portfolio_present") or page.get("credential_signal_types") or page.get("trust_badges_present"))
+
+    @classmethod
+    def _build_commercial_architecture_diagnostics(cls, scan: Dict[str, Any], public_hygiene: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        pages = [p for p in (scan.get("journey_pages_scanned") or []) if isinstance(p, dict) and p.get("verified")]
+        decision_roles = {"contact_or_lead", "booking", "commerce_conversion", "evaluation"}
+        decision_pages = [p for p in pages if str(p.get("role") or "") in decision_roles]
+        proof_sitewide = bool(scan.get("reviews_visible") or scan.get("social_proof_present") or scan.get("case_studies_portfolio_present") or scan.get("credential_signals_present") or scan.get("trust_badges_present"))
+        proof_at_decision = any(cls._page_has_proof(p) for p in decision_pages)
+
+        delivery_mentions: List[Dict[str, Any]] = []
+        refund_mentions: List[Dict[str, Any]] = []
+        for page in pages:
+            text = str(page.get("page_text_sample") or "")
+            for item in cls._extract_day_ranges(text):
+                delivery_mentions.append({"url": page.get("url"), "role": page.get("role"), **item})
+            for item in cls._extract_refund_ranges(text):
+                refund_mentions.append({"url": page.get("url"), "role": page.get("role"), **item})
+
+        def conflicting_ranges(items: List[Dict[str, Any]]) -> bool:
+            ranges = {(int(x.get("min_days") or 0), int(x.get("max_days") or 0)) for x in items if x.get("min_days") is not None}
+            if len(ranges) <= 1:
+                return False
+            # Treat near-overlapping wording as consistent; flag only materially different promises.
+            ordered = sorted(ranges)
+            return any(abs(a[0] - b[0]) >= 2 or abs(a[1] - b[1]) >= 2 for a, b in zip(ordered, ordered[1:]))
+
+        consistency_issues: List[Dict[str, Any]] = []
+        if conflicting_ranges(delivery_mentions):
+            consistency_issues.append({
+                "type": "delivery_timing_conflict",
+                "message": "Different public pages expose materially different delivery/processing day ranges.",
+                "evidence": delivery_mentions[:8],
+            })
+        if conflicting_ranges(refund_mentions):
+            consistency_issues.append({
+                "type": "refund_timing_conflict",
+                "message": "Different public pages expose materially different return/refund/cancellation day ranges.",
+                "evidence": refund_mentions[:8],
+            })
+
+        policy_review: List[Dict[str, Any]] = []
+        policy_markers = (
+            "[company name]", "[your company]", "lorem ipsum", "todo", "for internal", "example company",
+            "your sport and institution", "coach from your institution", "insert ", "placeholder",
+        )
+        for page in pages:
+            if str(page.get("role") or "") != "policy":
+                continue
+            text = str(page.get("page_text_sample") or "").lower()
+            hits = [marker for marker in policy_markers if marker in text]
+            if hits:
+                policy_review.append({
+                    "url": page.get("url"), "markers": hits[:6],
+                    "message": "Policy text contains wording that looks templated, internal, placeholder-like or potentially stale. Manual consistency review is recommended; this is not a legal-compliance conclusion.",
+                })
+
+        cta_types: List[str] = []
+        if isinstance(scan.get("mobile_cta_types"), list):
+            cta_types.extend(str(x) for x in scan.get("mobile_cta_types") if x)
+        for page in decision_pages:
+            cta_types.extend(str(x) for x in (page.get("cta_types") or []) if x)
+        high_intent = {x for x in cta_types if x in {"buy", "add_to_cart", "order", "checkout", "book", "reserve", "quote", "demo", "trial", "subscribe", "join", "donate", "apply", "register", "call", "contact"}}
+        cta_competition = len(high_intent) >= 5
+
+        hygiene = public_hygiene if isinstance(public_hygiene, dict) else (scan.get("public_content_hygiene") if isinstance(scan.get("public_content_hygiene"), dict) else {})
+        unfinished = list(hygiene.get("suspicious_pages") or [])
+        return {
+            "version": "commercial_architecture_v1",
+            "decision_point_evidence": {
+                "decision_pages_verified": len(decision_pages),
+                "proof_exists_sitewide": proof_sitewide,
+                "proof_visible_at_decision_point": proof_at_decision,
+                "proof_placement_gap": bool(proof_sitewide and decision_pages and not proof_at_decision),
+                "pricing_sitewide": bool(scan.get("pricing_linked")),
+                "pricing_at_decision_point": any(bool(p.get("pricing_linked")) for p in decision_pages),
+                "shipping_sitewide": bool(scan.get("shipping_info_linked")),
+                "shipping_at_decision_point": any(bool(p.get("shipping_info_linked")) for p in decision_pages),
+                "return_policy_sitewide": bool(scan.get("return_policy_linked")),
+                "return_policy_at_decision_point": any(bool(p.get("return_policy_linked")) for p in decision_pages),
+            },
+            "cross_page_consistency": {
+                "issues": consistency_issues,
+                "delivery_mentions": delivery_mentions[:10],
+                "refund_mentions": refund_mentions[:10],
+                "status": "ISSUES_DETECTED" if consistency_issues else "NO_MATERIAL_CONFLICT_VERIFIED",
+            },
+            "policy_content_review": {
+                "review_recommended": bool(policy_review),
+                "items": policy_review,
+                "note": "Content consistency review only; the scanner does not make legal-compliance determinations.",
+            },
+            "public_content_hygiene": hygiene,
+            "cta_competition": {
+                "detected": cta_competition,
+                "distinct_high_intent_actions": sorted(high_intent),
+                "note": "A high count is a review signal, not proof of customer confusion."
+            },
+        }
+
+    def _scan_public_content_hygiene(self, base_url: str, candidates: List[str]) -> Dict[str, Any]:
+        """Bounded passive check for accidentally public test/internal/placeholder pages."""
+        parsed = urllib.parse.urlparse(base_url)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        suspicious_path_tokens = ("/test", "/draft", "/internal", "/staging", "/demo", "/placeholder", "/tmp", "/preview", "/old-")
+        content_markers = (
+            "lorem ipsum", "example product title", "for internal", "placeholder text", "dummy text",
+            "todo:", "test page", "sample product", "[company name]", "[your company]", "coming soon",
+        )
+        urls: List[str] = []
+        for raw in candidates or []:
+            try:
+                url = urllib.parse.urljoin(origin + "/", str(raw))
+                u = urllib.parse.urlparse(url)
+                if u.netloc.lower() != parsed.netloc.lower():
+                    continue
+                low = urllib.parse.unquote(u.path).lower()
+                if any(token in low for token in suspicious_path_tokens):
+                    urls.append(url)
+            except Exception:
+                continue
+        # Deduplicate and bound cost. Pages without suspicious URLs are not guessed aggressively.
+        unique = list(dict.fromkeys(urls))[:4]
+        suspicious_pages: List[Dict[str, Any]] = []
+        checked: List[str] = []
+        for url in unique:
+            try:
+                response = self.safe_http.get(url, timeout=(3, 6), allow_redirects=True, max_bytes=500_000)
+                checked.append(str(response.url))
+                if not (200 <= int(response.status_code) < 400):
+                    continue
+                probe = self._extract_static_html_evidence((response.text or "")[:450_000], response.url, verified=True)
+                text = str(probe.get("page_text") or "").lower()
+                path = urllib.parse.urlparse(response.url).path.lower()
+                hits = [marker for marker in content_markers if marker in text]
+                path_hits = [token for token in suspicious_path_tokens if token in path]
+                # Avoid flagging legitimate demo pages based on path alone. Require at least one content marker,
+                # or two strongly internal path markers/tokens.
+                if hits or any(token in path for token in ("/internal", "/draft", "/staging", "/placeholder", "/test")):
+                    suspicious_pages.append({
+                        "url": response.url,
+                        "path_markers": path_hits,
+                        "content_markers": hits[:8],
+                        "status_code": int(response.status_code),
+                        "message": "A publicly reachable page appears test/internal/placeholder-like and should be reviewed for intentional publication.",
+                    })
+            except Exception:
+                continue
+        return {
+            "checked_urls": checked,
+            "suspicious_pages": suspicious_pages,
+            "issue_count": len(suspicious_pages),
+            "status": "REVIEW_RECOMMENDED" if suspicious_pages else "NO_SUSPICIOUS_PUBLIC_PAGE_VERIFIED",
+            "method": "bounded same-origin passive inspection of suspicious public URLs discovered in site navigation",
+        }
+
+    @staticmethod
     def _business_type_validation(requested: str, automatic: Dict[str, Any]) -> Dict[str, Any]:
         raw = str(requested or "auto").strip().lower().replace("-", "_").replace(" ", "_")
-        confidence = HybridScanner._to_float((automatic or {}).get("confidence")) or 0.0
+        journey_confidence = HybridScanner._to_float((automatic or {}).get("confidence")) or 0.0
+        business_confidence = HybridScanner._to_float((automatic or {}).get("business_type_confidence")) or 0.0
         journey = str((automatic or {}).get("journey_model") or "general")
+        inferred_business = str((automatic or {}).get("business_type") or "general")
         provisional = bool((automatic or {}).get("provisional"))
-        direct_models = {
+        journey_models = {
             "lead_quote", "appointment_consultation", "reservation_event", "direct_purchase",
-            "demo_sales", "membership_subscription", "general",
+            "demo_sales", "membership_subscription", "donation_support", "application_enrollment", "general",
         }
-        direct_hint = raw if raw in direct_models else ""
-        legacy_hint = raw if raw not in direct_models and raw not in {"", "auto", "unknown", "none"} else ""
-        mismatch = bool(direct_hint and direct_hint != "general" and journey != direct_hint and confidence >= 0.75)
+        business_types = {
+            "ecommerce", "marketplace", "local_service", "professional_service", "healthcare", "medspa",
+            "legal", "financial_services", "real_estate", "restaurant", "hospitality_event", "saas", "b2b",
+            "agency", "membership_creator", "education", "nonprofit", "automotive", "general",
+        }
+        requested_journey = raw if raw in journey_models else ""
+        requested_business = raw if raw in business_types else ""
+        business_mismatch = bool(
+            requested_business and requested_business != "general" and inferred_business != requested_business
+            and str((automatic or {}).get("business_type_source") or "") != "explicit_request"
+            and business_confidence >= 0.75
+        )
+        journey_mismatch = bool(requested_journey and requested_journey != "general" and journey != requested_journey and journey_confidence >= 0.75)
         return {
-            "requested_journey_hint": direct_hint or "auto",
-            "requested_legacy_hint": legacy_hint or "auto",
+            "requested_business_type": requested_business or ("auto" if raw in {"", "auto", "unknown", "none"} else raw),
+            "inferred_business_type": inferred_business,
+            "business_type_confidence": round(business_confidence, 2),
+            "business_type_source": str((automatic or {}).get("business_type_source") or "auto_inference"),
+            "requested_journey_hint": requested_journey or "auto",
             "automatic_journey_model": journey,
-            "automatic_confidence": round(confidence, 2),
+            "journey_confidence": round(journey_confidence, 2),
+            "secondary_journeys": list((automatic or {}).get("secondary_journeys") or []),
             "provisional": provisional,
-            "mismatch_warning": mismatch,
+            "mismatch_warning": bool(business_mismatch or journey_mismatch),
+            "business_type_mismatch": business_mismatch,
+            "journey_mismatch": journey_mismatch,
             "message": (
-                "V7 scores the observable customer journey plus context tags. A direct journey selection can resolve close ambiguity, but unsupported selections remain provisional; legacy industry values are weak compatibility hints only."
+                "V7.3 scores with Business Type + Customer Journey + Context. Business type changes the importance of relevant checks; "
+                "observed actions resolve the actual website journey, and context tags add obligations such as local, regulated, commerce, enterprise or sensitive-data trust."
             ),
         }
+
 
     def _static_content_signals(
         self,
