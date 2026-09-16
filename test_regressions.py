@@ -1480,3 +1480,81 @@ def test_blueprint_ratings_match_requested_public_bands():
     ]
     for score, label in expected:
         assert RevenueScorer._get_score_rating(score, {}, 0.0, {}, {}) == label
+
+
+def test_v731_customer_methodology_boundary_hides_reverse_engineering_fields():
+    import main as gateway
+    from scan_access import AccessTicket
+
+    payload = {
+        "architecture_profile": {
+            "business_type": "ecommerce",
+            "business_type_label": "E-commerce / Retail",
+            "business_type_confidence": 0.93,
+            "business_type_candidates": {"ecommerce": 10.2, "marketplace": 4.0},
+            "business_type_signals": ["private:type:signal"],
+            "journey_model": "direct_purchase",
+            "journey_label": "Direct Purchase",
+            "confidence": 0.91,
+            "journey_signals": ["private:journey:signal"],
+            "score_candidates": {"direct_purchase": 11.1},
+            "context_tags": ["commerce_payment"],
+        },
+        "business_profile": {},
+        "score_formula": {
+            "foundation_layer_score": 18.0,
+            "foundation_layer_max": 22.0,
+            "revenue_user_architecture_score": 41.0,
+            "revenue_user_architecture_max": 60.0,
+            "elite_architecture_score": 3.0,
+            "elite_architecture_max": 18.0,
+            "canonical_three_layer_score": 62.0,
+            "public_score_blueprint_anchors": [[0, 0], [100, 90]],
+            "public_score_formula": "piecewise_linear_blueprint90(canonical_three_layer_score)",
+        },
+        "scoring_ledger": [{"rule_key": "delivery_expectation_clarity", "leak_name": "Delivery", "base_weight": 3.5, "final_score_loss": 2.0, "confidence": "high"}],
+        "full_50_checkpoint_basis": [{"id": 1, "check": "SSL Certificate Active", "status": "PASS", "report_weight": 9.0, "severity_factor": 0.9, "rule_key": "unsecured_ssl", "evidence": {"ok": True}}],
+        "analysis_layers": {"adaptive_architecture": {"layer_score": 41.0, "layer_max": 60.0, "weighted_checkpoint_detail": {"private": True}}},
+        "top_10_financial_leaks": [{"rule_key": "delivery_expectation_clarity", "leak_name": "Delivery Expectation Clarity Gap", "impact_summary": "Delivery timing is unclear", "base_weight": 3.5, "final_score_loss": 2.0}],
+        "top_5_seo_leaks": [],
+    }
+    paid = AccessTicket(mode="paid", usage_id=None, subject_hash=None, domain_key="example.com", plan_id="essential_350")
+    public = gateway._apply_report_access(payload, paid)
+
+    assert public["architecture_profile"]["private_inference_signals_withheld"] is True
+    assert "business_type_candidates" not in public["architecture_profile"]
+    assert "journey_signals" not in public["architecture_profile"]
+    assert public["score_formula"]["proprietary_calibration_withheld"] is True
+    assert "public_score_blueprint_anchors" not in public["score_formula"]
+    assert "base_weight" not in public["scoring_ledger"][0]
+    assert "report_weight" not in public["full_50_checkpoint_basis"][0]
+    assert "weighted_checkpoint_detail" not in public["analysis_layers"]["adaptive_architecture"]
+    assert "base_weight" not in public["top_10_financial_leaks"][0]
+
+
+def test_v731_customer_report_keeps_actionability_without_private_calibration():
+    import main as gateway
+    from scan_access import AccessTicket
+
+    scan = _resolved_lead_fixture()
+    scan.update({
+        "forms_present": False,
+        "form_action_valid": False,
+        "form_functional_status": "FAIL",
+        "mobile_primary_cta_present": False,
+        "mobile_sticky_cta_present": False,
+        "mobile_cta_types": [],
+    })
+    audit = RevenueScorer().audit_and_score(scan, business_type="auto")
+    reporter = ReportGenerator()
+    admin_report = reporter.generate_admin_master_report(audit, scan)
+    paid = AccessTicket(mode="paid", usage_id=None, subject_hash=None, domain_key="example.com", plan_id="essential_350")
+    customer = gateway._customer_report_for_ticket(admin_report, paid)
+    assert customer is not None
+    html = reporter._build_email_html(customer)
+    assert "Where You Might Be Losing Customers" in html
+    assert "3-Angle Remediation Plan" in html
+    assert "Public customer-journey map" in html
+    assert "exact rule weights" in html.lower()
+    assert "public_score_blueprint_anchors" not in html
+    assert "piecewise_linear_blueprint90" not in html

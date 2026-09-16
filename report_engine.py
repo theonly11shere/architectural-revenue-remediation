@@ -32,7 +32,7 @@ class ReportGenerator:
         self.vault_dir = os.environ.get("VAULT_DIR", "./vault_archives")
 
     def generate_admin_master_report(self, audit_data: Dict[str, Any], scan_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create the V7.3 plain-language, evidence-first master report.
+        """Create the V7.3.1 plain-language, evidence-first master report.
 
         Verified leaks are never padded to a fixed count. Unknowns, strengths and optional future
         optimization ideas are stored in separate sections so a passing checkpoint cannot be
@@ -90,7 +90,7 @@ class ReportGenerator:
         journey_model = str(business_profile.get("journey_model") or audit.get("journey_model") or "general")
 
         return {
-            "report_type": "ADMIN_LEAD_ALERT_V7_3",
+            "report_type": "ADMIN_LEAD_ALERT_V7_3_1",
             "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "target_domain": audit.get("target_domain", scan.get("domain", "Unknown")),
             "business_type": business_type,
@@ -101,6 +101,14 @@ class ReportGenerator:
             "journey_model": journey_model,
             "journey_label": str(business_profile.get("journey_label") or JOURNEY_LABELS.get(journey_model, "General / Unresolved Journey")),
             "secondary_journeys": list(business_profile.get("secondary_journeys") or []),
+            "public_journey_map": {
+                "entry": "Visitor arrives from search, ads, social, referral or direct navigation.",
+                "path": str(business_profile.get("journey_label") or JOURNEY_LABELS.get(journey_model, "Customer journey")),
+                "primary_action": str(business_profile.get("primary_conversion") or "Primary customer action"),
+                "decision_points": ["clarity", "trust", "proof", "friction", "technical reliability"],
+                "outcome": "The business outcome the public website is trying to create.",
+                "note": "Public-safe journey explanation only; proprietary inference signals and exact weighting remain private.",
+            },
             "context_tags": list(business_profile.get("context_tags") or []),
             "context_labels": list(business_profile.get("context_labels") or []),
             "analysis_layers": audit.get("analysis_layers") or {},
@@ -1297,7 +1305,7 @@ class ReportGenerator:
         return False
 
     def _build_email_html(self, report: Dict[str, Any]) -> str:
-        """Render the V7.3 plain-language report used in email and the HTML attachment."""
+        """Render the V7.3.1 plain-language report used in email and the HTML attachment."""
         report = report or {}
 
         def esc(value: Any) -> str:
@@ -1388,18 +1396,50 @@ class ReportGenerator:
         e_max = formula.get("elite_architecture_max")
         canonical = formula.get("canonical_three_layer_score")
         penalty = formula.get("total_final_penalty")
-        scoring_math = (
-            '<div style="background:#F8FAFC;border:1px solid #CBD5E1;border-radius:12px;padding:16px;margin:16px 0;">'
-            '<p style="font:700 13px Inter,sans-serif;color:#0F172A;margin:0 0 8px;">Score arithmetic</p>'
-            '<p style="font:12px/1.65 Inter,sans-serif;color:#334155;margin:0;">'
-            f'Foundation: <strong>{fmt_num(f_score,2)} / {fmt_num(f_max,0)}</strong><br>'
-            f'Revenue/User Architecture: <strong>{fmt_num(r_score,2)} / {fmt_num(r_max,0)}</strong><br>'
-            f'Elite Architecture: <strong>{fmt_num(e_score,2)} / {fmt_num(e_max,0)}</strong><br>'
-            f'Canonical three-layer strength: <strong>{fmt_num(canonical,2)} / 100</strong><br>'
-            f'Public blueprint calibration: <strong>{fmt_num(canonical,2)} canonical → {score_text} / 90</strong><br>'
-            f'Verified penalty ledger: <strong>{fmt_num(penalty,2)}</strong> canonical points — already reflected in the layer scores above, not subtracted again.'
-            '</p></div>'
-        )
+        if formula.get("proprietary_calibration_withheld"):
+            scoring_math = (
+                '<div style="background:#F8FAFC;border:1px solid #CBD5E1;border-radius:12px;padding:16px;margin:16px 0;">'
+                '<p style="font:700 13px Inter,sans-serif;color:#0F172A;margin:0 0 8px;">Score transparency</p>'
+                '<p style="font:12px/1.65 Inter,sans-serif;color:#334155;margin:0;">'
+                f'Foundation: <strong>{fmt_num(f_score,2)} / {fmt_num(f_max,0)}</strong><br>'
+                f'Revenue/User Architecture: <strong>{fmt_num(r_score,2)} / {fmt_num(r_max,0)}</strong><br>'
+                f'Elite Architecture: <strong>{fmt_num(e_score,2)} / {fmt_num(e_max,0)}</strong><br>'
+                f'Final Revenue Readiness Index: <strong>{score_text} / 90</strong><br>'
+                'The report shows the earned architecture layers and final result. Exact rule weights, calibration constants, tie-break logic and ranking equations are proprietary and remain inside the Architect/Vault system.'
+                '</p></div>'
+            )
+        else:
+            scoring_math = (
+                '<div style="background:#F8FAFC;border:1px solid #CBD5E1;border-radius:12px;padding:16px;margin:16px 0;">'
+                '<p style="font:700 13px Inter,sans-serif;color:#0F172A;margin:0 0 8px;">Score arithmetic — internal Architect view</p>'
+                '<p style="font:12px/1.65 Inter,sans-serif;color:#334155;margin:0;">'
+                f'Foundation: <strong>{fmt_num(f_score,2)} / {fmt_num(f_max,0)}</strong><br>'
+                f'Revenue/User Architecture: <strong>{fmt_num(r_score,2)} / {fmt_num(r_max,0)}</strong><br>'
+                f'Elite Architecture: <strong>{fmt_num(e_score,2)} / {fmt_num(e_max,0)}</strong><br>'
+                f'Canonical three-layer strength: <strong>{fmt_num(canonical,2)} / 100</strong><br>'
+                f'Public blueprint calibration: <strong>{fmt_num(canonical,2)} canonical → {score_text} / 90</strong><br>'
+                f'Verified penalty ledger: <strong>{fmt_num(penalty,2)}</strong> canonical points — already reflected in the layer scores above, not subtracted again.'
+                '</p></div>'
+            )
+
+        public_map = report.get("public_journey_map") if isinstance(report.get("public_journey_map"), dict) else {}
+        if public_map:
+            journey_map_html = (
+                '<div style="background:#111827;border-radius:14px;padding:18px;margin:18px 0;color:#F8FAFC;">'
+                '<div style="font:700 10px Inter,sans-serif;color:#D8B66A;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:10px;">HOW TRILLOKA READ THIS WEBSITE</div>'
+                '<div style="font:700 20px Georgia,serif;margin-bottom:12px;">Public customer-journey map</div>'
+                '<div style="font:12px/1.7 Inter,sans-serif;color:#D1D5DB;">'
+                f'<strong style="color:#fff;">1. Entry:</strong> {esc(public_map.get("entry"))}<br>'
+                f'<strong style="color:#fff;">2. Journey:</strong> {esc(public_map.get("path"))}<br>'
+                f'<strong style="color:#fff;">3. Primary action:</strong> {esc(public_map.get("primary_action"))}<br>'
+                '<strong style="color:#fff;">4. Decision points:</strong> clarity, trust, proof, friction and technical reliability<br>'
+                f'<strong style="color:#fff;">5. Outcome:</strong> {esc(public_map.get("outcome"))}'
+                '</div>'
+                '<p style="font:11px/1.55 Inter,sans-serif;color:#9CA3AF;margin:12px 0 0;">This shows the public logic used to explain the audit. Exact inference signals, weights and calibration rules remain proprietary.</p>'
+                '</div>'
+            )
+        else:
+            journey_map_html = ''
 
         finding_cards = []
         for idx, item in enumerate(report.get("verified_revenue_findings") or [], 1):
@@ -1499,7 +1539,7 @@ class ReportGenerator:
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trilloka Revenue Readiness Audit — {domain}</title></head>
 <body style="margin:0;background:#F4F1EB;padding:0;">
 <main style="max-width:920px;margin:0 auto;background:#FCFBF8;padding:32px 24px 60px;">
-  <div style="font:700 11px Inter,sans-serif;color:#9A7A31;letter-spacing:1.5px;text-transform:uppercase;">TRILLOKA TELEMETRY & EXECUTIVE AUDIT — V7.3</div>
+  <div style="font:700 11px Inter,sans-serif;color:#9A7A31;letter-spacing:1.5px;text-transform:uppercase;">TRILLOKA TELEMETRY & EXECUTIVE AUDIT — V7.3.1</div>
   <h1 style="font:700 34px Georgia,serif;color:#111827;margin:8px 0 8px;">Revenue Readiness Audit</h1>
   <p style="font:13px Inter,sans-serif;color:#6B7280;margin:0 0 22px;">Target: <strong>{domain}</strong> &nbsp;•&nbsp; Vault ID: <strong>{vault_id}</strong></p>
 
@@ -1514,6 +1554,7 @@ class ReportGenerator:
     <p style="font:700 12px Inter,sans-serif;color:#0F172A;margin:0 0 6px;">What this one scan covers</p>
     <p style="font:12px/1.6 Inter,sans-serif;color:#475569;margin:0;">Commercial path, trust and proof, technical foundation, mobile usability, performance, SEO/discoverability, measurement, policy signals, cross-page consistency, public-content hygiene and local competitor context where verifiable.</p>
   </div>
+  {journey_map_html}
 
   <h2 style="font:700 24px Georgia,serif;color:#111827;margin:30px 0 12px;">At a Glance</h2>
   <p style="font:12px/1.6 Inter,sans-serif;color:#6B7280;">This table integrates the report's verified problems, unresolved verification items, verified strengths and optional future opportunities. It deliberately does <strong>not</strong> include solutions; detailed remediation appears later.</p>
@@ -1525,7 +1566,7 @@ class ReportGenerator:
   {scoring_math}
   <p style="font:12px/1.6 Inter,sans-serif;color:#475569;"><strong>Evidence coverage:</strong> {coverage_note}</p>
   <p style="font:12px/1.6 Inter,sans-serif;color:#475569;"><strong>Advisory maturity threshold:</strong> {esc((report.get('maturity_gate') or {}).get('advisory_score_threshold', (report.get('maturity_gate') or {}).get('score_cap', 'N/A')))} / 90 — diagnostic reference only, not a score cap.</p>
-  <p style="font:12px/1.6 Inter,sans-serif;color:#475569;"><strong>Business Type + Journey + Context weighting:</strong> {esc(methodology.get('vertical_weighting'))}</p>
+  <p style="font:12px/1.6 Inter,sans-serif;color:#475569;"><strong>Trilloka Commercial Architecture Methodology:</strong> Business type, customer journey, context and verified evidence determine what matters most. The report explains the reasoning at a useful business level; exact weights, inference signals and calibration constants remain proprietary.</p>
   {foundation_notice}
 
   <div style="background:#FFF1F2;border:1px solid #FECDD3;border-radius:12px;padding:18px;margin:24px 0;">

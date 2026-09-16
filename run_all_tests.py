@@ -1,4 +1,4 @@
-"""Trilloka V7.3.0 business-type + journey + context integrity runner.
+"""Trilloka V7.3.1 proprietary-boundary + journey-map integrity runner.
 
 Runs the current Business Type + Journey + Context scanner/scorer regression suite and targeted
 calibration/hardening checks.  Everything here is passive and offline: it performs
@@ -75,8 +75,8 @@ def test_pytest_regressions() -> None:
 
 def test_main_runtime_import() -> None:
     import main as gateway
-    assert gateway.app.version == "7.3.0"
-    assert gateway.scanner.ENGINE_VERSION == "v7.3.0"
+    assert gateway.app.version == "7.3.1"
+    assert gateway.scanner.ENGINE_VERSION == "v7.3.1"
     assert gateway.PLAN_CATALOG["essential_350"]["remediation_limit"] == 4
     assert gateway.PLAN_CATALOG["advanced_550"]["remediation_limit"] == 8
 
@@ -611,12 +611,61 @@ def test_frontend_contract_preserved() -> None:
     assert "One scan. Full website picture. Recheck every 3–6 months." in page
     assert "Architect-reviewed and proofed report delivered within 24–32 hours." in page
     assert "Auto-detect business type &amp; journey" in page
+    assert "HOW TRILLOKA MAPS CUSTOMER LOSS" in page
+    assert "We trace the customer journey and find where people may leave" in page
+    assert "Watch the 45-second demo" in page
+    assert "Trilloka Commercial Architecture Methodology" in page
+    assert "exact weights, calibration constants, inference signals and ranking equations remain server-side" in page
+    assert "Verified Evidence</strong> × Commercial Importance" not in page
     assert "Your free Leak Analysis" not in page
+
+
+def test_customer_methodology_boundary() -> None:
+    import main as gateway
+    from scan_access import AccessTicket
+    payload = {
+        "architecture_profile": {
+            "business_type": "b2b", "business_type_label": "B2B", "business_type_confidence": 0.91,
+            "journey_model": "lead_quote", "journey_label": "Lead / Quote", "confidence": 0.88,
+            "business_type_candidates": {"b2b": 9.4, "agency": 4.1}, "score_candidates": {"lead_quote": 8.8},
+            "business_type_signals": ["private:type:signal"], "journey_signals": ["private:journey:signal"],
+            "context_tags": ["enterprise_considered_purchase"], "context_labels": ["Enterprise / Considered Purchase"],
+        },
+        "business_profile": {},
+        "score_formula": {
+            "foundation_layer_score": 18, "foundation_layer_max": 22,
+            "revenue_user_architecture_score": 40, "revenue_user_architecture_max": 60,
+            "elite_architecture_score": 4, "elite_architecture_max": 18,
+            "canonical_three_layer_score": 62, "public_score_blueprint_anchors": [[0,0],[100,90]],
+            "public_score_formula": "private-piecewise-function",
+        },
+        "scoring_ledger": [{"rule_key":"x", "leak_name":"Example", "base_weight":9.5, "final_score_loss":4.2, "confidence":"high"}],
+        "analysis_layers": {"adaptive_architecture":{"layer_score":40,"layer_max":60,"weighted_checkpoint_detail":{"private":True}}},
+        "full_50_checkpoint_basis": [{"id":1,"check":"SSL","status":"PASS","report_weight":9.5,"severity_factor":0.9,"rule_key":"private","evidence":{"ok":True}}],
+        "top_10_financial_leaks": [{"rule_key":"x","leak_name":"Example","impact_summary":"Example impact","base_weight":9.5,"final_score_loss":4.2}],
+        "top_5_seo_leaks": [],
+    }
+    paid = AccessTicket(mode="paid", usage_id=None, subject_hash=None, domain_key="example.com", plan_id="essential_350")
+    public = gateway._apply_report_access(payload, paid)
+    profile = public["architecture_profile"]
+    assert "business_type_candidates" not in profile and "score_candidates" not in profile
+    assert "business_type_signals" not in profile and "journey_signals" not in profile
+    assert public["score_formula"].get("proprietary_calibration_withheld") is True
+    assert "public_score_blueprint_anchors" not in public["score_formula"]
+    assert "base_weight" not in public["scoring_ledger"][0]
+    assert "report_weight" not in public["full_50_checkpoint_basis"][0]
+    assert "weighted_checkpoint_detail" not in public["analysis_layers"]["adaptive_architecture"]
+    assert public["methodology_visibility"] == "customer_safe_summary"
+
+    admin = AccessTicket(mode="admin", usage_id=None, subject_hash=None, domain_key="example.com")
+    internal = gateway._apply_report_access(payload, admin)
+    assert internal["architecture_profile"]["business_type_candidates"] == {"b2b": 9.4, "agency": 4.1}
+    assert internal["score_formula"]["public_score_blueprint_anchors"] == [[0,0],[100,90]]
 
 
 def main() -> int:
     print("=" * 70)
-    print(" TRILLOKA V7.3.0 BUSINESS-TYPE + JOURNEY + CONTEXT REAL-WORLD INTEGRITY SUITE ")
+    print(" TRILLOKA V7.3.1 PROPRIETARY-BOUNDARY + JOURNEY-MAP INTEGRITY SUITE ")
     print("=" * 70)
     checks = (
         ("Core Python compile + warnings-as-errors", test_compile),
@@ -626,7 +675,8 @@ def main() -> int:
         ("Protected Trilloka self-scan guardrail preserved", test_self_scan_guardrail_preserved),
         ("Plain-language report contract", test_plain_language_report_contract),
         ("Business-type scoring multipliers remain bounded", test_business_type_weighting_is_bounded),
-        ("Front-end contract + new customer wording", test_frontend_contract_preserved),
+        ("Front-end journey map + child-friendly demo + proprietary boundary", test_frontend_contract_preserved),
+        ("Customer API/report methodology boundary keeps private scoring internals server-side", test_customer_methodology_boundary),
         ("API gateway imports with complete runtime dependencies", test_main_runtime_import),
         ("Deployment manifest includes EmailStr dependency", test_deployment_dependency_manifest),
         ("SSRF/network target hardening is enforced", test_network_target_ssrf_hardening),

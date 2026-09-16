@@ -106,7 +106,7 @@ _PROTECTED_DOMAIN_ROOTS = tuple(
 app = FastAPI(
     title="Trilloka Architect Engine API",
     description="Evidence-weighted Revenue Readiness Diagnostic, local competitor benchmark & tiered report gateway",
-    version="7.3.0",
+    version="7.3.1",
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -125,6 +125,182 @@ scanner = HybridScanner()
 scorer = RevenueScorer()
 access_manager = ScanAccessManager()
 admin_auth = AdminAuthManager()
+
+
+# ---------------------------------------------------------------------------
+# V7.3.1 methodology-boundary helpers
+# ---------------------------------------------------------------------------
+# Customer reports should explain *what* Trilloka verified and *why* it matters
+# without shipping the private weighting matrix, calibration anchors, inference
+# signals or tie-break logic.  Admin/Vault data remains complete for debugging,
+# reproducibility and Architect review.  Public API keys stay backward-compatible.
+
+def _public_architecture_profile(profile: Dict[str, Any] | None) -> Dict[str, Any]:
+    src = profile if isinstance(profile, dict) else {}
+    safe_secondary = []
+    for item in src.get("secondary_journeys") or []:
+        if isinstance(item, dict):
+            safe_secondary.append({
+                "journey_model": item.get("journey_model"),
+                "journey_label": item.get("journey_label"),
+                "relative_strength": item.get("relative_strength"),
+            })
+        elif item:
+            safe_secondary.append(item)
+    return {
+        "model_basis": "business_type_journey_context",
+        "business_type": src.get("business_type") or src.get("vertical") or "general",
+        "business_type_label": src.get("business_type_label") or "General / Unresolved Business",
+        "business_type_confidence": src.get("business_type_confidence"),
+        "business_type_source": src.get("business_type_source"),
+        "journey_model": src.get("journey_model") or "general",
+        "journey_label": src.get("journey_label") or "General / Unresolved Journey",
+        "confidence": src.get("confidence"),
+        "provisional": bool(src.get("provisional")),
+        "journey_resolved": bool(src.get("journey_resolved")) if src.get("journey_resolved") is not None else not bool(src.get("provisional")),
+        "primary_conversion": src.get("primary_conversion"),
+        "secondary_conversions": list(src.get("secondary_conversions") or []),
+        "secondary_journeys": safe_secondary,
+        "context_tags": list(src.get("context_tags") or []),
+        "context_labels": list(src.get("context_labels") or []),
+        # Explicitly disclose the visibility boundary instead of silently removing data.
+        "methodology_detail": "public_summary",
+        "private_inference_signals_withheld": True,
+    }
+
+
+def _public_score_formula(formula: Dict[str, Any] | None) -> Dict[str, Any]:
+    src = formula if isinstance(formula, dict) else {}
+    # Keep customer-level score transparency (the three earned banks and final
+    # public scale) without exposing rule multipliers, blueprint anchors or the
+    # exact calibration function.  Internal/Vault reports still retain all fields.
+    return {
+        "method": "Trilloka Commercial Architecture Methodology",
+        "foundation_layer_score": src.get("foundation_layer_score"),
+        "foundation_layer_max": src.get("foundation_layer_max"),
+        "revenue_user_architecture_score": src.get("revenue_user_architecture_score"),
+        "revenue_user_architecture_max": src.get("revenue_user_architecture_max"),
+        "elite_architecture_score": src.get("elite_architecture_score"),
+        "elite_architecture_max": src.get("elite_architecture_max"),
+        "canonical_three_layer_score": src.get("canonical_three_layer_score"),
+        "unknown_policy": src.get("unknown_policy") or "UNKNOWN is never treated as a failure.",
+        "weighting_policy": "Business type, customer journey, context, evidence strength and commercial relevance influence importance; exact proprietary weights and calibration constants are not published.",
+        "proprietary_calibration_withheld": True,
+    }
+
+
+def _public_scoring_ledger(rows: List[Dict[str, Any]] | None) -> List[Dict[str, Any]]:
+    safe: List[Dict[str, Any]] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        safe.append({
+            "rule_key": row.get("rule_key"),
+            "finding": row.get("leak_name") or row.get("checkpoint_name") or row.get("finding"),
+            "family": row.get("family"),
+            "confidence": row.get("confidence"),
+            "finding_type": row.get("finding_type") or "VERIFIED_FINDING",
+            "priority": row.get("priority"),
+            "methodology_detail": "customer_safe",
+        })
+    return safe
+
+
+def _public_checkpoint_basis(rows: List[Dict[str, Any]] | None) -> List[Dict[str, Any]]:
+    safe: List[Dict[str, Any]] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        safe.append({
+            "id": row.get("id"),
+            "check": row.get("check"),
+            "status": row.get("status"),
+            "category": row.get("category"),
+            "evidence": copy.deepcopy(row.get("evidence")),
+            "reason": row.get("reason"),
+            "customer_note": row.get("customer_note"),
+            "business_type": row.get("business_type"),
+            "journey_model": row.get("journey_model"),
+            "context_tags": list(row.get("context_tags") or []),
+            "analysis_layer": row.get("analysis_layer"),
+            "unknown_reason_code": row.get("unknown_reason_code"),
+            "methodology_detail": "customer_safe",
+        })
+    return safe
+
+
+def _public_analysis_layers(layers: Dict[str, Any] | None) -> Dict[str, Any]:
+    src = layers if isinstance(layers, dict) else {}
+    safe: Dict[str, Any] = {}
+    for key, value in src.items():
+        if not isinstance(value, dict):
+            continue
+        safe[key] = {
+            "layer_score": value.get("layer_score"),
+            "layer_max": value.get("layer_max"),
+            "status": value.get("status"),
+            "summary": value.get("summary") or value.get("note"),
+        }
+    return safe
+
+
+def _public_finding(item: Dict[str, Any]) -> Dict[str, Any]:
+    # Preserve everything required to understand and implement a finding while withholding
+    # private numeric weighting/multiplier fields that are useful mainly for reverse engineering.
+    allowed = {
+        "rule_key", "checkpoint_id", "checkpoint_name", "leak_name", "title",
+        "impact_summary", "finding_type", "report_class", "severity_label", "category",
+        "confidence", "priority", "plain_problem", "what_we_found", "where_it_happens",
+        "why_it_matters", "financial_effect", "what_should_be_done", "solutions_3_angles",
+        "evidence_receipt", "source", "implementation_effort", "financial_mechanism",
+        "journey_stage", "family", "customer_note",
+    }
+    return {key: copy.deepcopy(value) for key, value in item.items() if key in allowed}
+
+
+def _public_methodology_summary() -> Dict[str, Any]:
+    return {
+        "name": "Trilloka Commercial Architecture Methodology",
+        "principles": [
+            "Business-type aware",
+            "Customer-journey based",
+            "Evidence first",
+            "Commercially prioritized",
+            "Architect reviewed",
+        ],
+        "public_explanation": (
+            "Trilloka reconstructs the public customer path, checks the decision points and technical evidence around that path, "
+            "then prioritizes verified weaknesses according to the business and the outcome the website is trying to create."
+        ),
+        "private_boundary": (
+            "Exact weights, calibration constants, inference signals, ranking equations and recommendation-selection rules are proprietary and remain server-side."
+        ),
+    }
+
+
+def _protect_methodology_for_customer(payload: Dict[str, Any]) -> Dict[str, Any]:
+    result = copy.deepcopy(payload)
+    profile = result.get("architecture_profile") or result.get("business_profile") or {}
+    safe_profile = _public_architecture_profile(profile)
+    result["architecture_profile"] = safe_profile
+    result["business_profile"] = copy.deepcopy(safe_profile)
+    if "score_formula" in result:
+        result["score_formula"] = _public_score_formula(result.get("score_formula"))
+    if "scoring_ledger" in result:
+        result["scoring_ledger"] = _public_scoring_ledger(result.get("scoring_ledger"))
+    if "full_50_checkpoint_basis" in result:
+        result["full_50_checkpoint_basis"] = _public_checkpoint_basis(result.get("full_50_checkpoint_basis"))
+    if "analysis_layers" in result:
+        result["analysis_layers"] = _public_analysis_layers(result.get("analysis_layers"))
+    for key in ("top_10_financial_leaks", "top_8_financial_leaks", "top_6_financial_leaks", "top_5_seo_leaks", "verified_revenue_findings"):
+        if isinstance(result.get(key), list):
+            result[key] = [_public_finding(item) for item in result.get(key) if isinstance(item, dict)]
+    # Internal overlap/cap mechanics are not needed to understand or implement a customer finding.
+    if "overlap_adjustments" in result:
+        result["overlap_adjustments"] = []
+    result["methodology"] = _public_methodology_summary()
+    result["methodology_visibility"] = "customer_safe_summary"
+    return result
 
 
 class AuditRequest(BaseModel):
@@ -548,7 +724,7 @@ def handle_trilloka_guardrail(target_domain: str) -> Optional[Dict[str, Any]]:
 def health_check() -> Dict[str, Any]:
     return {
         "status": "online",
-        "system": "Trilloka Architect Engine v7.3.0",
+        "system": "Trilloka Architect Engine v7.3.1",
         "google_api_configured": bool(os.environ.get("PAGESPEED_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
         "places_api_configured": bool(os.environ.get("GOOGLE_PLACES_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("PAGESPEED_API_KEY")),
         "report_engine": REPORT_ENGINE_AVAILABLE,
@@ -1333,7 +1509,7 @@ def _apply_report_access(base_payload: Dict[str, Any], ticket: AccessTicket) -> 
             "email_support_response_hours": plan["email_support_response_hours"],
             "purchased_domain": ticket.domain_key,
         }
-        return result
+        return _protect_methodology_for_customer(result)
 
     if ticket.mode in {"admin", "unmetered"}:
         result["report_access"] = {
@@ -1372,7 +1548,7 @@ def _apply_report_access(base_payload: Dict[str, Any], ticket: AccessTicket) -> 
         "locked_findings_count": len(all_leaks),
         "upgrade_required_for_patch_plan": True,
     }
-    return result
+    return _protect_methodology_for_customer(result)
 
 
 def _attach_access_metadata(
@@ -1437,6 +1613,10 @@ def _customer_report_for_ticket(admin_report: Dict[str, Any], ticket: AccessTick
         )
     else:
         report["implementation_roadmap"] = []
+
+    # Customer-facing reports remain fully actionable but do not expose the private
+    # inference signals, exact weighting matrix or public-score calibration constants.
+    report = _protect_methodology_for_customer(report)
     return report
 
 
