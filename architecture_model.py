@@ -752,20 +752,25 @@ def infer_architecture_profile(data: Mapping[str, Any], requested_hint: Any = "a
         winning_signals = ["requested:general"]
 
     secondary_journeys: List[Dict[str, Any]] = []
-    if top_score > 0:
-        for model, score in ranked[1:4]:
-            if score < 4.0:
-                continue
-            ratio = score / top_score
-            if ratio < 0.32:
-                continue
-            secondary_journeys.append({
-                "journey_model": model,
-                "journey_label": JOURNEY_LABELS.get(model, model.replace("_", " ").title()),
-                "relative_strength": round(ratio, 2),
-                "score": round(score, 2),
-                "signals": list(dict.fromkeys(signals.get(model) or []))[:6],
-            })
+    # Secondary journeys are evidence paths too. Weighted semantic candidates remain diagnostic
+    # and cannot be published as a secondary journey without marker authority >= 3.
+    ranked_marker_paths = list(marker_resolution.get("ranked_paths") or [])
+    for path in ranked_marker_paths:
+        model = str(path.get("journey_model") or "")
+        if not model or model == str(marker_resolution.get("journey_model") or ""):
+            continue
+        if int(path.get("authority") or 0) < 3:
+            continue
+        secondary_journeys.append({
+            "journey_model": model,
+            "journey_label": JOURNEY_LABELS.get(model, model.replace("_", " ").title()),
+            "authority": int(path.get("authority") or 0),
+            "status": str(path.get("status") or "SUPPORTED"),
+            "path_completeness": str(path.get("completeness") or "0/3"),
+            "markers": path.get("markers") or {},
+        })
+        if len(secondary_journeys) >= 3:
+            break
 
     # V7.5 authority resolver: observed customer-path sequences outrank weighted language/priors.
     weighted_journey_model = journey_model
@@ -780,27 +785,11 @@ def infer_architecture_profile(data: Mapping[str, Any], requested_hint: Any = "a
                 for stage, markers in (marker_resolution.get("proof") or {}).items()
                 for marker in markers
             ][:12]
-            # Secondary journeys must obey the same evidence authority as the primary path.
-            # Weighted semantic candidates remain diagnostics only and are never reported as
-            # customer journeys unless the current site supplies explicit path evidence.
-            secondary_journeys = []
-            for item in marker_resolution.get("ranked_paths") or []:
-                if str(item.get("journey_model") or "") == journey_model or int(item.get("authority") or 0) < 3:
-                    continue
-                secondary_journeys.append({
-                    "journey_model": item.get("journey_model"),
-                    "journey_label": JOURNEY_LABELS.get(str(item.get("journey_model") or ""), str(item.get("journey_model") or "").replace("_", " ").title()),
-                    "status": item.get("status"),
-                    "path_completeness": item.get("completeness"),
-                    "authority": item.get("authority"),
-                })
-            secondary_journeys = secondary_journeys[:3]
         else:
             # Business semantics are a search hint, not proof of a specialized journey.
             journey_model = "general"
             confidence = min(0.69, weighted_confidence)
             winning_signals = []
-            secondary_journeys = []
 
     context_tags, context_reasons = infer_context_tags(data, journey_model, business_type)
     provisional = bool(journey_model == "general" or confidence < 0.72 or (not force_general_journey and int(marker_resolution.get("authority") or 0) < 4) or (business_type == "general" and float(business.get("confidence") or 0.0) < 0.60))

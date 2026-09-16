@@ -367,17 +367,6 @@ class HybridScanner:
             str(initial_architecture_profile.get("business_type") or "general")
             if not initial_category_gate.get("required") else "general"
         )
-        initial_candidates = list((initial_architecture_profile.get("differentiation_plan") or {}).get("candidate_journeys") or [])
-        try:
-            initial_routing_memory = learning_memory.pathway_routing_overlay(
-                initial_deep_type, str(initial_architecture_profile.get("business_subtype") or "")
-            ) if initial_deep_type != "general" else {"journey_priorities": []}
-        except Exception:
-            initial_routing_memory = {"journey_priorities": []}
-        initial_discovery_journeys = self._union_strings(
-            initial_routing_memory.get("journey_priorities"), initial_candidates
-        )
-        combined["pathway_routing_memory"] = initial_routing_memory
 
         # Bounded multi-page journey inspection. This is passive: GET requests only, same origin,
         # no form submissions, no cart mutation, no login and no customer data entry. When the
@@ -394,7 +383,6 @@ class HybridScanner:
             "general",  # V7.5 neutral differentiation crawl: do not let an early journey guess steer evidence
             list(initial_architecture_profile.get("context_tags") or []),
             initial_deep_type,
-            discovery_journeys=initial_discovery_journeys,
         )
         self._merge_journey_evidence(combined, journey_meta)
 
@@ -494,25 +482,15 @@ class HybridScanner:
             combined.get("internal_links"),
         )
         deep_limit = self._to_int(os.environ.get("TRILLOKA_CATEGORY_DEEP_DIVE_MAX_PAGES"), 6) or 6
-        deep_candidates = list((mid_profile.get("differentiation_plan") or {}).get("candidate_journeys") or [])
-        try:
-            deep_routing_memory = learning_memory.pathway_routing_overlay(
-                deep_business_type, str(mid_profile.get("business_subtype") or "")
-            )
-        except Exception:
-            deep_routing_memory = {"journey_priorities": []}
-        deep_discovery_journeys = self._union_strings(deep_routing_memory.get("journey_priorities"), deep_candidates)
-        combined["pathway_routing_memory"] = deep_routing_memory
         deep_meta = await asyncio.to_thread(
             self._scan_priority_journey_pages,
             resolved_url,
             expanded_candidates,
-            "general",  # V7.5 category-wide differentiation pass before final journey resolution
+            str(mid_profile.get("journey_model") or "general"),
             list(mid_profile.get("context_tags") or []),
             deep_business_type,
             existing_journey_urls,
             deep_limit,
-            discovery_journeys=deep_discovery_journeys,
         )
         self._merge_journey_evidence(combined, deep_meta)
 
@@ -545,7 +523,6 @@ class HybridScanner:
             "concept_observations": category_observations,
             "research_guidance": deep_pack.get("research_guidance") or {},
             "knowledge_stats": category_knowledge_stats(),
-            "pathway_routing": {"candidate_journeys": deep_candidates, "learned_routing": deep_routing_memory},
             "policy": "Category and research knowledge guide evidence collection and importance only. Missing optional concepts do not create failures; research cannot manufacture a website problem.",
         }
 
@@ -1780,16 +1757,21 @@ class HybridScanner:
             }
             - {"other"}
         )
+        static_cta_evidence = []
+        for item in probe.actions:
+            action_type = self._classify_action_text(str(item.get("text") or ""), str(item.get("href") or ""))
+            if action_type == "other":
+                continue
+            static_cta_evidence.append({
+                "type": action_type,
+                "action_types": [action_type],
+                "text": str(item.get("text") or "")[:180],
+                "href": urllib.parse.urljoin(url, str(item.get("href") or "")),
+                "source_url": str(url),
+                "collection_method": "verified_static_html",
+            })
 
         internal_links = self._same_origin_internal_links(url, raw_internal_link_inputs)
-        origin_host = urllib.parse.urlparse(url).netloc.lower().split(":")[0]
-        external_commerce_handoffs = []
-        for item in probe.actions:
-            href_abs = urllib.parse.urljoin(url, str(item.get("href") or ""))
-            action_kind = self._classify_action_text(str(item.get("text") or ""), href_abs)
-            target_host = urllib.parse.urlparse(href_abs).netloc.lower().split(":")[0]
-            if action_kind in {"order", "buy", "add_to_cart"} and target_host and target_host != origin_host:
-                external_commerce_handoffs.append({"action": action_kind, "target_host": target_host, "label": str(item.get("text") or "")[:120]})
         booking_provider_links = self._extract_booking_provider_links(url, probe.actions)
         conversion_error_signals = self._detect_conversion_error_signals(visible_text, html_lower, url)
         content_signals = self._static_content_signals(visible_text, links, schema_types, probe)
@@ -1896,12 +1878,10 @@ class HybridScanner:
                 "mobile_cta_visible": False,
                 "mobile_cta_status": "unknown",
                 "mobile_cta_types": action_types,
-                "observed_action_types": action_types,
                 "mobile_cta_type": action_types[0] if action_types else "unknown",
+                "static_cta_evidence": static_cta_evidence[:40],
                 "add_to_cart_visible": any(t in action_types for t in ("add_to_cart", "buy")),
                 "order_online_present": "order" in action_types,
-                "external_order_handoff_present": bool(external_commerce_handoffs),
-                "external_commerce_handoffs": external_commerce_handoffs[:20],
                 "reservation_present": "reserve" in action_types,
                 "booking_action_present": "book" in action_types,
                 "directions_present": "directions" in action_types,
@@ -1971,7 +1951,7 @@ class HybridScanner:
             return "add_to_cart"
         if re.search(r"\b(?:checkout|buy\s+now|purchase\s+now|complete\s+purchase)\b", label) or re.search(r"(?:^|\s)checkout(?:\s|$)", href_tokens):
             return "buy"
-        if re.search(r"\b(?:order(?:\s+(?:online|now|pickup|delivery))?|start\s+(?:an?\s+)?order|place\s+(?:an?\s+)?order)\b", label) or re.search(r"(?:^|\s)(?:order-online|online-order|order)(?:\s|$)", path.replace("/", " ")):
+        if re.search(r"\b(?:order\s+(?:online|now|pickup|delivery)|start\s+(?:an?\s+)?order|place\s+(?:an?\s+)?order)\b", label) or re.search(r"(?:^|\s)(?:order-online|online-order)(?:\s|$)", path.replace("/", " ")):
             return "order"
         # Hospitality booking language is distinct from appointment booking.
         if re.search(r"\b(?:reserve(?:\s+(?:now|a\s+table|a\s+room|a\s+spot))?|make\s+(?:a\s+)?reservation|book\s+(?:a\s+)?(?:table|room|venue|tour|charter|cruise))\b", label) or re.search(r"(?:^|\s)reservations?(?:\s|$)", href_tokens):
@@ -2085,16 +2065,11 @@ class HybridScanner:
             return "policy"
         return "support"
 
-    def _select_priority_journey_urls(self, base_url: str, candidates: List[str], journey_model: str, limit: int, context_tags: Optional[List[str]] = None, business_type: str = "general", exclude_urls: Optional[List[str]] = None, discovery_journeys: Optional[List[str]] = None) -> List[str]:
+    def _select_priority_journey_urls(self, base_url: str, candidates: List[str], journey_model: str, limit: int, context_tags: Optional[List[str]] = None, business_type: str = "general", exclude_urls: Optional[List[str]] = None) -> List[str]:
         parsed = urllib.parse.urlparse(base_url)
         origin = f"{parsed.scheme}://{parsed.netloc}"
         model = str(journey_model or "general")
         terms = list(JOURNEY_PAGE_TERMS.get(model, JOURNEY_PAGE_TERMS["general"]))
-        # Once business type is resolved, inspect all plausible customer paths rather than using
-        # a single guessed journey. Learned routing may reorder this list, but never supplies proof.
-        for candidate_model in (discovery_journeys or []):
-            if candidate_model in JOURNEY_PAGE_TERMS:
-                terms = list(JOURNEY_PAGE_TERMS[candidate_model]) + terms
         # Category-specific knowledge augments page discovery only after the existing
         # business-type inference has resolved a usable category. It never creates findings.
         if str(business_type or "general") != "general":
@@ -2137,9 +2112,6 @@ class HybridScanner:
                 scored.append((score, url))
 
         guessed = list(JOURNEY_PAGE_GUESSES.get(model, JOURNEY_PAGE_GUESSES["general"]))
-        for candidate_model in (discovery_journeys or []):
-            if candidate_model in JOURNEY_PAGE_GUESSES:
-                guessed = list(JOURNEY_PAGE_GUESSES[candidate_model]) + guessed
         if str(business_type or "general") != "general":
             guessed = list(business_page_guesses(str(business_type), model, list(context_tags or []))) + guessed
         guessed = list(dict.fromkeys(guessed))
@@ -2170,12 +2142,12 @@ class HybridScanner:
                 selected.append(url)
         return selected
 
-    def _scan_priority_journey_pages(self, base_url: str, candidates: List[str], journey_model: str, context_tags: Optional[List[str]] = None, business_type: str = "general", exclude_urls: Optional[List[str]] = None, limit_override: Optional[int] = None, discovery_journeys: Optional[List[str]] = None) -> Dict[str, Any]:
+    def _scan_priority_journey_pages(self, base_url: str, candidates: List[str], journey_model: str, context_tags: Optional[List[str]] = None, business_type: str = "general", exclude_urls: Optional[List[str]] = None, limit_override: Optional[int] = None) -> Dict[str, Any]:
         raw_limit = self._to_int(os.environ.get("TRILLOKA_JOURNEY_MAX_PAGES"), 5) or 5
         if limit_override is not None:
             raw_limit = self._to_int(limit_override, raw_limit) or raw_limit
         limit = max(2, min(8, raw_limit))
-        urls = self._select_priority_journey_urls(base_url, candidates, journey_model, limit, context_tags, business_type, exclude_urls, discovery_journeys)
+        urls = self._select_priority_journey_urls(base_url, candidates, journey_model, limit, context_tags, business_type, exclude_urls)
         pages: List[Dict[str, Any]] = []
         errors: List[Dict[str, Any]] = []
         credential_types: List[str] = []
@@ -2206,7 +2178,6 @@ class HybridScanner:
             "click_to_call_present": False,
             "add_to_cart_visible": False,
             "order_online_present": False,
-            "external_order_handoff_present": False,
             "reservation_present": False,
             "booking_action_present": False,
             "directions_present": False,
@@ -2247,12 +2218,18 @@ class HybridScanner:
                 page_actions = [str(x).lower() for x in (evidence.get("mobile_cta_types") or []) if x]
                 journey_action_types = self._union_strings(journey_action_types, page_actions)
                 if page_actions:
-                    journey_action_evidence.append({
-                        "url": str(response.url),
-                        "role": role,
-                        "action_types": page_actions[:20],
-                        "collection_method": "verified_static_journey_page",
-                    })
+                    for receipt in (evidence.get("static_cta_evidence") or []):
+                        if not isinstance(receipt, dict):
+                            continue
+                        journey_action_evidence.append({
+                            "url": str(response.url),
+                            "source_url": str(response.url),
+                            "destination_url": str(receipt.get("href") or ""),
+                            "href": str(receipt.get("href") or ""),
+                            "role": role,
+                            "action_types": list(receipt.get("action_types") or ([receipt.get("type")] if receipt.get("type") else []))[:20],
+                            "collection_method": "verified_static_journey_page",
+                        })
                 path_lower = urllib.parse.urlparse(response.url).path.lower()
                 if role == "policy":
                     if "privacy" in path_lower:
@@ -2287,8 +2264,6 @@ class HybridScanner:
                     "cta_types": evidence.get("mobile_cta_types") or [],
                     "add_to_cart_visible": bool(evidence.get("add_to_cart_visible")),
                     "order_online_present": bool(evidence.get("order_online_present")),
-                    "external_order_handoff_present": bool(evidence.get("external_order_handoff_present")),
-                    "external_commerce_handoffs": list(evidence.get("external_commerce_handoffs") or [])[:20],
                     "reservation_present": bool(evidence.get("reservation_present")),
                     "booking_action_present": bool(evidence.get("booking_action_present")),
                     "directions_present": bool(evidence.get("directions_present")),
@@ -2386,6 +2361,9 @@ class HybridScanner:
             action_seen.add(marker)
             action_evidence.append(item)
         target["journey_action_evidence"] = action_evidence[:60]
+        target["static_cta_evidence"] = HybridScanner._dedupe_action_candidates(
+            list(target.get("static_cta_evidence") or []) + list(journey.get("static_cta_evidence") or [])
+        )[:60]
         existing_errors = list(target.get("conversion_error_signals") or [])
         journey_errors = list(journey.get("journey_error_signals") or [])
         dedup_errors = []
@@ -2411,7 +2389,7 @@ class HybridScanner:
             "case_studies_portfolio_present", "return_policy_linked", "shipping_info_linked",
             "pricing_linked", "blog_present", "social_links_present",
             "address_location_visible", "phone_number_visible", "click_to_call_present",
-            "add_to_cart_visible", "order_online_present", "external_order_handoff_present", "reservation_present",
+            "add_to_cart_visible", "order_online_present", "reservation_present",
             "booking_action_present", "directions_present", "checkout_context_detected",
             "forms_present",
         ):
@@ -2601,7 +2579,7 @@ class HybridScanner:
             "privacy_policy_linked", "terms_linked", "about_team_linked", "case_studies_portfolio_present",
             "return_policy_linked", "shipping_info_linked", "pricing_linked",
             "address_location_visible", "phone_number_visible", "click_to_call_present",
-            "add_to_cart_visible", "order_online_present", "external_order_handoff_present", "reservation_present",
+            "add_to_cart_visible", "order_online_present", "reservation_present",
             "booking_action_present", "directions_present", "checkout_context_detected", "forms_present",
         ):
             if browser_probe.get(key) is True:
@@ -3544,7 +3522,7 @@ class HybridScanner:
             for key in (
                 "mobile_cta_visible", "mobile_primary_cta_present", "mobile_sticky_cta_present",
                 "mobile_cta_status", "mobile_cta_type", "mobile_cta_types", "mobile_cta_evidence",
-                "add_to_cart_visible", "order_online_present", "external_order_handoff_present", "reservation_present", "booking_action_present", "directions_present",
+                "add_to_cart_visible", "order_online_present", "reservation_present", "booking_action_present", "directions_present",
             ):
                 merged[key] = mobile_attempt.get(key)
         elif mobile_status == "partial":
@@ -3554,7 +3532,7 @@ class HybridScanner:
             merged["mobile_cta_type"] = mobile_attempt.get("mobile_cta_type") or "unknown"
             for key in (
                 "mobile_cta_visible", "mobile_primary_cta_present", "mobile_sticky_cta_present",
-                "add_to_cart_visible", "order_online_present", "external_order_handoff_present", "reservation_present", "booking_action_present", "directions_present",
+                "add_to_cart_visible", "order_online_present", "reservation_present", "booking_action_present", "directions_present",
             ):
                 merged[key] = True if mobile_attempt.get(key) is True else None
         else:
@@ -3792,7 +3770,7 @@ class HybridScanner:
             for key in (
                 "mobile_cta_visible", "mobile_primary_cta_present", "mobile_sticky_cta_present",
                 "mobile_cta_status", "mobile_cta_type", "mobile_cta_types", "mobile_cta_evidence",
-                "add_to_cart_visible", "order_online_present", "external_order_handoff_present", "reservation_present", "booking_action_present", "directions_present",
+                "add_to_cart_visible", "order_online_present", "reservation_present", "booking_action_present", "directions_present",
             ):
                 merged[key] = dom.get(key)
         elif dom_mobile_status == "partial":
@@ -3801,28 +3779,12 @@ class HybridScanner:
             merged["mobile_cta_evidence"] = list(dom.get("mobile_cta_evidence") or [])
             for key in (
                 "mobile_cta_visible", "mobile_primary_cta_present", "mobile_sticky_cta_present",
-                "add_to_cart_visible", "order_online_present", "external_order_handoff_present", "reservation_present", "booking_action_present", "directions_present",
+                "add_to_cart_visible", "order_online_present", "reservation_present", "booking_action_present", "directions_present",
             ):
                 if dom.get(key) is True:
                     merged[key] = True
                 elif merged.get(key) is not True:
                     merged[key] = None
-
-        # V7.5.1 pathway evidence is not the same thing as mobile visibility. Preserve
-        # verified action existence from either static HTML or rendered DOM even when the
-        # browser does not classify the same CTA. This prevents a stronger positive source
-        # from being erased by a weaker negative pass.
-        merged["observed_action_types"] = self._union_strings(
-            static.get("observed_action_types") or static.get("mobile_cta_types"),
-            dom.get("observed_action_types") or dom.get("mobile_cta_types"),
-        )
-        for key in ("add_to_cart_visible", "order_online_present", "external_order_handoff_present", "reservation_present", "booking_action_present", "directions_present"):
-            if static.get(key) is True or dom.get(key) is True:
-                merged[key] = True
-        merged["external_commerce_handoffs"] = list(static.get("external_commerce_handoffs") or []) + [
-            item for item in (dom.get("external_commerce_handoffs") or [])
-            if item not in (static.get("external_commerce_handoffs") or [])
-        ]
 
         # Images: rendered DOM is preferred when available; otherwise keep complete static evidence.
         if (self._to_int(dom.get("total_images"), 0) or 0) > 0 or (dom_complete and dom.get("missing_alt_images") is not None):
@@ -3897,7 +3859,6 @@ class HybridScanner:
             "mobile_cta_types": [],
             "add_to_cart_visible": False,
             "order_online_present": False,
-            "external_order_handoff_present": False,
             "reservation_present": False,
             "booking_action_present": False,
             "directions_present": False,
