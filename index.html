@@ -1069,7 +1069,55 @@ footer {
 .fact-controls{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-top:1.25rem}.fact-dots{display:flex;gap:.35rem;flex-wrap:wrap}.fact-dot{width:6px;height:6px;border-radius:999px;border:0;background:#40546A;padding:0;min-width:6px;min-height:6px;cursor:pointer}.fact-dot.active{width:20px;background:var(--copper)}.fact-nav{display:flex;gap:.5rem}.fact-nav button{width:38px;height:38px;border-radius:999px;border:1px solid #40546A;background:#090B12;color:var(--white);cursor:pointer;font-size:1rem}.fact-progress{position:absolute;left:0;bottom:0;height:2px;width:0;background:var(--copper)}.fact-progress.running{animation:factProgress 8s linear forwards}
 @keyframes factFade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}@keyframes factProgress{from{width:0}to{width:100%}}
 .method-grid{display:grid;grid-template-columns:1fr;gap:1rem;margin-top:1.5rem}.method-card{background:#121621;border:1px solid #2A3040;border-radius:12px;padding:1.25rem}.method-card .mini-label{color:var(--copper);font-size:.7rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.45rem}.method-card h3{font-size:1.05rem;margin-bottom:.45rem}.method-card p{font-size:.86rem;line-height:1.55}.score-formula{max-width:860px;margin:1.5rem auto 0;border:1px solid rgba(216,182,106,.25);background:rgba(216,182,106,.05);border-radius:12px;padding:1.1rem 1.25rem;text-align:center;color:var(--sand);font-size:.85rem}.score-formula strong{color:var(--white)}.quick-note{max-width:860px;margin:1rem auto 0;text-align:center;color:var(--sand);font-size:.78rem;line-height:1.55}
-@media(min-width:768px){.method-grid{grid-template-columns:repeat(4,1fr)}.pricing-grid{grid-template-columns:repeat(3,1fr)}}
+
+/* V7.3.1 public-safe commercial journey map */
+.journey-map-wrap{max-width:1120px;margin:1.8rem auto 0;position:relative;padding:1.35rem 1rem 1rem;border:1px solid #2A3040;border-radius:18px;background:linear-gradient(180deg,rgba(18,22,33,.92),rgba(10,13,20,.96));overflow:hidden}
+.journey-map-wrap:before{content:"";position:absolute;inset:0;background:radial-gradient(circle at 50% 10%,rgba(216,182,106,.08),transparent 38%);pointer-events:none}
+.journey-map{display:grid;grid-template-columns:1fr;gap:.9rem;position:relative;z-index:1}
+.journey-node{position:relative;background:#10151f;border:1px solid #303848;border-radius:14px;padding:1rem 1rem 1rem 3.2rem;min-height:116px;transition:transform .25s ease,border-color .25s ease,box-shadow .25s ease}
+.journey-node:hover{transform:translateY(-3px);border-color:rgba(216,182,106,.55);box-shadow:0 12px 28px rgba(0,0,0,.2)}
+.journey-node .journey-num{position:absolute;left:.9rem;top:.95rem;width:1.8rem;height:1.8rem;border-radius:50%;display:grid;place-items:center;background:rgba(216,182,106,.10);border:1px solid rgba(216,182,106,.35);color:var(--copper);font-size:.68rem;font-weight:800}
+.journey-node .mini-label{color:var(--copper);font-size:.64rem;font-weight:800;letter-spacing:.11em;text-transform:uppercase;margin-bottom:.35rem}
+.journey-node h3{font-size:1rem;margin:0 0 .35rem;color:var(--white)}
+.journey-node p{font-size:.8rem;line-height:1.5;color:var(--sand);margin:0}
+.journey-arrow{display:none;color:var(--copper);font-size:1.3rem;align-items:center;justify-content:center;opacity:.7}
+.method-safe-strip{display:grid;grid-template-columns:repeat(2,1fr);gap:.7rem;max-width:900px;margin:1.15rem auto 0}
+.method-safe-pill{border:1px solid #2A3040;background:#0F141D;border-radius:12px;padding:.78rem .85rem;text-align:center}
+.method-safe-pill strong{display:block;color:var(--white);font-size:.76rem;margin-bottom:.18rem}
+.method-safe-pill span{display:block;color:var(--mist);font-size:.68rem;line-height:1.35}
+.method-cta-row{display:flex;justify-content:center;gap:.8rem;flex-wrap:wrap;margin-top:1.25rem}
+.method-private-note{max-width:900px;margin:.9rem auto 0;text-align:center;color:rgba(169,167,160,.72);font-size:.69rem;line-height:1.5}
+
+/* Public customer-journey animation */
+.journey-demo-section{padding:1.1rem 0 2.6rem;background:#090D14}
+.journey-demo-inline{margin:0 auto;max-height:none;overflow:visible}
+.journey-demo-inline .journey-demo-head{justify-content:flex-start}
+.journey-demo-inline .journey-demo-head h3{font-size:clamp(1.15rem,2.5vw,1.55rem)}
+
+/* Simple customer-journey animation */
+.journey-demo-overlay{position:fixed;inset:0;z-index:1200;background:rgba(4,7,12,.88);display:none;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(7px)}
+.journey-demo-overlay.active{display:flex}
+.journey-demo{width:min(960px,96vw);max-height:92vh;overflow:auto;background:#0B1018;border:1px solid #313A4B;border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,.55);position:relative}
+.journey-demo-head{padding:1.2rem 1.35rem;border-bottom:1px solid #252D3A;display:flex;justify-content:space-between;gap:1rem;align-items:flex-start}
+.journey-demo-head .kicker{font-size:.65rem;letter-spacing:.13em;text-transform:uppercase;color:var(--copper);font-weight:800;margin-bottom:.35rem}
+.journey-demo-head h3{margin:0;font-size:1.3rem;color:var(--white)}
+.journey-demo-head p{margin:.35rem 0 0;color:var(--sand);font-size:.79rem;line-height:1.45;max-width:690px}
+.journey-demo-close{width:2.2rem;height:2.2rem;border-radius:50%;border:1px solid #343D4C;background:#111722;color:#fff;font-size:1.2rem;cursor:pointer;flex:0 0 auto}
+.journey-demo-body{padding:1.25rem}
+.demo-browser{border:1px solid #303949;border-radius:14px;background:#080C12;overflow:hidden}
+.demo-browser-bar{height:38px;background:#141A24;border-bottom:1px solid #2B3340;display:flex;align-items:center;gap:.42rem;padding:0 .85rem}
+.demo-browser-dot{width:8px;height:8px;border-radius:50%;background:#505867}.demo-browser-url{margin-left:.5rem;background:#0B1119;border:1px solid #2A3340;border-radius:8px;padding:.32rem .65rem;color:#9099A7;font-size:.65rem;flex:1}
+.demo-screen{padding:1rem;min-height:360px;display:grid;grid-template-columns:1fr;gap:1rem}
+.demo-site{border:1px solid #27303D;border-radius:12px;padding:1rem;background:#0E141D;min-height:220px}
+.demo-site-title{height:14px;width:42%;border-radius:6px;background:#D7DCE4;margin-bottom:.7rem;opacity:.9}.demo-site-line{height:8px;border-radius:5px;background:#343D49;margin:.38rem 0}.demo-site-line.w80{width:80%}.demo-site-line.w60{width:60%}.demo-site-line.w45{width:45%}.demo-site-cta{display:inline-block;margin-top:.75rem;border-radius:8px;padding:.55rem .8rem;background:var(--copper);color:#0A0D12;font-size:.7rem;font-weight:800}
+.demo-map{display:grid;grid-template-columns:repeat(7,1fr);gap:.45rem;align-items:stretch}
+.demo-step{border:1px solid #293241;background:#101620;border-radius:10px;padding:.7rem .5rem;text-align:center;min-height:86px;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:.35s ease;opacity:.45}
+.demo-step .icon{font-size:1.05rem;margin-bottom:.25rem}.demo-step strong{font-size:.66rem;color:#fff}.demo-step span{font-size:.57rem;line-height:1.25;color:#AAB1BC;margin-top:.2rem}.demo-step.active{opacity:1;border-color:rgba(216,182,106,.75);box-shadow:0 0 0 1px rgba(216,182,106,.18),0 0 26px rgba(216,182,106,.08);transform:translateY(-2px)}.demo-step.done{opacity:.85;border-color:rgba(34,201,115,.45)}
+.demo-explain{border:1px solid #2C3543;border-radius:12px;background:#111720;padding:1rem}.demo-explain .step-label{color:var(--copper);font-size:.63rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase}.demo-explain h4{font-size:1rem;margin:.35rem 0;color:#fff}.demo-explain p{font-size:.78rem;line-height:1.5;color:var(--sand);margin:0}.demo-explain .safe-note{font-size:.64rem;color:#858E9C;margin-top:.65rem}
+.demo-controls{display:flex;justify-content:space-between;gap:.8rem;align-items:center;margin-top:1rem;flex-wrap:wrap}.demo-progress{display:flex;gap:.35rem}.demo-progress i{display:block;width:28px;height:4px;background:#29313C;border-radius:4px}.demo-progress i.active{background:var(--copper)}.demo-buttons{display:flex;gap:.55rem}.demo-buttons button{border-radius:9px;padding:.55rem .8rem;border:1px solid #344051;background:#111824;color:#fff;font-size:.7rem;cursor:pointer}.demo-buttons button.primary{background:var(--copper);border-color:var(--copper);color:#0A0D12;font-weight:800}
+
+@media(min-width:768px){.method-grid{grid-template-columns:repeat(4,1fr)}.pricing-grid{grid-template-columns:repeat(3,1fr)}.journey-map{grid-template-columns:repeat(6,1fr)}.journey-node{padding:1rem;min-height:172px}.journey-node .journey-num{position:static;margin-bottom:.65rem}.method-safe-strip{grid-template-columns:repeat(4,1fr)}.demo-screen{grid-template-columns:1.15fr .85fr}}
+@media(max-width:640px){.demo-map{grid-template-columns:1fr}.demo-step{min-height:66px}.journey-demo-head{padding:1rem}.journey-demo-body{padding:.9rem}.demo-browser-url{font-size:.55rem}}
 @media(max-width:639px){.fact-rotator{min-height:280px}.fact-topline{align-items:flex-start}.fact-controls{align-items:flex-end}}
 
 
@@ -1121,7 +1169,7 @@ footer {
 }
 
 
-/* Sharper hero hierarchy */
+/* Hero hierarchy */
 .page-hero h1 {
   font-family: 'Playfair Display', Georgia, serif;
   font-size: clamp(1.85rem, 4.2vw, 2.75rem);
@@ -1141,6 +1189,280 @@ footer {
   }
 }
 
+
+/* Restored Revenue Readiness results constellation */
+.results-shell{max-width:820px;margin:0 auto}
+.results-domain{text-align:center;margin:.4rem 0 1rem;font-family:'Playfair Display',Georgia,serif;font-size:clamp(1.35rem,4vw,2.05rem);color:var(--white);overflow-wrap:anywhere}
+.results-lead{max-width:680px;margin:.65rem auto 0;color:var(--mist);font-size:.9rem;line-height:1.55}
+.result-constellation{position:relative;width:min(100%,650px);height:520px;margin:1.2rem auto 2.2rem}
+.result-orbit{position:absolute;left:50%;top:49%;border-radius:50%;border:1px solid rgba(216,182,106,.08);transform:translate(-50%,-50%);pointer-events:none}
+.result-orbit.outer{width:480px;height:480px}.result-orbit.inner{width:330px;height:330px}
+.metric-orb,.score-orb{--orb-color:var(--copper);position:absolute;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:radial-gradient(circle at 50% 42%,rgba(255,255,255,.035),transparent 55%),rgba(14,18,27,.98);border:2px solid var(--orb-color);color:var(--white);transition:transform .25s ease,box-shadow .25s ease,opacity .4s ease,filter .4s ease;box-shadow:0 0 0 1px rgba(255,255,255,.02),0 0 24px color-mix(in srgb,var(--orb-color) 28%,transparent);touch-action:manipulation}
+.metric-orb{width:152px;height:152px;cursor:pointer}
+.score-orb{width:190px;height:190px;left:50%;top:49%;transform:translate(-50%,-50%);border-color:rgba(216,182,106,.62);box-shadow:0 0 0 7px rgba(64,84,106,.35),0 0 28px rgba(216,182,106,.08);background:radial-gradient(circle at 50% 38%,#20283a,#151a27 66%,#111621 100%);z-index:4}
+.metric-orb .orb-label,.score-orb .orb-label{font-family:Inter,sans-serif;font-size:.68rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:color-mix(in srgb,var(--orb-color) 70%,var(--white));margin-bottom:.35rem}
+.metric-orb .orb-value{font-family:'Playfair Display',Georgia,serif;font-size:2rem;line-height:1;color:var(--white)}
+.metric-orb .orb-sub{margin-top:.4rem;max-width:118px;font-size:.68rem;line-height:1.25;color:color-mix(in srgb,var(--orb-color) 72%,var(--mist))}
+.score-orb .orb-value{font-family:'Playfair Display',Georgia,serif;font-size:3.7rem;line-height:.95}
+.score-orb .orb-sub{margin-top:.45rem;font-family:Inter,sans-serif;font-size:.68rem;line-height:1.35;letter-spacing:.1em;text-transform:uppercase;color:var(--sand)}
+.orb-ai{top:0;left:50%;transform:translateX(-50%)}.orb-presence{left:1.5%;top:49%;transform:translateY(-50%)}.orb-gap{right:1.5%;top:49%;transform:translateY(-50%)}.orb-funnel{bottom:0;left:50%;transform:translateX(-50%)}
+.metric-orb.orb-ai:hover,.metric-orb.orb-funnel:hover{transform:translateX(-50%) scale(1.035)}.metric-orb.orb-presence:hover,.metric-orb.orb-gap:hover{transform:translateY(-50%) scale(1.035)}
+.result-exposure{margin:1.5rem 0 1rem;padding:clamp(1.4rem,4vw,2rem);text-align:center;background:rgba(200,90,90,.055);border:1px solid rgba(200,90,90,.28);border-radius:14px}
+.result-exposure .eyebrow{font-family:Inter,sans-serif;font-size:.72rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:#D56B6B}
+.result-exposure .amount{margin:.65rem 0 .45rem;font-family:'Playfair Display',Georgia,serif;font-size:clamp(1.8rem,5vw,3rem);line-height:1.15;color:#E07070}
+.result-exposure .method{color:var(--sand);font-size:.78rem;line-height:1.5}
+.friction-card{margin:1rem 0 1.7rem;padding:1.35rem;background:#1A2030;border:1px solid #2A3040;border-radius:12px}
+.friction-card .eyebrow{color:var(--copper);font-family:'Playfair Display',Georgia,serif;font-size:.82rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.friction-card .reason{margin-top:.4rem;color:var(--white);font-size:.92rem;line-height:1.65}.friction-card .loss-points{margin-top:.6rem;font-family:'Playfair Display',Georgia,serif;font-size:1.45rem;color:var(--red-leak)}.friction-card .locked-note{margin-top:.45rem;color:var(--sand);font-size:.76rem}
+.surface-insights{display:grid;gap:.8rem;margin:1rem 0 1.6rem}.surface-insight{background:#1A2030;border-left:3px solid var(--copper);border-radius:0 10px 10px 0;padding:1rem 1.05rem}.surface-insight h4{margin:0 0 .25rem;font-size:.95rem}.surface-insight p{margin:0;color:var(--sand);font-size:.8rem;line-height:1.5}
+.preview-findings{margin:1rem 0 1.75rem}.preview-findings .leak-item{margin-bottom:.65rem}.results-section-title{margin:1.7rem 0 .8rem;font-size:clamp(1.35rem,3vw,1.8rem)}
+.constellation-stage.focus-mode .metric-orb.focus-active{right:auto!important;bottom:auto!important;transform:translate(-50%,-50%) scale(1.42)!important}
+@media(max-width:700px){.result-constellation{height:430px;max-width:430px}.result-orbit.outer{width:380px;height:380px}.result-orbit.inner{width:255px;height:255px}.metric-orb{width:118px;height:118px}.score-orb{width:152px;height:152px}.score-orb .orb-value{font-size:2.9rem}.metric-orb .orb-value{font-size:1.55rem}.metric-orb .orb-label{font-size:.56rem}.metric-orb .orb-sub{max-width:94px;font-size:.56rem}.orb-presence{left:0}.orb-gap{right:0}}
+@media(max-width:470px){.result-constellation{height:355px;max-width:350px;margin-top:.8rem}.result-orbit.outer{width:315px;height:315px}.result-orbit.inner{width:215px;height:215px}.metric-orb{width:96px;height:96px}.score-orb{width:128px;height:128px}.score-orb .orb-value{font-size:2.45rem}.score-orb .orb-sub{font-size:.55rem}.metric-orb .orb-value{font-size:1.35rem}.metric-orb .orb-label{font-size:.48rem;letter-spacing:.07em}.metric-orb .orb-sub{font-size:.5rem;max-width:78px}}
+
+
+/* Desktop hover-preview card for result metrics */
+.metric-hover-card {
+  position: absolute;
+  left: 10px;
+  top: 18px;
+  width: 245px;
+  z-index: 12;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition: opacity .16s ease, transform .16s ease, visibility .16s ease;
+  background: rgba(14,18,27,.97);
+  border: 1px solid rgba(216,182,106,.22);
+  border-radius: 12px;
+  padding: 1rem;
+  box-shadow: 0 16px 38px rgba(0,0,0,.38);
+  backdrop-filter: blur(10px);
+}
+.metric-hover-card.show {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+.metric-hover-card .hover-kicker {
+  color: var(--copper);
+  font-family: Inter, sans-serif;
+  font-size: .58rem;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  margin-bottom: .2rem;
+}
+.metric-hover-card h4 {
+  margin: 0 0 .7rem;
+  font-size: .9rem;
+}
+.metric-hover-row {
+  display: grid;
+  grid-template-columns: 58px 1fr 40px;
+  gap: .45rem;
+  align-items: center;
+  margin: .48rem 0;
+}
+.metric-hover-row .lbl {
+  color: var(--sand);
+  font-size: .58rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.metric-hover-track {
+  height: 4px;
+  border-radius: 999px;
+  background: #2A3040;
+  overflow: hidden;
+}
+.metric-hover-fill {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  transition: width .25s ease;
+}
+.metric-hover-fill.green { background: var(--metric-green); }
+.metric-hover-fill.red { background: var(--metric-red); }
+.metric-hover-fill.copper { background: var(--copper); }
+.metric-hover-fill.gray { background: var(--sand); }
+.metric-hover-row .num {
+  color: var(--white);
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: .72rem;
+  text-align: right;
+}
+.metric-hover-note {
+  margin-top: .65rem;
+  color: rgba(169,167,160,.75);
+  font-size: .6rem;
+  line-height: 1.4;
+}
+
+@media (hover:none), (max-width:700px) {
+  .metric-hover-card { display:none; }
+}
+
+/* Protected Trilloka self-diagnostic */
+.protected-banner{
+  margin:0 auto 1rem;
+  max-width:720px;
+  padding:1rem 1.1rem;
+  text-align:center;
+  border:1px solid rgba(216,182,106,.28);
+  border-radius:14px;
+  background:linear-gradient(180deg,rgba(216,182,106,.08),rgba(18,22,33,.72));
+}
+.protected-banner .protected-kicker{
+  color:var(--copper);
+  font-size:.68rem;
+  font-weight:800;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+}
+.protected-banner h3{
+  margin:.3rem 0 .35rem;
+  font-size:clamp(1.35rem,4vw,2rem);
+}
+.protected-banner p{
+  max-width:650px;
+  margin:0 auto;
+  color:var(--sand);
+  font-size:.82rem;
+  line-height:1.55;
+}
+.protected-banner .nice-try{
+  display:inline-block;
+  margin-bottom:.45rem;
+  color:var(--white);
+  font-family:'Playfair Display',Georgia,serif;
+  font-size:1rem;
+  letter-spacing:.02em;
+}
+.protected-stage{
+  position:relative;
+  width:min(100%,540px);
+  height:430px;
+  margin:1.1rem auto .5rem;
+}
+.protected-center,
+.protected-orb{
+  position:absolute;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  border-radius:50%;
+  background:radial-gradient(circle at 35% 25%,#20283a 0,#111722 55%,#090b12 100%);
+  border:1px solid rgba(216,182,106,.28);
+  box-shadow:0 18px 50px rgba(0,0,0,.28);
+}
+.protected-center{
+  left:50%; top:50%;
+  width:170px; height:170px;
+  transform:translate(-50%,-50%);
+  border-color:rgba(216,182,106,.62);
+}
+.protected-center .value{
+  color:var(--copper);
+  font-family:'Playfair Display',Georgia,serif;
+  font-size:3rem;
+  line-height:.95;
+}
+.protected-center .label{
+  margin-top:.5rem;
+  color:var(--white);
+  font-size:.67rem;
+  font-weight:800;
+  letter-spacing:.07em;
+  text-transform:uppercase;
+  line-height:1.35;
+}
+.protected-orb{
+  width:122px; height:122px;
+  padding:.7rem;
+}
+.protected-orb .label{
+  color:var(--sand);
+  font-size:.59rem;
+  font-weight:800;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  line-height:1.25;
+}
+.protected-orb .value{
+  margin:.25rem 0 .1rem;
+  color:var(--white);
+  font-family:'Playfair Display',Georgia,serif;
+  font-size:1.45rem;
+}
+.protected-orb .sub{
+  color:rgba(169,167,160,.72);
+  font-size:.54rem;
+  line-height:1.25;
+}
+.protected-orb.ai{left:50%;top:0;transform:translateX(-50%);}
+.protected-orb.presence{left:0;top:50%;transform:translateY(-50%);}
+.protected-orb.baseline{right:0;top:50%;transform:translateY(-50%);}
+.protected-orb.funnel{left:50%;bottom:0;transform:translateX(-50%);}
+.protected-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:.8rem;
+  margin-top:1.2rem;
+}
+.protected-stat{
+  padding:1rem;
+  border:1px solid #2A3040;
+  border-radius:12px;
+  background:#121621;
+}
+.protected-stat .eyebrow{
+  color:var(--copper);
+  font-size:.62rem;
+  font-weight:800;
+  letter-spacing:.09em;
+  text-transform:uppercase;
+}
+.protected-stat .main{
+  margin:.28rem 0;
+  color:var(--white);
+  font-family:'Playfair Display',Georgia,serif;
+  font-size:1.15rem;
+}
+.protected-stat .note{
+  color:var(--sand);
+  font-size:.72rem;
+  line-height:1.45;
+}
+.protected-footnote{
+  margin-top:1rem;
+  padding:.9rem 1rem;
+  border-left:3px solid var(--copper);
+  background:rgba(216,182,106,.05);
+  color:var(--sand);
+  font-size:.72rem;
+  line-height:1.5;
+}
+@media(max-width:620px){
+  .protected-stage{height:390px;width:100%;}
+  .protected-center{width:148px;height:148px;}
+  .protected-orb{width:104px;height:104px;}
+  .protected-orb .value{font-size:1.2rem;}
+  .protected-grid{grid-template-columns:1fr;}
+}
+@media(max-width:430px){
+  .protected-stage{height:350px;}
+  .protected-center{width:132px;height:132px;}
+  .protected-center .value{font-size:2.45rem;}
+  .protected-orb{width:92px;height:92px;padding:.45rem;}
+  .protected-orb .label{font-size:.51rem;}
+  .protected-orb .value{font-size:1.05rem;}
+  .protected-orb .sub{font-size:.47rem;}
+}
+
 </style>
 </head>
 <body>
@@ -1153,7 +1475,7 @@ footer {
     <ul class="nav-links">
       <li><a href="solutions.html">Solutions</a></li>
       <li><a href="why-us.html">Why Us</a></li>
-      <li><a href="chilloka.html">Chilloka</a></li>
+      <li><a href="/vlog">Chilloka</a></li>
     </ul>
     <button class="btn btn-outline desktop-only" onclick="showPhonePopup()">Contact Architect</button>
     <button class="hamburger" id="hamburger" onclick="toggleMenu()" aria-label="Toggle Navigation">
@@ -1167,7 +1489,7 @@ footer {
 <div class="mobile-menu" id="mobileMenu">
   <a href="solutions.html" onclick="closeMenu()">Solutions</a>
   <a href="why-us.html" onclick="closeMenu()">Why Us</a>
-  <a href="chilloka.html" onclick="closeMenu()">Chilloka</a>
+  <a href="/vlog" onclick="closeMenu()">Chilloka</a>
   <button class="btn btn-primary" onclick="closeMenu(); showPhonePopup();">Contact Architect</button>
 </div>
 
@@ -1184,8 +1506,8 @@ footer {
       </div>
 
       <div class="hero-action-row">
-        <a class="btn btn-primary" href="#scanner">Get Instant Revenue Remediation</a>
-        <a class="btn btn-outline" href="#why-it-matters">See What It Measures</a>
+        <a class="btn btn-primary" href="#scanner">Where You Might Be Losing Customers</a>
+        <a class="btn btn-outline" href="#journey-demo">See How Trilloka Works</a>
       </div>
     </div>
   </section>
@@ -1194,34 +1516,43 @@ footer {
     <div class="container" style="max-width:900px;">
       <div class="scanner-heading">
         <h3>Instant Revenue Remediation</h3>
-        <p>Enter your domain below to get your real-time Revenue Readiness diagnostic.</p>
+        <p>One scan. Full website picture. Recheck every 3–6 months.<br><span style="font-size:0.76rem; color:var(--copper);">Architect-reviewed and proofed report delivered within 24–32 hours.</span></p>
       </div>
 
       <div class="scanner-box">
         <div class="scan-input-wrap">
           <input type="text" id="domainInput" placeholder="example.com" autocomplete="off" spellcheck="false">
           <select id="businessTypeSelect">
-            <option value="general">General / Other Business</option>
-            <option value="local_service">Local Services &amp; Trades</option>
-            <option value="professional_service">Professional Services</option>
-            <option value="medspa">MedSpa &amp; Aesthetics</option>
-            <option value="legal">Legal Services</option>
-            <option value="restaurant">Restaurant &amp; Hospitality</option>
-            <option value="ecommerce">E-commerce / Online Store</option>
-            <option value="saas">SaaS &amp; Software</option>
-            <option value="agency">Agency &amp; Creative Services</option>
-            <option value="b2b">B2B Products &amp; Services</option>
-            <option value="creator">Creator &amp; Membership</option>
+            <option value="auto" selected>Auto-detect business type &amp; journey</option>
+            <option value="ecommerce">E-commerce / Retail</option>
+            <option value="marketplace">Marketplace</option>
+            <option value="local_service">Local Service</option>
+            <option value="professional_service">Professional Service</option>
+            <option value="healthcare">Healthcare / Clinical</option>
+            <option value="medspa">MedSpa / Aesthetic</option>
+            <option value="legal">Legal Service</option>
+            <option value="financial_services">Financial / Advisory</option>
+            <option value="real_estate">Real Estate</option>
+            <option value="restaurant">Restaurant / Food Service</option>
+            <option value="hospitality_event">Hospitality / Event / Tourism</option>
+            <option value="saas">SaaS / Software</option>
+            <option value="b2b">B2B / Industrial / Enterprise</option>
+            <option value="agency">Agency / Creative / Marketing</option>
+            <option value="membership_creator">Membership / Creator / Community</option>
+            <option value="education">Education / Training</option>
+            <option value="automotive">Automotive / Dealer / Repair</option>
           </select>
-          <button type="button" class="btn btn-primary scan-btn" onclick="runScan()">THE REVENUE LEAKS</button>
+          <button type="button" class="btn btn-primary scan-btn" onclick="runScan()">Your Architectural Analysis</button>
         </div>
 
         <div class="analysis-panel" id="analysisPanel">
-          <div class="analysis-step" id="step-0"><div class="step-icon">1</div> Mapping site hierarchy &amp; mobile DOM...</div>
-          <div class="analysis-step" id="step-1"><div class="step-icon">2</div> Testing technical response &amp; protocols...</div>
-          <div class="analysis-step" id="step-2"><div class="step-icon">3</div> Evaluating trust signals &amp; CTA clarity...</div>
-          <div class="analysis-step" id="step-3"><div class="step-icon">4</div> Measuring telemetry &amp; analytics setup...</div>
-          <div class="analysis-step" id="step-4"><div class="step-icon">5</div> Calculating Revenue Readiness Index...</div>
+          <div class="analysis-step" id="step-0"><div class="step-icon">1</div> Understanding the business and customer outcome...</div>
+          <div class="analysis-step" id="step-1"><div class="step-icon">2</div> Reconstructing the public customer journey...</div>
+          <div class="analysis-step" id="step-2"><div class="step-icon">3</div> Applying relevant category and research context...</div>
+          <div class="analysis-step" id="step-3"><div class="step-icon">4</div> Verifying evidence across pages and technical layers...</div>
+          <div class="analysis-step" id="step-4"><div class="step-icon">5</div> Checking decision points, trust, contradictions &amp; friction...</div>
+          <div class="analysis-step" id="step-5"><div class="step-icon">6</div> Routing human-judgment items to the Architect...</div>
+          <div class="analysis-step" id="step-6"><div class="step-icon">7</div> Prioritizing findings and building the remediation plan...</div>
         </div>
 
         <div style="margin-top:1.15rem; padding-top:1rem; border-top:1px solid #2A3040; text-align:center;">
@@ -1229,11 +1560,52 @@ footer {
             WHY EVERY SCAN COUNTS:
           </div>
           <p style="font-size:0.82rem; line-height:1.5; color:var(--sand); max-width:760px; margin:0 auto;">
-            Why not contribute using just a URL? Every completed scan adds another real-world pattern that can help refine how the Remediator weighs website signals across different business types.
+            Every completed scan can contribute a compact real-world pattern to Trilloka’s knowledge memory. Candidate knowledge is validated before it can influence future recognition; the scoring logic does not rewrite itself from a single scan.
           </p>
           <p style="font-size:0.68rem; line-height:1.45; color:rgba(169,167,160,0.62); max-width:760px; margin:0.55rem auto 0;">
-            Only publicly visible website structure, page-content signals and technical metadata are analyzed. No private, account-only or internal business data is accessed.
+            Only publicly visible website structure, page-content signals and technical metadata are analyzed. Learning stores bounded derived patterns with provenance; it does not require private, account-only or internal business data.
           </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="journey-demo" class="journey-demo-section" aria-label="How Trilloka follows a customer through a website">
+    <div class="container">
+      <div class="journey-demo journey-demo-inline">
+        <div class="journey-demo-head">
+          <div>
+            <h3 id="journeyDemoTitle">A website scanner should understand the business before it judges the website.</h3>
+          </div>
+        </div>
+        <div class="journey-demo-body">
+          <div class="demo-browser">
+            <div class="demo-browser-bar"><span class="demo-browser-dot"></span><span class="demo-browser-dot"></span><span class="demo-browser-dot"></span><div class="demo-browser-url">sample-business.com</div></div>
+            <div class="demo-screen">
+              <div class="demo-site" id="demoSiteMock">
+                <div class="demo-site-title"></div>
+                <div class="demo-site-line w80"></div><div class="demo-site-line w60"></div><div class="demo-site-line w45"></div>
+                <div class="demo-site-cta" id="demoFakeCta">REQUEST A QUOTE</div>
+                <div class="demo-map" style="margin-top:1.1rem;">
+                  <div class="demo-step" data-demo-step="0"><div class="icon">◎</div><strong>Understand</strong><span>Business &amp; outcome</span></div>
+                  <div class="demo-step" data-demo-step="1"><div class="icon">🧭</div><strong>Follow</strong><span>Customer path</span></div>
+                  <div class="demo-step" data-demo-step="2"><div class="icon">▦</div><strong>Context</strong><span>Relevant expertise</span></div>
+                  <div class="demo-step" data-demo-step="3"><div class="icon">✓</div><strong>Verify</strong><span>Evidence first</span></div>
+                  <div class="demo-step" data-demo-step="4"><div class="icon">⚠</div><strong>Diagnose</strong><span>Commercial friction</span></div>
+                  <div class="demo-step" data-demo-step="5"><div class="icon">◉</div><strong>Architect</strong><span>Human judgment</span></div>
+                  <div class="demo-step" data-demo-step="6"><div class="icon">↗</div><strong>Improve</strong><span>Fix, verify, learn</span></div>
+                </div>
+              </div>
+              <div class="demo-explain">
+                <div class="step-label" id="demoStepLabel">1 / 7</div>
+                <h4 id="demoStepTitle">Understand the business</h4>
+                <p id="demoStepText">Trilloka first determines what kind of business it is looking at and what outcome the website appears designed to create.</p>
+              </div>
+            </div>
+          </div>
+          <div class="demo-controls">
+            <div class="demo-progress" id="demoProgress"><i class="active"></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1256,23 +1628,7 @@ footer {
     </div>
   </section>
 
-  <section class="research-section" id="method">
-    <div class="container">
-      <div class="section-header">
-        <div class="subtitle">WHY OUR REMEDIATOR SHOULD BE YOUR CHOICE</div>
-        <h2>Research sets priority, your website supplies the evidence:</h2>
-        <p>Traffic is not the finish line. Trilloka checks the commercial path between attention and the outcome your business actually needs.</p>
-      </div>
-      <div class="method-grid">
-        <div class="method-card"><div class="mini-label">01 · COMMERCIAL PATH</div><h3>Can they actually convert?</h3><p>Buy, book, call, request a quote, start a trial, subscribe or submit a lead — based on your business type.</p></div>
-        <div class="method-card"><div class="mini-label">02 · FRICTION + TRUST</div><h3>What gets in the way?</h3><p>Forms, checkout, pricing visibility, trust cues, mobile actions and unnecessary effort.</p></div>
-        <div class="method-card"><div class="mini-label">03 · MEASURED PERFORMANCE</div><h3>What does telemetry show?</h3><p>PageSpeed, Core Web Vitals and technical evidence where available — never a fake zero when data is unavailable.</p></div>
-        <div class="method-card"><div class="mini-label">04 · AI / TEMPLATE PATTERN</div><h3>Does it sound interchangeable?</h3><p>A conservative sameness heuristic looks for generic language and template patterns. It does not claim to prove AI authorship.</p></div>
-      </div>
-      <div class="score-formula"><strong>Verified Evidence</strong> × Commercial Importance × Business Context × Severity × Confidence</div>
-      <p class="quick-note">Baymard informs ecommerce/checkout priority · Nielsen Norman Group informs usability, forms and B2B behavior · Google/web.dev/CrUX/Lighthouse informs performance and technical evidence · SEO remains visible, but a minor SEO issue does not outrank a broken commercial path.</p>
-    </div>
-  </section>
+
 </main>
 
 <footer>
@@ -1286,7 +1642,7 @@ footer {
         <h4>Navigation</h4>
         <a href="solutions.html">Solutions</a>
         <a href="why-us.html">Why Us</a>
-        <a href="chilloka.html">Chilloka</a>
+        <a href="/vlog">Chilloka</a>
         <a href="disclaimer.html">Disclaimer & Legal</a>
       </div>
       <div class="footer-col">
@@ -1411,6 +1767,252 @@ function copyDevKit(btn, devKitText) {
   });
 }
 
+
+function showAnalysisAccessLimit(err) {
+  const modalBody = document.getElementById('modalBody');
+  const resultsModal = document.getElementById('resultsModal');
+
+  const reason = String((err && err.accessReason) || '').toUpperCase();
+  const detail = String((err && err.message) || '').trim();
+  const retryAfter = Number((err && err.retryAfter) || 0);
+
+  function esc(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+  }
+
+  function retryText(seconds) {
+    if (!seconds || seconds <= 0) return '';
+    const totalMinutes = Math.max(1, Math.ceil(seconds / 60));
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours && minutes) return hours + 'h ' + minutes + 'm';
+    if (hours) return hours + 'h';
+    return minutes + 'm';
+  }
+
+  const isPaidLimit = reason.includes('PAID') || /paid|daily scan/i.test(detail);
+  const retry = retryText(retryAfter);
+
+  const heading = isPaidLimit
+    ? 'Your Architectural Analysis limit has been reached'
+    : 'Your free Architectural Analysis has already been used';
+
+  const body = isPaidLimit
+    ? 'Your current analysis allowance has been used for this access window.'
+    : 'One free Architectural Analysis is available per rolling 24-hour access window. The scanner and scorer are working normally — this message is the access guardrail, not a scan failure.';
+
+  const timing = retry
+    ? '<p style="margin:.9rem 0 0;color:var(--copper);font-weight:700;">Available again in approximately '+esc(retry)+'.</p>'
+    : '<p style="margin:.9rem 0 0;color:var(--sand);">Please return when your access window resets.</p>';
+
+  if (!modalBody || !resultsModal) {
+    alert(heading + '\n\n' + body + (retry ? '\n\nAvailable again in approximately ' + retry + '.' : ''));
+    return;
+  }
+
+  closeFocusMode();
+  modalBody.innerHTML = `
+    <div class="results-shell" style="max-width:620px;text-align:center;padding:1.4rem .4rem 1rem;">
+      <p class="subtitle" style="margin-bottom:.6rem;">Analysis Access</p>
+      <h2 style="margin-bottom:.8rem;">${esc(heading)}</h2>
+      <p style="max-width:560px;margin:0 auto;color:var(--mist);line-height:1.65;">${esc(body)}</p>
+      ${timing}
+      <div style="margin:1.35rem auto 0;padding:1rem;border:1px solid #2A3040;border-radius:12px;background:#121621;max-width:540px;">
+        <p style="font-size:.78rem;line-height:1.55;color:var(--sand);margin:0;">
+          No Revenue Readiness score was generated or changed by this response.
+        </p>
+      </div>
+    </div>`;
+
+  resultsModal.classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+
+const TRILLOKA_SCAN_API_BASE = "https://architectural-revenue-remediation.onrender.com";
+const TRILLOKA_DEVICE_STORAGE_KEY = "trilloka_scan_device_v1";
+const TRILLOKA_ACTIVE_JOB_KEY = "trilloka_active_scan_job_v1";
+let trillokaPollGeneration = 0;
+
+function getTrillokaDeviceToken() {
+  try {
+    let token = localStorage.getItem(TRILLOKA_DEVICE_STORAGE_KEY) || '';
+    if (/^[A-Za-z0-9_-]{12,128}$/.test(token)) return token;
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      token = window.crypto.randomUUID();
+    } else {
+      token = 'dev-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    }
+    localStorage.setItem(TRILLOKA_DEVICE_STORAGE_KEY, token);
+    return token;
+  } catch (_) {
+    if (!window.__trillokaMemoryDeviceToken) {
+      window.__trillokaMemoryDeviceToken = 'dev-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    }
+    return window.__trillokaMemoryDeviceToken;
+  }
+}
+
+function rememberActiveScanJob(jobId, domain) {
+  if (!jobId) return;
+  try {
+    localStorage.setItem(TRILLOKA_ACTIVE_JOB_KEY, JSON.stringify({
+      job_id: jobId,
+      domain: domain || '',
+      saved_at: Date.now()
+    }));
+  } catch (_) {}
+}
+
+function clearActiveScanJob(jobId) {
+  try {
+    const raw = localStorage.getItem(TRILLOKA_ACTIVE_JOB_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    if (!jobId || !saved || saved.job_id === jobId) localStorage.removeItem(TRILLOKA_ACTIVE_JOB_KEY);
+  } catch (_) {
+    try { localStorage.removeItem(TRILLOKA_ACTIVE_JOB_KEY); } catch (_) {}
+  }
+}
+
+function setScanProgressNote(message, mode) {
+  const panel = document.getElementById('analysisPanel');
+  if (!panel) return;
+  let note = document.getElementById('scanJobStatus');
+  if (!note) {
+    note = document.createElement('div');
+    note.id = 'scanJobStatus';
+    note.style.marginTop = '1rem';
+    note.style.padding = '.85rem 1rem';
+    note.style.borderRadius = '10px';
+    note.style.fontSize = '.78rem';
+    note.style.lineHeight = '1.55';
+    note.style.textAlign = 'center';
+    panel.appendChild(note);
+  }
+  note.style.border = mode === 'review' ? '1px solid rgba(90,158,122,.35)' : '1px solid rgba(216,182,106,.22)';
+  note.style.background = mode === 'review' ? 'rgba(90,158,122,.08)' : 'rgba(216,182,106,.05)';
+  note.style.color = mode === 'review' ? 'var(--green-fix)' : 'var(--sand)';
+  note.textContent = message || '';
+}
+
+function finishAnalysisSteps() {
+  for (let i = 0; i < 7; i++) {
+    const el = document.getElementById('step-' + i);
+    if (el) {
+      el.classList.remove('active');
+      el.classList.add('done');
+    }
+  }
+}
+
+function scanRequestError(response, responseData) {
+  const err = new Error(
+    (responseData && (responseData.detail || responseData.message)) ||
+    (response.status === 429 ? 'Analysis access limit reached.' : 'Analysis request failed.')
+  );
+  err.status = response.status;
+  err.accessReason = response.headers.get('X-Trilloka-Access-Reason') || '';
+  err.retryAfter = Number(response.headers.get('Retry-After') || 0);
+  return err;
+}
+
+async function pollTrillokaScanJob(jobId, domain, generation) {
+  const panel = document.getElementById('analysisPanel');
+  let consecutiveConnectionErrors = 0;
+  const startedPollingAt = Date.now();
+
+  while (generation === trillokaPollGeneration) {
+    try {
+      const response = await fetch(TRILLOKA_SCAN_API_BASE + '/api/scan/status/' + encodeURIComponent(jobId), {
+        method: 'GET',
+        headers: { 'X-Trilloka-Device-ID': getTrillokaDeviceToken() },
+        cache: 'no-store'
+      });
+      let payload = {};
+      try { payload = await response.json(); } catch (_) { payload = {}; }
+
+      if (!response.ok) throw scanRequestError(response, payload);
+      consecutiveConnectionErrors = 0;
+
+      if (payload.state === 'complete' && payload.result) {
+        const completed = payload.result || {};
+        clearActiveScanJob(jobId);
+        if (panel) panel.classList.remove('active');
+        if (completed.status === 'business_type_confirmation_required' || completed.requires_business_type_confirmation === true) {
+          handleBusinessTypeConfirmation(completed);
+          return;
+        }
+        if (completed.status === 'not_commercial_target') {
+          handleNonCommercialTarget(completed);
+          return;
+        }
+        finishAnalysisSteps();
+        setScanProgressNote('Analysis complete. Opening the verified result now.', 'review');
+        try { localStorage.removeItem('trilloka_business_confirmation'); } catch (_) {}
+        setTimeout(function() { displayResults(completed); }, 250);
+        return;
+      }
+
+      if (payload.state === 'failed') {
+        clearActiveScanJob(jobId);
+        if (panel) panel.classList.remove('active');
+        const detail = payload.error && payload.error.detail ? payload.error.detail : 'The scan did not complete.';
+        alert(detail + '\n\nNo completed result was consumed. You may start another scan attempt if your allowance remains available.');
+        return;
+      }
+
+      const elapsedMin = Math.max(1, Math.floor((Date.now() - startedPollingAt) / 60000));
+      setScanProgressNote(
+        'Your scan is continuing securely on the server' + (elapsedMin > 1 ? ' (' + elapsedMin + ' min)' : '') + '. You can refresh or reconnect — the same scan will be recovered instead of starting a second one.',
+        'processing'
+      );
+    } catch (err) {
+      consecutiveConnectionErrors++;
+      if (err && err.status === 404) {
+        clearActiveScanJob(jobId);
+        if (panel) panel.classList.remove('active');
+        alert('This saved scan job is no longer available. If the 24-hour review window has expired, a new scan will be required.');
+        return;
+      }
+      if (consecutiveConnectionErrors >= 5) {
+        if (panel) panel.classList.remove('active');
+        alert('The browser connection was interrupted, but your scan job was not cancelled. Re-enter ' + domain + ' on this page to reconnect to the same scan. If it has completed, the saved result will be shown without running or charging another scan.');
+        return;
+      }
+    }
+    await new Promise(function(resolve) { setTimeout(resolve, 3000); });
+  }
+}
+
+
+function handleBusinessTypeConfirmation(data) {
+  const select = document.getElementById('businessTypeSelect');
+  const confirmation = (data && data.business_type_confirmation) || {};
+  const top = Array.isArray(confirmation.top_candidates) ? confirmation.top_candidates : [];
+  const suggestions = top.slice(0,3).map(function(item){ return item.label || item.value; }).filter(Boolean);
+  const suggestionText = suggestions.length ? (' Suggested matches: ' + suggestions.join(', ') + '.') : '';
+  try {
+    localStorage.setItem('trilloka_business_confirmation', JSON.stringify({
+      domain: document.getElementById('domainInput') ? document.getElementById('domainInput').value.trim() : '',
+      candidates: confirmation, saved_at: Date.now()
+    }));
+  } catch (_) {}
+  if (select) {
+    try { select.scrollIntoView({behavior:'smooth', block:'center'}); } catch (_) {}
+    setTimeout(function(){ try { select.focus(); } catch (_) {} }, 250);
+  }
+  alert('Trilloka needs one detail before the deep-dive scan: choose the business category that best matches this company from the Business Type dropdown, then run the scan again.' + suggestionText + ' No score was generated and this attempt was not counted as a completed scan.');
+}
+
+function handleNonCommercialTarget(data) {
+  const reason = (data && data.commercial_eligibility && data.commercial_eligibility.reason) ||
+    'This site appears primarily informational/non-commercial, so a Revenue Readiness score would not be meaningful.';
+  try { localStorage.removeItem('trilloka_business_confirmation'); } catch (_) {}
+  alert(reason + '\n\nNo Revenue Readiness score was generated and this attempt was not counted as a completed scan.');
+}
+
 async function runScan() {
   const domainInput = document.getElementById('domainInput');
   if (!domainInput) return;
@@ -1419,23 +2021,17 @@ async function runScan() {
     alert('Please enter a domain name.');
     return;
   }
-  
   domain = domain.replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
+  domainInput.value = domain;
 
+  const generation = ++trillokaPollGeneration;
   const panel = document.getElementById('analysisPanel');
   if (panel) panel.classList.add('active');
-
-  const analysisMessages = [
-    "Mapping site hierarchy & mobile DOM...",
-    "Testing technical response & protocols...",
-    "Evaluating trust signals & CTA clarity...",
-    "Measuring telemetry & analytics setup...",
-    "Calculating Revenue Readiness Index..."
-  ];
+  setScanProgressNote('Checking for an existing scan or starting your Architectural Analysis…', 'processing');
 
   let currentStep = 0;
   const stepInterval = setInterval(function() {
-    if (currentStep < analysisMessages.length) {
+    if (currentStep < 7) {
       const el = document.getElementById('step-' + currentStep);
       if (el) el.classList.add('active');
       if (currentStep > 0) {
@@ -1450,63 +2046,256 @@ async function runScan() {
   }, 700);
 
   try {
-    const API_URL = "https://architectural-revenue-remediation.onrender.com/api/scan";
-    const controller = new AbortController();
-    
-    const timeoutId = setTimeout(function() { controller.abort(); }, 90000);
-
     const bizType = document.getElementById('businessTypeSelect').value;
-    
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domain: domain, business_type: bizType }),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-    clearInterval(stepInterval);
-
-    if (!response.ok) throw new Error('Scan request failed');
-
-    const data = await response.json();
-
-    analysisMessages.forEach(function(_, i) {
-      const el = document.getElementById('step-' + i);
-      if (el) {
-        el.classList.remove('active');
-        el.classList.add('done');
+    let classificationConfirmation = false;
+    let classificationPreviousCandidates = null;
+    try {
+      const rawConfirm = localStorage.getItem('trilloka_business_confirmation');
+      if (rawConfirm && bizType !== 'auto') {
+        const savedConfirm = JSON.parse(rawConfirm);
+        if (savedConfirm && String(savedConfirm.domain || '').replace(/^https?:\/\//i,'').replace(/\/.*$/,'') === domain && Date.now() - Number(savedConfirm.saved_at || 0) < 24*60*60*1000) {
+          classificationConfirmation = true;
+          classificationPreviousCandidates = savedConfirm.candidates || null;
+        }
       }
+    } catch (_) {}
+    const response = await fetch(TRILLOKA_SCAN_API_BASE + '/api/scan/start', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Trilloka-Device-ID': getTrillokaDeviceToken()
+      },
+      body: JSON.stringify({ domain: domain, business_type: bizType, classification_confirmation: classificationConfirmation, classification_previous_candidates: classificationPreviousCandidates }),
+      cache: 'no-store'
     });
 
-    if (panel) panel.classList.remove('active');
-    
-    setTimeout(function() {
-      displayResults(data);
-    }, 400);
+    let responseData = {};
+    try { responseData = await response.json(); } catch (_) { responseData = {}; }
+    if (!response.ok) throw scanRequestError(response, responseData);
 
+    if (responseData.state === 'complete' && responseData.result) {
+      clearInterval(stepInterval);
+      const completedResult = responseData.result || {};
+      if (completedResult.status === 'business_type_confirmation_required' || completedResult.requires_business_type_confirmation === true) {
+        if (panel) panel.classList.remove('active');
+        handleBusinessTypeConfirmation(completedResult);
+        return;
+      }
+      if (completedResult.status === 'not_commercial_target') {
+        if (panel) panel.classList.remove('active');
+        handleNonCommercialTarget(completedResult);
+        return;
+      }
+      try { localStorage.removeItem('trilloka_business_confirmation'); } catch (_) {}
+      finishAnalysisSteps();
+      if (responseData.replayed === true) {
+        setScanProgressNote('Previous scan found. No new scan was run — opening your saved result.', 'review');
+      }
+      if (panel) panel.classList.remove('active');
+      displayResults(completedResult);
+      return;
+    }
+
+    const job = responseData.job || {};
+    const jobId = String(job.job_id || '');
+    if (!jobId) throw new Error('The scan service did not return a resumable job ID.');
+
+    clearInterval(stepInterval);
+    rememberActiveScanJob(jobId, domain);
+    setScanProgressNote(
+      responseData.resumed === true
+        ? 'Reconnected to your existing scan. No second scan was started.'
+        : 'Scan started and saved. It will continue server-side even if this browser connection is interrupted.',
+      responseData.resumed === true ? 'review' : 'processing'
+    );
+    await pollTrillokaScanJob(jobId, domain, generation);
   } catch (err) {
     clearInterval(stepInterval);
     if (panel) panel.classList.remove('active');
-    alert('Audit failed or timed out. Please check the domain and try again.');
-    console.error("Fetch Error:", err);
+    if (err && err.status === 429) {
+      showAnalysisAccessLimit(err);
+    } else {
+      alert((err && err.message) ? err.message : 'The Architectural Analysis service could not be reached.');
+    }
+    console.error('Scan Start Error:', err);
   }
 }
 
-function displayResults(data) {
+async function resumeLastActiveScan() {
+  let saved = null;
+  try {
+    const raw = localStorage.getItem(TRILLOKA_ACTIVE_JOB_KEY);
+    if (raw) saved = JSON.parse(raw);
+  } catch (_) {}
+  if (!saved || !saved.job_id || !saved.domain) return;
+  if (Date.now() - Number(saved.saved_at || 0) > 24 * 60 * 60 * 1000) {
+    clearActiveScanJob(saved.job_id);
+    return;
+  }
+
+  const domainInput = document.getElementById('domainInput');
+  if (domainInput && !domainInput.value.trim()) domainInput.value = saved.domain;
+  const panel = document.getElementById('analysisPanel');
+  if (panel) panel.classList.add('active');
+  setScanProgressNote('Reconnecting to the scan that was already running before this page was reopened…', 'review');
+  const generation = ++trillokaPollGeneration;
+  await pollTrillokaScanJob(saved.job_id, saved.domain, generation);
+}
+
+
+function displayProtectedSelfDiagnostic(data) {
   const modalBody = document.getElementById('modalBody');
   const resultsModal = document.getElementById('resultsModal');
   if (!modalBody || !resultsModal) return;
 
-  const metrics = (data && data.surface_metrics && typeof data.surface_metrics === 'object')
-    ? data.surface_metrics : {};
+  const snapshot = (data && data.audit_snapshot && typeof data.audit_snapshot === 'object')
+    ? data.audit_snapshot : {};
+  const hasStoredSnapshot = Object.keys(snapshot).length > 0;
+
+  function esc(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+  }
+  function num(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  function firstText(values, fallback) {
+    for (const value of values) {
+      if (value !== null && value !== undefined && String(value).trim()) return String(value).trim();
+    }
+    return fallback;
+  }
+  function metric(value, suffix) {
+    const n = num(value);
+    return n === null ? '—' : Math.round(n) + (suffix || '');
+  }
+
+  const storedScore = hasStoredSnapshot ? num(snapshot.overall_score) : null;
+  const storedAI = hasStoredSnapshot ? num(snapshot.ai_spectrum_pct) : null;
+  const storedPresence = hasStoredSnapshot ? num(snapshot.online_presence_index) : null;
+  const storedConversion = hasStoredSnapshot ? num(snapshot.conversion_efficiency) : null;
+  const storedPerformance = hasStoredSnapshot ? num(snapshot.mobile_performance_score) : null;
+  const storedSEO = hasStoredSnapshot ? num(snapshot.seo_health_index) : null;
+
+  const storedDate = hasStoredSnapshot ? firstText([
+    snapshot.generated_at,
+    snapshot.scan_timestamp,
+    snapshot.timestamp,
+    snapshot.scanned_at,
+    snapshot.scan_date,
+    snapshot.date
+  ], 'Latest stored snapshot') : 'No stored snapshot available';
+
+  const storedCMS = hasStoredSnapshot ? firstText([
+    snapshot.cms_detected,
+    snapshot.cms_platform
+  ], 'Trilloka Engine') : 'Trilloka Engine';
+
+  const passed = hasStoredSnapshot ? num(snapshot.passed_count) : null;
+  const failed = hasStoredSnapshot ? num(snapshot.failed_count) : null;
+  const loadTime = hasStoredSnapshot ? num(snapshot.load_time_seconds) : null;
+  const coverageText = (passed !== null || failed !== null)
+    ? ((passed !== null ? Math.round(passed) : '—') + ' passed · ' + (failed !== null ? Math.round(failed) : '—') + ' flagged')
+    : 'Stored evidence summary unavailable';
+
+  const scoreText = storedScore === null ? '—' : Math.round(storedScore);
+  const snapshotStatus = hasStoredSnapshot
+    ? 'This is the latest stored Trilloka self-diagnostic. A fresh public scan was not run.'
+    : 'The protected domain was intercepted correctly, but no stored self-diagnostic snapshot was available. No fallback score is being presented as a real result.';
+
+  let html = `
+    <div class="results-shell">
+      <div class="protected-banner">
+        <span class="nice-try">Nice try!!!</span>
+        <div class="protected-kicker">Protected Self-Diagnostic</div>
+        <h3>Trilloka Core Domain</h3>
+        <p>Trilloka is protected from public repeat scans. The Architect uses a controlled self-diagnostic instead, and this view shows only the latest stored evidence.</p>
+      </div>
+
+      <div class="protected-stage">
+        <div class="protected-orb ai">
+          <div class="label">AI / Template Pattern</div>
+          <div class="value">${metric(storedAI,'')}</div>
+          <div class="sub">${storedAI === null ? 'Snapshot unavailable' : 'Stored pattern index'}</div>
+        </div>
+
+        <div class="protected-orb presence">
+          <div class="label">Online Presence</div>
+          <div class="value">${metric(storedPresence,'')}</div>
+          <div class="sub">${storedPresence === null ? 'Snapshot unavailable' : 'Stored readiness surface'}</div>
+        </div>
+
+        <div class="protected-center">
+          <div class="value">${scoreText}</div>
+          <div class="label">Revenue Readiness<br><small style="font-size:.78em;">Protected Snapshot</small></div>
+        </div>
+
+        <div class="protected-orb baseline">
+          <div class="label">Local Benchmark</div>
+          <div class="value">N/A</div>
+          <div class="sub">Not applied to protected self-scan</div>
+        </div>
+
+        <div class="protected-orb funnel">
+          <div class="label">Conversion Readiness</div>
+          <div class="value">${metric(storedConversion,'')}</div>
+          <div class="sub">${storedConversion === null ? 'Snapshot unavailable' : 'Stored commercial surface'}</div>
+        </div>
+      </div>
+
+      <div class="protected-grid">
+        <div class="protected-stat">
+          <div class="eyebrow">Last Self-Diagnostic</div>
+          <div class="main">${esc(storedDate)}</div>
+          <div class="note">${esc(snapshotStatus)}</div>
+        </div>
+        <div class="protected-stat">
+          <div class="eyebrow">Evidence Coverage</div>
+          <div class="main">${esc(coverageText)}</div>
+          <div class="note">Only values actually present in the stored snapshot are displayed here.</div>
+        </div>
+        <div class="protected-stat">
+          <div class="eyebrow">Mobile Performance</div>
+          <div class="main">${storedPerformance === null ? 'N/A' : Math.round(storedPerformance) + ' / 100'}</div>
+          <div class="note">${loadTime === null ? 'Stored load-time evidence unavailable.' : 'Stored load time: ' + loadTime.toFixed(2) + ' seconds.'}</div>
+        </div>
+        <div class="protected-stat">
+          <div class="eyebrow">SEO Health</div>
+          <div class="main">${storedSEO === null ? 'N/A' : Math.round(storedSEO) + ' / 100'}</div>
+          <div class="note">Technology: ${esc(storedCMS)}.</div>
+        </div>
+      </div>
+
+      <div class="protected-footnote">
+        <strong>Protected Benchmark:</strong> local competitor comparison is intentionally not shown for Trilloka's guarded self-scan. The backend's legacy zero-value competitor gap is ignored here so it cannot be mistaken for a measured competitive result.
+      </div>
+    </div>`;
+
+  modalBody.innerHTML = html;
+  resultsModal.classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+
+function displayResults(data) {
+  if (data && data.is_guarded === true) {
+    displayProtectedSelfDiagnostic(data);
+    return;
+  }
+
+  const modalBody = document.getElementById('modalBody');
+  const resultsModal = document.getElementById('resultsModal');
+  if (!modalBody || !resultsModal) return;
+
+  const metrics = (data && data.surface_metrics && typeof data.surface_metrics === 'object') ? data.surface_metrics : {};
 
   function finiteNumber(value, fallback) {
     if (value === null || value === undefined || value === '') return fallback;
     const n = Number(value);
     return Number.isFinite(n) ? n : fallback;
   }
-
   function firstNumber(values, fallback) {
     for (const value of values) {
       const n = finiteNumber(value, null);
@@ -1514,185 +2303,323 @@ function displayResults(data) {
     }
     return fallback;
   }
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+  }
+  function orbColor(kind, value, available) {
+    if (!available) return '#D8B66A';
+    if (kind === 'ai' || kind === 'gap') return value <= 12 ? '#22C973' : (value <= 25 ? '#D8B66A' : '#EF4444');
+    return value >= 60 ? '#22C973' : (value >= 50 ? '#D8B66A' : '#EF4444');
+  }
 
-  const overall = firstNumber([
-    data.overall_score,
-    data.overall_health_score,
-    data.revenue_readiness,
-    data.score
-  ], 0);
+  const overall = firstNumber([data.overall_score,data.overall_health_score,data.revenue_readiness,data.score],0);
+  const scoreFormula = (data.score_formula && typeof data.score_formula === 'object') ? data.score_formula : {};
+  const publicReadinessMax = firstNumber([scoreFormula.public_score_ceiling,data.public_score_ceiling],90);
+  const overallRounded = Math.round(overall * 10) / 10;
+  const overallDisplay = Number.isInteger(overallRounded) ? String(overallRounded) : overallRounded.toFixed(1);
+  const scoreRating = typeof data.score_rating === 'string' ? data.score_rating.trim() : '';
+  const scoreScope = typeof data.score_scope === 'string' ? data.score_scope.trim() : '';
 
-  const speed = firstNumber([
-    metrics.mobile_performance_score,
-    data.speed_score
-  ], null);
-
-  const seo = firstNumber([
-    metrics.seo_health_index,
-    data.seo_score
-  ], null);
-
-  const gap = firstNumber([
-    metrics.competitor_gap_score,
-    data.gap_score
-  ], null);
-
-  const conversion = firstNumber([
-    metrics.conversion_efficiency,
-    data.conversion_score
-  ], overall);
+  const speed = firstNumber([metrics.mobile_performance_score,data.speed_score],null);
+  const seo = firstNumber([metrics.seo_health_index,data.seo_score],null);
+  const ai = firstNumber([metrics.ai_spectrum_pct,data.ai_spectrum_pct],null);
+  const gap = firstNumber([metrics.competitor_gap_score,data.gap_score],null);
+  const gapKind = metrics.competitor_gap_kind || data.competitor_gap_kind || '';
+  const conversion = firstNumber([metrics.conversion_efficiency,data.conversion_score],overall);
+  const presence = firstNumber([metrics.online_presence_index,data.online_presence_index],overall);
+  const commonFoundation = firstNumber([metrics.common_foundation_index],null);
+  const adaptiveArchitecture = firstNumber([metrics.adaptive_architecture_index],null);
+  const architectureProfile = data.architecture_profile || data.business_profile || {};
+  const businessTypeLabel = data.business_type_label || architectureProfile.business_type_label || '';
+  const journeyLabel = data.journey_label || architectureProfile.journey_label || '';
+  const contextTags = Array.isArray(data.context_tags) ? data.context_tags : (Array.isArray(architectureProfile.context_tags) ? architectureProfile.context_tags : []);
 
   const cms = data.cms_platform || data.cms_detected || null;
+  const targetDomain = data.target_domain || data.domain || '';
+  const scanReplay = (data.scan_replay && typeof data.scan_replay === 'object') ? data.scan_replay : {};
+  const isSavedScanReview = scanReplay.replayed === true && scanReplay.fresh_scan_run === false;
+  const replayCompletedAt = Number(scanReplay.original_completed_at || 0);
+  const replayCompletedText = replayCompletedAt
+    ? new Date(replayCompletedAt * 1000).toLocaleString()
+    : '';
   const devKit = data.dev_handoff_kit || data.dev_handoff || null;
-  const summary = data.message || data.summary || 'Diagnostic complete.';
-  const leaks = Array.isArray(data.top_10_financial_leaks)
-    ? data.top_10_financial_leaks
-    : (Array.isArray(data.leaks) ? data.leaks : []);
+  const leaks = Array.isArray(data.top_10_financial_leaks) ? data.top_10_financial_leaks : (Array.isArray(data.leaks) ? data.leaks : []);
+  const foundationSignal = (data.foundation_omission_signal && typeof data.foundation_omission_signal === 'object')
+    ? data.foundation_omission_signal : {};
+  const foundationOmissionKeys = new Set(
+    Array.isArray(foundationSignal.omissions)
+      ? foundationSignal.omissions.map(function(item){ return item && item.rule_key ? String(item.rule_key) : ''; }).filter(Boolean)
+      : []
+  );
+  const publicLeaks = foundationSignal.public_modal_disclose_items === false
+    ? leaks.filter(function(leak){ return !foundationOmissionKeys.has(String((leak && leak.rule_key) || '')); })
+    : leaks;
+
+  const friction = (data.key_friction_insight && typeof data.key_friction_insight === 'object') ? data.key_friction_insight : {};
+  const frictionReason = friction.reason || '';
+  const frictionPoints = firstNumber([friction.score_loss_points,friction.revenue_loss_pct],null);
+
+  const exposure = (data.financial_exposure && typeof data.financial_exposure === 'object')
+    ? data.financial_exposure
+    : ((data.revenue_leak && typeof data.revenue_leak === 'object') ? data.revenue_leak : {});
+  const exposureRange = exposure.estimated_annual_range || '';
+  const exposureLevel = exposure.exposure_level || '';
+  const exposureDisplay = exposureRange
+    ? exposureRange + (exposureLevel ? ' — ' + String(exposureLevel).toUpperCase() + ' scenario exposure' : ' — scenario exposure')
+    : (exposure.est_annual_revenue_leak || '');
+  const exposureMethod = exposure.method_note || 'Scenario estimate based on an annual digital opportunity pool multiplied by the modeled impairment of verified customer-path issues; not measured accounting loss or guaranteed remediation uplift.';
+
+  const aiClass = metrics.classification || (ai === null ? 'Pattern data unavailable' : (ai > 60 ? 'High Template Pattern' : (ai > 30 ? 'Mixed Pattern Stack' : 'Low Template Pattern')));
+  const speedAvailable = speed !== null, seoAvailable = seo !== null, aiAvailable = ai !== null, gapAvailable = gap !== null;
+
+  const competitorBenchmark = (data.competitor_benchmark && typeof data.competitor_benchmark === 'object')
+    ? data.competitor_benchmark
+    : ((metrics.competitor_benchmark && typeof metrics.competitor_benchmark === 'object') ? metrics.competitor_benchmark : {});
+  const localBenchmarkAvailable = competitorBenchmark.available === true;
+  const localTarget = firstNumber([competitorBenchmark.target_local_index, metrics.competitor_target_index], null);
+  const localAvg = firstNumber([competitorBenchmark.local_avg_index, metrics.competitor_local_avg_index], null);
+  const localTop = firstNumber([competitorBenchmark.local_top_index, metrics.competitor_local_top_index], null);
+  const localSample = Number(competitorBenchmark.sample_count || metrics.competitor_sample_count || 0);
+  const localLeader = competitorBenchmark.local_leader_name || 'strongest observed local peer';
+  const radiusKm = competitorBenchmark.radius_meters ? Math.round(Number(competitorBenchmark.radius_meters) / 1000) : null;
+  const ratingContext = (competitorBenchmark.target_google_rating != null && competitorBenchmark.local_avg_rating != null)
+    ? ' Google rating: ' + Number(competitorBenchmark.target_google_rating).toFixed(1) + ' vs local avg ' + Number(competitorBenchmark.local_avg_rating).toFixed(1) + '.'
+    : '';
+  const reviewContext = (competitorBenchmark.target_google_review_count != null && competitorBenchmark.local_avg_review_count != null)
+    ? ' Reviews: ' + Number(competitorBenchmark.target_google_review_count) + ' vs local avg ' + Number(competitorBenchmark.local_avg_review_count) + '.'
+    : '';
+
+  const targetRating = firstNumber([competitorBenchmark.target_google_rating], null);
+  const localAvgRating = firstNumber([competitorBenchmark.local_avg_rating], null);
+  const localTopRating = firstNumber([competitorBenchmark.local_top_rating], null);
+  const targetReviews = firstNumber([competitorBenchmark.target_google_review_count], null);
+  const localAvgReviews = firstNumber([competitorBenchmark.local_avg_review_count], null);
+  const localTopReviews = firstNumber([competitorBenchmark.local_top_review_count], null);
+  const targetCommercial = firstNumber([competitorBenchmark.target_commercial_score], null);
+  const localAvgCommercial = firstNumber([competitorBenchmark.local_avg_commercial_score], null);
+  const localTopCommercial = firstNumber([competitorBenchmark.local_top_commercial_score], null);
+
+  const localRatingComparisonAvailable = localBenchmarkAvailable &&
+    targetRating !== null && localAvgRating !== null && localTopRating !== null;
+
+  const localCommercialComparisonAvailable = localBenchmarkAvailable &&
+    targetCommercial !== null && localAvgCommercial !== null && localTopCommercial !== null;
 
   currentDevKit = devKit;
-
-  const speedAvailable = speed !== null;
-  const seoAvailable = seo !== null;
-  const gapAvailable = gap !== null;
-
-  const speedGood = speedAvailable && speed >= 70;
-  const seoGood = seoAvailable && seo >= 80;
-  const convGood = conversion >= 70;
-
   currentFocusData = {
-    'speed': {
-      title: 'SPEED SCORE',
-      value: speedAvailable ? Math.round(speed) + ' / 100' : 'N/A',
-      sub: 'Mobile Performance',
-      color: !speedAvailable ? 'copper' : (speedGood ? 'green' : 'red'),
-      bars: speedAvailable ? [
-        { label: 'Your Site', val: Math.min(speed, 100), text: Math.round(speed) + ' / 100', color: speedGood ? 'green' : 'red' }
-      ] : [],
-      insight: !speedAvailable
-        ? 'Google performance telemetry was unavailable, so no fake score was substituted.'
-        : (speedGood
-            ? 'Measured mobile performance is within the scanner’s healthy range.'
-            : 'Measured mobile performance indicates meaningful optimization headroom.')
-    },
-
-    'seo': {
-      title: 'SEO HEALTH',
-      value: seoAvailable ? Math.round(seo) + ' / 100' : 'N/A',
-      sub: 'Google Lighthouse SEO',
-      color: !seoAvailable ? 'copper' : (seoGood ? 'green' : 'red'),
-      bars: seoAvailable ? [
-        { label: 'Your Site', val: Math.min(seo, 100), text: Math.round(seo) + ' / 100', color: seoGood ? 'green' : 'red' }
-      ] : [],
-      insight: !seoAvailable
-        ? 'SEO telemetry was unavailable for this scan.'
-        : 'SEO is shown as a supporting technical surface; commercial revenue-readiness issues are prioritized separately.'
-    },
-
-    'gap': {
-      title: 'MODELED READINESS GAP',
-      value: gapAvailable ? Math.round(gap) + ' pts' : 'N/A',
-      sub: 'Not a measured competitor audit',
-      color: !gapAvailable ? 'copper' : (gap <= 8 ? 'green' : 'red'),
-      bars: gapAvailable ? [
-        {
-          label: 'Gap',
-          val: Math.min((Math.max(gap, 0) / 78) * 100, 100),
-          text: Math.round(gap) + ' pts',
-          color: gap <= 8 ? 'green' : 'red'
-        }
-      ] : [],
-      insight: 'This is the backend’s modeled readiness-gap proxy. It should not be presented as telemetry collected from a competitor unless competitor data was actually scanned.'
-    },
-
-    'funnel': {
-      title: 'CONVERSION READINESS',
-      value: Math.round(conversion) + ' / 100',
-      sub: 'Commercial Path Readiness',
-      color: convGood ? 'green' : (conversion >= 50 ? 'copper' : 'red'),
-      bars: [
-        { label: 'Your Site', val: Math.min(conversion, 100), text: Math.round(conversion) + ' / 100', color: convGood ? 'green' : 'red' }
+    ai:{title:'AI / TEMPLATE PATTERN',value:aiAvailable?Math.round(ai)+' / 100':'N/A',sub:aiClass,color:!aiAvailable?'copper':(ai<=12?'green':(ai<=25?'copper':'red')),bars:aiAvailable?[
+      {label:'Your Site',val:Math.min(Math.max(ai,0),100),text:Math.round(ai)+' / 100',color:ai<=12?'green':(ai<=25?'copper':'red')},
+      {label:'Penalty',val:50,text:'50+',color:'red'}
+    ]:[],insight:aiAvailable?'A conservative content/template sameness heuristic. The scorer only treats a high measured pattern as a modest risk signal; it is not proof that AI authored the website.':'Template-pattern evidence was unavailable for this scan.'},
+    presence: localRatingComparisonAvailable ? {
+      title:'ONLINE PRESENCE + LOCAL PROOF',
+      value:Math.round(presence)+' / 100',
+      sub:localSample+' comparable nearby businesses',
+      color:presence>=60?'green':(presence>=50?'copper':'red'),
+      bars:[
+        {label:'Your Rating',val:Math.min(Math.max(targetRating*20,0),100),text:Number(targetRating).toFixed(1)+' / 5',color:targetRating>=localAvgRating?'green':'red'},
+        {label:'Local Avg',val:Math.min(Math.max(localAvgRating*20,0),100),text:Number(localAvgRating).toFixed(1)+' / 5',color:'copper'},
+        {label:'Local Leader',val:Math.min(Math.max(localTopRating*20,0),100),text:Number(localTopRating).toFixed(1)+' / 5',color:'green'}
       ],
-      insight: convGood
-        ? 'The commercial path is comparatively strong, while remaining verified leaks are still reflected in the overall score.'
-        : 'Verified commercial-path friction is reducing readiness.'
+      insight:'Your Presence score remains Trilloka’s own readiness surface. The comparison bars use real Google Places ratings from the local benchmark.'+
+        (targetReviews!==null&&localAvgReviews!==null?' Reviews: '+Math.round(targetReviews)+' vs local average '+Math.round(localAvgReviews)+'.':'')+
+        (localTopReviews!==null?' Local review leader: '+Math.round(localTopReviews)+'.':'')
+    } : {
+      title:'ONLINE PRESENCE',
+      value:Math.round(presence)+' / 100',
+      sub:'Readiness Surface',
+      color:presence>=60?'green':(presence>=50?'copper':'red'),
+      bars:[{label:'Presence',val:Math.min(Math.max(presence,0),100),text:Math.round(presence)+' / 100',color:presence>=60?'green':(presence>=50?'copper':'red')}],
+      insight:'A public presence/readiness surface interpreted alongside the verified commercial evidence. Local Google comparison was unavailable for this scan.'
     },
-
-    'revenue': {
-      title: 'REVENUE READINESS',
-      value: Math.round(overall) + ' / 100',
-      sub: 'Overall Index · Public ceiling 78',
-      color: overall >= 70 ? 'green' : (overall >= 50 ? 'copper' : 'red'),
-      bars: [
-        { label: 'Your Site', val: Math.min(overall, 100), text: Math.round(overall) + ' / 100', color: overall >= 70 ? 'green' : 'red' },
-        { label: 'Max Index', val: 78, text: '78 / 100', color: 'copper' }
+    gap: localBenchmarkAvailable && localTarget !== null && localAvg !== null && localTop !== null ? {
+      title:'LOCAL COMPETITOR BENCHMARK',
+      value:Math.round(gap)+' pts',
+      sub:localSample+' comparable nearby businesses',
+      color:gap<=8?'green':(gap<=18?'copper':'red'),
+      bars:[
+        {label:'Your Site',val:Math.min(Math.max(localTarget,0),100),text:Math.round(localTarget)+' / 100',color:localTarget>=localAvg?'green':'red'},
+        {label:'Local Avg',val:Math.min(Math.max(localAvg,0),100),text:Math.round(localAvg)+' / 100',color:'copper'},
+        {label:'Local Leader',val:Math.min(Math.max(localTop,0),100),text:Math.round(localTop)+' / 100',color:'green'}
       ],
-      insight: overall >= 70
-        ? 'Strong Revenue Readiness. The index deliberately retains optimization headroom and never implies a visitor conversion percentage.'
-        : 'Verified architectural and commercial leaks are reducing Revenue Readiness.'
+      insight:'Measured from '+localSample+' nearby comparable businesses'+(radiusKm?' within about '+radiusKm+' km':'')+'. Strongest observed local peer: '+localLeader+'.'+ratingContext+reviewContext+' Source: Google Places + passive public-homepage structure. This benchmark does not directly change Revenue Readiness.'
+    } : {
+      title:gapKind==='MODELED_READINESS_HEADROOM_PROXY'?'MODELED READINESS HEADROOM':'READINESS GAP',
+      value:gapAvailable?Math.round(gap)+' pts':'N/A',
+      sub:'Local competitor evidence unavailable',
+      color:!gapAvailable?'copper':(gap<=12?'green':(gap<=25?'copper':'red')),
+      bars:gapAvailable?[
+        {label:'Your Site',val:Math.min((Math.max(overall,0)/publicReadinessMax)*100,100),text:overallDisplay+' / '+Math.round(publicReadinessMax),color:overall>=70?'green':(overall>=50?'copper':'red')},
+        {label:'Ceiling',val:100,text:Math.round(publicReadinessMax)+' / '+Math.round(publicReadinessMax),color:'copper'},
+        {label:'Gap',val:Math.min((Math.max(gap,0)/publicReadinessMax)*100,100),text:Math.round(gap)+' pts',color:gap<=12?'green':(gap<=25?'copper':'red')}
+      ]:[],
+      insight:gapKind==='MODELED_READINESS_HEADROOM_PROXY'
+        ? 'A local competitor benchmark could not be verified for this scan. This is modeled headroom to the public Revenue Readiness ceiling, not a measured competitor gap.'
+        : 'A local competitor benchmark could not be verified for this scan, so no measured competitor-gap claim is made.'
+    },
+    funnel: localCommercialComparisonAvailable ? {
+      title:'CONVERSION READINESS + LOCAL STRUCTURE',
+      value:Math.round(conversion)+' / 100',
+      sub:localSample+' comparable nearby businesses',
+      color:conversion>=60?'green':(conversion>=50?'copper':'red'),
+      bars:[
+        {label:'Your Structure',val:Math.min(Math.max(targetCommercial,0),100),text:Math.round(targetCommercial)+' / 100',color:targetCommercial>=localAvgCommercial?'green':'red'},
+        {label:'Local Avg',val:Math.min(Math.max(localAvgCommercial,0),100),text:Math.round(localAvgCommercial)+' / 100',color:'copper'},
+        {label:'Local Leader',val:Math.min(Math.max(localTopCommercial,0),100),text:Math.round(localTopCommercial)+' / 100',color:'green'}
+      ],
+      insight:'Your Funnel Score remains the full Trilloka conversion-readiness measure. The comparison bars use the lighter passive commercial-structure probe applied consistently to local competitor homepages; this is not a full Revenue Readiness scan of each competitor.'
+    } : {
+      title:'CONVERSION READINESS',
+      value:Math.round(conversion)+' / 100',
+      sub:'Commercial Path Readiness',
+      color:conversion>=60?'green':(conversion>=50?'copper':'red'),
+      bars:[{label:'Your Site',val:Math.min(Math.max(conversion,0),100),text:Math.round(conversion)+' / 100',color:conversion>=60?'green':(conversion>=50?'copper':'red')}],
+      insight:'Shows how verified commercial-path architecture contributes to the overall Revenue Readiness result. Local commercial-structure comparison was unavailable for this scan.'
     }
   };
 
+  const aiColor=orbColor('ai',ai==null?0:ai,aiAvailable), presenceColor=orbColor('normal',presence,true),
+        gapColor=orbColor('gap',gap==null?0:gap,gapAvailable), funnelColor=orbColor('normal',conversion,true);
+
   let htmlContent = `
-    <div class="score-hero">
-      <div style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.12em; color:var(--sand); margin-bottom:0.5rem;">Score assessed by Architectural Revenue Remediator</div>
-      <div class="big-score">` + Math.round(overall) + `<span style="font-family:Inter,sans-serif;font-size:0.22em;color:var(--sand);margin-left:0.35rem;font-weight:500;">/ 100</span></div>
-      <div class="score-label">Revenue Readiness Index</div>
-      <p style="margin-top:0.5rem; color:var(--sand); font-size:0.78rem;">Public index ceiling: 78 · This is not a visitor conversion percentage.</p>
-      <p style="margin-top:0.75rem; color:var(--mist); font-size:0.9rem;">` + summary + `</p>
-    </div>
-  `;
+    <div class="results-shell">
+      `+(isSavedScanReview?`<div style="margin:0 auto 1rem;max-width:720px;padding:1rem 1.1rem;border:1px solid rgba(90,158,122,.35);background:rgba(90,158,122,.08);border-radius:12px;text-align:center;"><div style="font-size:.68rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--green-fix);margin-bottom:.35rem;">Previous Scan Review — No New Scan Was Run</div><p style="font-size:.82rem;line-height:1.55;color:var(--sand);margin:0;">This is the saved result from your previously completed scan`+(replayCompletedText?` on `+escapeHtml(replayCompletedText):``)+`. Re-entering this same URL during the 24-hour review window opens this result again and does not use another scan allowance.</p></div>`:``)+`
+      `+(targetDomain?`<div class="results-domain">`+escapeHtml(targetDomain)+`</div>`:``)+`
+      `+(cms?`<div style="text-align:center;margin:.8rem 0 0;"><span class="cms-badge">Detected Tech Stack: `+escapeHtml(cms)+`</span></div>`:``)+`
+      `+(localBenchmarkAvailable?`<div style="text-align:center;margin:.55rem 0 0;color:var(--sand);font-size:.72rem;">Local benchmark active: `+localSample+` comparable businesses`+(radiusKm?` · ~`+radiusKm+` km radius`:``)+` · hover Presence, Local Gap or Funnel Score for comparison</div>`:``)+`
+      <div class="tap-hint-modal" id="tapHintModal">☝ Tap a metric for full details · Hover to compare with nearby competitors</div>
 
-  if (cms) {
-    htmlContent += `<div style="text-align:center; margin:1rem 0;"><span class="cms-badge">Detected Tech Stack: ` + cms + `</span></div>`;
-  }
-
-  if (leaks.length > 0) {
-    htmlContent += `<h3 style="margin: 2rem 0 1rem;">Detected Revenue Leaks</h3>`;
-    leaks.forEach(function(leak) {
-      const title = leak.leak_name || leak.title || leak.rule_key || 'Verified finding';
-      const description = leak.impact_summary || leak.description || '';
-      htmlContent += `
-        <div class="leak-item">
-          <h4>` + title + `</h4>
-          <p>` + description + `</p>
+      <div class="constellation-stage result-constellation" id="constellationStage">
+        <div class="result-orbit outer"></div><div class="result-orbit inner"></div>
+        <button class="metric-orb orb-ai" id="orb-ai" type="button" style="--orb-color:`+aiColor+`;" onclick="openFocusMode('ai')" onmouseenter="showMetricHover('ai')" onmouseleave="hideMetricHover()">
+          <span class="orb-label">AI / Template</span><span class="orb-value">`+(aiAvailable?Math.round(ai):'—')+(aiAvailable?`<small style="font-size:.48em;">%</small>`:``)+`</span><span class="orb-sub">`+escapeHtml(aiAvailable?aiClass:'Unavailable')+`</span>
+        </button>
+        <button class="metric-orb orb-presence" id="orb-presence" type="button" style="--orb-color:`+presenceColor+`;" onclick="openFocusMode('presence')" onmouseenter="showMetricHover('presence')" onmouseleave="hideMetricHover()">
+          <span class="orb-label">Presence</span><span class="orb-value">`+Math.round(presence)+`<small style="font-size:.48em;">%</small></span><span class="orb-sub">Authority Surface</span>
+        </button>
+        <div class="score-orb">
+          <span class="orb-value">`+overallDisplay+`</span><span class="orb-sub">Revenue<br>Readiness<br><small style="font-size:.72em;letter-spacing:.04em;">Max `+Math.round(publicReadinessMax)+`</small></span>
         </div>
-      `;
+        <button class="metric-orb orb-gap" id="orb-gap" type="button" style="--orb-color:`+gapColor+`;" onclick="openFocusMode('gap')" onmouseenter="showMetricHover('gap')" onmouseleave="hideMetricHover()">
+          <span class="orb-label">`+(localBenchmarkAvailable?'Local Gap':'Readiness Gap')+`</span><span class="orb-value">`+(gapAvailable?Math.round(gap):'—')+`</span><span class="orb-sub">`+(localBenchmarkAvailable?'to Local Leader':'Modeled Points')+`</span>
+        </button>
+        <button class="metric-orb orb-funnel" id="orb-funnel" type="button" style="--orb-color:`+funnelColor+`;" onclick="openFocusMode('funnel')" onmouseenter="showMetricHover('funnel')" onmouseleave="hideMetricHover()">
+          <span class="orb-label">Funnel Score</span><span class="orb-value">`+Math.round(conversion)+`</span><span class="orb-sub">Conversion Readiness</span>
+        </button>
+      
+        <div class="metric-hover-card" id="metricHoverCard" aria-hidden="true">
+          <div class="hover-kicker">Metric Context</div>
+          <h4 id="metricHoverTitle">Metric</h4>
+          <div id="metricHoverBars"></div>
+          <div class="metric-hover-note" id="metricHoverNote"></div>
+        </div>
+      </div>`;
+
+  if(scoreRating || scoreScope){
+    htmlContent+=`<div class="results-lead" style="text-align:center;">`
+      +(scoreRating?`<strong style="color:var(--white);">`+escapeHtml(scoreRating)+`</strong>`:``)
+      +(scoreRating&&scoreScope?`<br>`:``)
+      +(scoreScope?`<span>`+escapeHtml(scoreScope)+`</span>`:``)
+      +`</div>`;
+  }
+
+  if(foundationSignal.triggered === true){
+    htmlContent+=`<div class="guardrail-box active"><h4>`
+      +escapeHtml(foundationSignal.modal_title || 'Foundation Notice')
+      +`</h4><p>`
+      +escapeHtml(foundationSignal.modal_message || 'Verified basic foundation omissions were detected.')
+      +`</p></div>`;
+  }
+
+  if(exposureDisplay){
+    htmlContent+=`<div class="result-exposure"><div class="eyebrow">Modeled Commercial Exposure</div><div class="amount">`+escapeHtml(exposureDisplay)+`</div><div class="method">`+escapeHtml(exposureMethod)+`</div></div>`;
+  }
+  if(frictionReason||frictionPoints!==null){
+    htmlContent+=`<div class="friction-card"><div class="eyebrow">Key Friction Point</div>`+(frictionReason?`<div class="reason">`+escapeHtml(frictionReason)+`</div>`:``)+(frictionPoints!==null?`<div class="loss-points">−`+Math.abs(frictionPoints).toFixed(1)+` Revenue Readiness points</div>`:``)+`<div class="locked-note">Detailed remediation strategy is reserved for the full report.</div></div>`;
+  }
+
+  htmlContent+=`<h3 class="results-section-title">Top Surface Insights</h3><div class="surface-insights">
+    <div class="surface-insight"><h4>Mobile Performance — `+(speedAvailable?Math.round(speed)+`/100`:`N/A`)+`</h4><p>`+(speedAvailable?`Measured mobile performance from available Google telemetry.`:`Google performance telemetry was unavailable, so the Remediator did not substitute a fake zero.`)+`</p></div>
+    <div class="surface-insight"><h4>SEO Health Index — `+(seoAvailable?Math.round(seo)+`/100`:`N/A`)+`</h4><p>`+(seoAvailable?`Search visibility and technical SEO signals analyzed as a supporting surface.`:`SEO telemetry was unavailable for this scan.`)+`</p></div>
+    <div class="surface-insight"><h4>AI / Template Pattern — `+(aiAvailable?Math.round(ai)+`/100 · `+escapeHtml(aiClass):`N/A`)+`</h4><p>Content/template sameness signals evaluated. This is a pattern index, not proof of AI authorship.</p></div>
+    <div class="surface-insight"><h4>Conversion Readiness — `+Math.round(conversion)+`/100</h4><p>Commercial-path readiness based on verified conversion architecture and supporting evidence.</p></div>
+    <div class="surface-insight"><h4>`+(localBenchmarkAvailable?`Local Competitor Gap — `+Math.round(gap)+` pts`:(gapKind==='MODELED_READINESS_HEADROOM_PROXY'?`Modeled Readiness Headroom — `:`Readiness Gap — `)+(gapAvailable?Math.round(gap)+` pts`:`N/A`))+`</h4><p>`+(localBenchmarkAvailable?`Measured against `+localSample+` nearby comparable businesses. Local average `+Math.round(localAvg)+`/100; strongest observed local peer `+Math.round(localTop)+`/100.`:(gapKind==='MODELED_READINESS_HEADROOM_PROXY'?`Local competitor evidence was unavailable; this is modeled headroom to the public Revenue Readiness ceiling, not a measured competitor gap.`:`Local competitor evidence was unavailable, so no measured competitor-gap claim is made.`))+`</p></div>
+    <div class="surface-insight"><h4>Online Presence — `+Math.round(presence)+`/100</h4><p>Public presence/readiness surface retained alongside the commercial diagnosis.</p></div>
+    `+(businessTypeLabel?`<div class="surface-insight"><h4>Detected Business Type — `+escapeHtml(businessTypeLabel)+`</h4><p>This changes the importance of relevant checks without forcing the customer journey or creating failures by itself.</p></div>`:``)+`
+    `+(journeyLabel?`<div class="surface-insight"><h4>Detected Customer Journey — `+escapeHtml(journeyLabel)+`</h4><p>`+(contextTags.length?`Context applied: `+escapeHtml(contextTags.map(function(t){return String(t).replaceAll('_',' ');}).join(', '))+`.`:`No special context tag was required from the verified public evidence.`)+`</p></div>`:``)+`
+    `+(commonFoundation!==null?`<div class="surface-insight"><h4>Common Foundation — `+Math.round(commonFoundation)+`/100</h4><p>Universal HTTPS, SEO/search structure, performance, mobile and accessibility checks. This is a foundation surface, not a claim that the website is perfect, and it intentionally carries lower Revenue Readiness weight.</p></div>`:``)+`
+    `+(adaptiveArchitecture!==null?`<div class="surface-insight"><h4>Adaptive Architecture — `+Math.round(adaptiveArchitecture)+`/100</h4><p>Higher-value conversion, trust, policy, proof and completion architecture weighted by business type, observed customer journey and context. This is the primary commercial-analysis layer.</p></div>`:``)+`
+  </div>`;
+
+  if(publicLeaks.length>0){
+    htmlContent+=`<h3 class="results-section-title">Verified Findings Preview</h3><div class="preview-findings">`;
+    publicLeaks.forEach(function(leak){
+      const title=leak.leak_name||leak.title||leak.rule_key||'Verified finding';
+      const description=leak.impact_summary||leak.description||'';
+      htmlContent+=`<div class="leak-item"><h4>`+escapeHtml(title)+`</h4>`+(description?`<p>`+escapeHtml(description)+`</p>`:``)+`</div>`;
     });
+    htmlContent+=`</div>`;
   }
 
-  if (devKit) {
-    htmlContent += `
-      <div class="dev-handoff">
-        <p><strong>Developer Handoff Brief Generated:</strong> Copy and paste this brief directly to your engineering team.</p>
-        <button class="btn btn-primary copy-btn" onclick="copyDevKit(this, currentDevKit)">Copy Developer Handoff Email</button>
-      </div>
-    `;
+  if(devKit){
+    htmlContent+=`<div class="dev-handoff"><p><strong>Developer Handoff Brief Generated:</strong> Copy and paste this brief directly to your engineering team.</p><button class="btn btn-primary copy-btn" onclick="copyDevKit(this,currentDevKit)">Copy Developer Handoff Email</button></div>`;
   }
 
-  htmlContent += `
-    <h3 style="margin: 2rem 0 1rem;">Unlock Revenue Repair Roadmap</h3>
+  htmlContent+=`
+    <h3 class="results-section-title">Unlock Revenue Repair Roadmap</h3>
     <div class="pricing-grid">
-      <div class="pricing-card">
-        <div class="tier-name">Essential Revenue Audit</div><div class="tier-price">$350</div><div class="tier-desc">4 highest-value verified revenue leaks</div>
-        <ul><li>4 priority findings</li><li>Technical / UX / measurement fixes</li><li>Full 50-point audit access</li><li>2 scans / day for 30 days</li></ul>
-        <a href="https://paypal.me/arpitsavyauk/350" target="_blank" class="btn btn-primary" style="width:100%;">Get Essential Report</a>
-      </div>
-      <div class="pricing-card featured">
-        <div class="tier-name">Advanced Revenue Audit</div><div class="tier-price">$550</div><div class="tier-desc">8 highest-value leaks + 14-day roadmap</div>
-        <ul><li>8 priority findings</li><li>3-angle fixes for each</li><li>14-day implementation roadmap</li><li>1 × 15-minute guidance call</li></ul>
-        <a href="https://paypal.me/arpitsavyauk/550" target="_blank" class="btn btn-primary" style="width:100%;">Get Advanced Report</a>
-      </div>
-      <div class="pricing-card">
-        <div class="tier-name">Architect Revenue Audit</div><div class="tier-price">$850</div><div class="tier-desc">10 highest-value leaks + 30-day roadmap</div>
-        <ul><li>10 priority findings</li><li>3-angle fixes for each</li><li>30-day implementation roadmap</li><li>2 × 15-minute guidance calls</li></ul>
-        <button type="button" class="btn btn-outline" style="width:100%;" onclick="showPhonePopup()">Request Architect Report</button>
-      </div>
-    </div>
-  `;
+      <div class="pricing-card"><div class="tier-name">Essential Revenue Audit</div><div class="tier-price">$350</div><div class="tier-desc">4 highest-value places you may be losing customers</div><ul><li>4 priority findings</li><li>Technical / UX / measurement fixes</li><li>Full 50-point audit access</li><li>2 scans / day for 30 days</li></ul><a href="https://paypal.me/arpitsavyauk/350" target="_blank" class="btn btn-primary" style="width:100%;">Get Essential Report</a></div>
+      <div class="pricing-card featured"><div class="tier-name">Advanced Revenue Audit</div><div class="tier-price">$550</div><div class="tier-desc">8 highest-value customer-loss risks + 14-day roadmap</div><ul><li>8 priority findings</li><li>3-angle fixes for each</li><li>14-day implementation roadmap</li><li>1 × 15-minute guidance call</li></ul><a href="https://paypal.me/arpitsavyauk/550" target="_blank" class="btn btn-primary" style="width:100%;">Get Advanced Report</a></div>
+      <div class="pricing-card"><div class="tier-name">Architect Revenue Audit</div><div class="tier-price">$850</div><div class="tier-desc">10 highest-value customer-loss risks + 30-day roadmap</div><ul><li>10 priority findings</li><li>3-angle fixes for each</li><li>30-day implementation roadmap</li><li>2 × 15-minute guidance calls</li></ul><button type="button" class="btn btn-outline" style="width:100%;" onclick="showPhonePopup()">Request Architect Report</button></div>
+    </div></div>`;
 
-  modalBody.innerHTML = htmlContent;
+  modalBody.innerHTML=htmlContent;
   resultsModal.classList.add('active');
-  document.body.style.overflow = 'hidden';
+  document.body.style.overflow='hidden';
+}
+
+
+function showMetricHover(id) {
+  if (window.matchMedia && window.matchMedia('(hover: none)').matches) return;
+  const data = currentFocusData[id];
+  const card = document.getElementById('metricHoverCard');
+  const title = document.getElementById('metricHoverTitle');
+  const bars = document.getElementById('metricHoverBars');
+  const note = document.getElementById('metricHoverNote');
+  if (!data || !card || !title || !bars || !note) return;
+
+  title.textContent = data.title;
+  bars.innerHTML = '';
+
+  (data.bars || []).slice(0, 3).forEach(function(b, i) {
+    const row = document.createElement('div');
+    row.className = 'metric-hover-row';
+    row.innerHTML =
+      '<span class="lbl">' + b.label + '</span>' +
+      '<div class="metric-hover-track"><div class="metric-hover-fill ' + b.color + '" id="metric-hover-fill-' + id + '-' + i + '"></div></div>' +
+      '<span class="num">' + (b.text || b.val) + '</span>';
+    bars.appendChild(row);
+  });
+
+  note.textContent = data.insight || '';
+  card.classList.add('show');
+  card.setAttribute('aria-hidden', 'false');
+
+  requestAnimationFrame(function() {
+    (data.bars || []).slice(0, 3).forEach(function(b, i) {
+      const fill = document.getElementById('metric-hover-fill-' + id + '-' + i);
+      if (fill) fill.style.width = Math.max(0, Math.min(Number(b.val) || 0, 100)) + '%';
+    });
+  });
+}
+
+function hideMetricHover() {
+  const card = document.getElementById('metricHoverCard');
+  if (!card) return;
+  card.classList.remove('show');
+  card.setAttribute('aria-hidden', 'true');
 }
 
 function openFocusMode(id) {
@@ -1767,6 +2694,47 @@ function closeFocusMode() {
 }
 
 
+/* Public-safe customer-journey demo */
+let journeyDemoStep = 0;
+let journeyDemoTimer = null;
+const journeyDemoCopy = [
+  {label:'1 / 7',title:'Understand the business',text:'The same website issue does not mean the same thing for every business. Trilloka first identifies the commercial context and intended outcome.'},
+  {label:'2 / 7',title:'Follow the real customer path',text:'It reconstructs what customers can actually do: buy, book, call, enquire, request a quote, start a trial or take another measurable step.'},
+  {label:'3 / 7',title:'Use the right expertise',text:'Relevant business-category, journey and research knowledge sharpens what deserves investigation without turning research into an automatic failure.'},
+  {label:'4 / 7',title:'Verify before judging',text:'Evidence is checked across pages and technical layers. If something cannot be verified, Trilloka does not silently call it a failure.'},
+  {label:'5 / 7',title:'Find commercial friction',text:'It looks for missing, misplaced, contradictory or broken evidence around real customer decisions, then prioritizes verified impact.'},
+  {label:'6 / 7',title:'Send uncertain judgment to the Architect',text:'Visual hierarchy, complex interactions and other high-impact questions automation cannot safely settle are separated for human review.'},
+  {label:'7 / 7',title:'Turn findings into an improvement plan',text:'Technical, UX/CRO and Systems actions are tied to the finding, then re-scans and validated outcomes can expand Trilloka’s knowledge over time.'}
+];
+function setJourneyDemoStep(step){
+  journeyDemoStep=Math.max(0,Math.min(6,Number(step)||0));
+  document.querySelectorAll('[data-demo-step]').forEach(function(el,i){el.classList.toggle('active',i===journeyDemoStep);el.classList.toggle('done',i<journeyDemoStep);});
+  const dots=document.querySelectorAll('#demoProgress i');dots.forEach(function(el,i){el.classList.toggle('active',i<=journeyDemoStep);});
+  const copy=journeyDemoCopy[journeyDemoStep]||journeyDemoCopy[0];
+  const label=document.getElementById('demoStepLabel'),title=document.getElementById('demoStepTitle'),text=document.getElementById('demoStepText');
+  if(label)label.textContent=copy.label;if(title)title.textContent=copy.title;if(text)text.textContent=copy.text;
+  const cta=document.getElementById('demoFakeCta');
+  if(cta){cta.textContent=journeyDemoStep>=6?'PLAN READY':(journeyDemoStep>=5?'ARCHITECT REVIEW':'REQUEST A QUOTE');cta.style.background=journeyDemoStep>=6?'#22C973':'var(--copper)';}
+}
+function startJourneyLoop(){
+  clearInterval(journeyDemoTimer);
+  setJourneyDemoStep(0);
+  journeyDemoTimer=setInterval(function(){
+    setJourneyDemoStep((journeyDemoStep+1)%7);
+  },6400);
+}
+(function(){
+  const demo=document.getElementById('journey-demo');
+  if(!demo)return;
+  let played=false;
+  const observer=new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      if(entry.isIntersecting && !played){played=true;startJourneyLoop();}
+    });
+  },{threshold:0.35});
+  observer.observe(demo);
+})();
+
 /* Research Fact Rotator */
 (function(){
   const items=Array.from(document.querySelectorAll('.fact-item'));
@@ -1799,6 +2767,7 @@ document.addEventListener('keydown', function(e) {
     closeFocusMode();
     closeResultsModal();
     closePhoneModal();
+    closeJourneyDemo();
   }
 });
 
@@ -1808,6 +2777,10 @@ if (domainInput) {
     if (e.key === 'Enter') runScan();
   });
 }
+
+// If a tab was refreshed or the browser connection dropped while a scan was running,
+// reconnect to the durable server-side job instead of consuming another scan.
+setTimeout(function() { resumeLastActiveScan(); }, 350);
 </script>
 </body>
 </html>
