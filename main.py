@@ -108,7 +108,7 @@ _PROTECTED_DOMAIN_ROOTS = tuple(
 app = FastAPI(
     title="Trilloka Architect Engine API",
     description="Evidence-weighted Revenue Readiness Diagnostic, local competitor benchmark & tiered report gateway",
-    version="7.5.2",
+    version="7.5.3",
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -1884,7 +1884,7 @@ async def _execute_reserved_scan(
                 "status": "not_commercial_target",
                 "target_domain": payload.domain,
                 "commercial_eligibility": eligibility,
-                "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.5.2"),
+                "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.5.3"),
                 "message": eligibility.get("reason") or "This site does not expose a sufficiently strong commercial/revenue journey for Trilloka Revenue Readiness scoring.",
             }
 
@@ -1904,7 +1904,7 @@ async def _execute_reserved_scan(
                 "business_type_label": profile.get("business_type_label", "General / Unresolved Business"),
                 "business_type_confidence": profile.get("business_type_confidence"),
                 "business_type_confirmation": confirmation,
-                "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.5.2"),
+                "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.5.3"),
                 "message": "Trilloka could not resolve the business category confidently enough for the category deep dive. Choose the closest business type and run the scan again; no score was generated and this attempt was released rather than counted as a completed scan.",
             }
 

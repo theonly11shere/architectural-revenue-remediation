@@ -256,7 +256,7 @@ class _StaticHTMLProbe(HTMLParser):
 
 
 class HybridScanner:
-    ENGINE_VERSION = "v7.5.2"
+    ENGINE_VERSION = "v7.5.3"
     """Three-phase scanner with evidence confidence and business context."""
 
     def __init__(self, google_api_key: Optional[str] = None):
@@ -758,9 +758,25 @@ class HybridScanner:
                 details["reason"] = "HTTP response was blocked/challenged/error and cannot prove missing HTTPS enforcement"
                 return details
 
-            if 200 <= response.status_code < 400 and final_scheme == "http":
+            # A missing redirect is VERIFIED only when the HTTP endpoint serves an actual
+            # customer-facing HTML document. 202/204/ambiguous responses remain UNKNOWN.
+            content_type = str(response.headers.get("Content-Type") or "").lower()
+            body_text = response.text or ""
+            looks_like_html = (
+                "text/html" in content_type
+                or "<!doctype html" in body_text[:4000].lower()
+                or "<html" in body_text[:4000].lower()
+            )
+            has_customer_document = len(body_text.strip()) >= 200 and looks_like_html
+            if response.status_code == 200 and final_scheme == "http" and has_customer_document:
                 details["enforced"] = False
-                details["reason"] = "HTTP request ended on a successful HTTP document without reaching HTTPS"
+                details["reason"] = "HTTP 200 served a customer-facing HTML document without reaching HTTPS"
+                return details
+            if final_scheme == "http":
+                details["reason"] = (
+                    "HTTP endpoint did not provide sufficient customer-facing HTML evidence "
+                    "to verify a redirect failure"
+                )
                 return details
         except Exception as exc:
             details["reason"] = f"redirect verification unavailable: {str(exc)[:180]}"
