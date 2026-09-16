@@ -57,6 +57,10 @@ from category_intelligence import (
 )
 from commercial_eligibility import evaluate_commercial_eligibility
 from learning_intelligence import learning_memory
+from scan_execution_protocol import (
+    build_production_workflow, workflow_routing_terms, workflow_page_guesses,
+    workflow_trace, validate_protocol as validate_scan_execution_protocol,
+)
 
 
 PHONE_RE = re.compile(r"(?<!\d)(?:\+?1[\s.\-]?)?(?:\(?\d{3}\)?[\s.\-]?)\d{3}[\s.\-]?\d{4}(?!\d)")
@@ -362,6 +366,8 @@ class HybridScanner:
         # First-pass Business Type + Journey + Context inference chooses the most commercially relevant internal pages.
         # Business type is a first-class scoring signal; observed actions still resolve the actual website journey.
         initial_architecture_profile = infer_architecture_profile(combined, business_type)
+        initial_workflow = build_production_workflow(initial_architecture_profile)
+        combined["production_workflow_initial"] = initial_workflow
         initial_category_gate = evaluate_business_type_confirmation(initial_architecture_profile)
         initial_deep_type = (
             str(initial_architecture_profile.get("business_type") or "general")
@@ -383,6 +389,8 @@ class HybridScanner:
             "general",  # V7.5 neutral differentiation crawl: do not let an early journey guess steer evidence
             list(initial_architecture_profile.get("context_tags") or []),
             initial_deep_type,
+            workflow_terms=(workflow_routing_terms(initial_workflow) if initial_deep_type != "general" else None),
+            workflow_guesses=(workflow_page_guesses(initial_workflow) if initial_deep_type != "general" else None),
         )
         self._merge_journey_evidence(combined, journey_meta)
 
@@ -419,6 +427,9 @@ class HybridScanner:
         except Exception:
             pass
         mid_profile = infer_architecture_profile(combined, business_type)
+        mid_workflow = build_production_workflow(mid_profile)
+        combined["production_workflow"] = mid_workflow
+        combined["production_workflow_trace"] = workflow_trace(mid_workflow)
 
         # Commercial eligibility is a product-fit gate, not a scoring rule. Purely informational/public
         # sites are recognized so Trilloka can decline an inappropriate Revenue Readiness score instead
@@ -489,8 +500,10 @@ class HybridScanner:
             str(mid_profile.get("journey_model") or "general"),
             list(mid_profile.get("context_tags") or []),
             deep_business_type,
-            existing_journey_urls,
-            deep_limit,
+            exclude_urls=existing_journey_urls,
+            limit_override=deep_limit,
+            workflow_terms=workflow_routing_terms(mid_workflow),
+            workflow_guesses=workflow_page_guesses(mid_workflow),
         )
         self._merge_journey_evidence(combined, deep_meta)
 
@@ -523,7 +536,11 @@ class HybridScanner:
             "concept_observations": category_observations,
             "research_guidance": deep_pack.get("research_guidance") or {},
             "knowledge_stats": category_knowledge_stats(),
-            "policy": "Category and research knowledge guide evidence collection and importance only. Missing optional concepts do not create failures; research cannot manufacture a website problem.",
+            "production_workflow_phase": mid_workflow.get("phase"),
+            "production_workflow_surfaces": mid_workflow.get("type_surfaces") or [],
+            "production_workflow_priorities": mid_workflow.get("type_priorities") or [],
+            "production_workflow_candidate_journeys": mid_workflow.get("candidate_journeys") or [],
+            "policy": "Category, subtype and research knowledge guide evidence collection and importance only. Missing optional concepts do not create failures; research cannot manufacture a website problem.",
         }
 
         # V7.3 broad commercial architecture diagnostics. These remain bounded, passive and evidence-first.
@@ -552,6 +569,10 @@ class HybridScanner:
         combined["business_type_confirmation"] = final_category_gate
         combined["requires_business_type_confirmation"] = bool(final_category_gate.get("required"))
         combined["architecture_profile"] = architecture_profile
+        final_workflow = build_production_workflow(architecture_profile)
+        combined["production_workflow"] = final_workflow
+        combined["production_workflow_trace"] = workflow_trace(final_workflow)
+        combined["production_workflow_protocol"] = validate_scan_execution_protocol()
         # Legacy alias retained for current report/frontend integrations.
         combined["business_profile"] = architecture_profile
         combined["h1_relevance_status"] = self._assess_h1_relevance(combined, architecture_profile)
@@ -640,12 +661,18 @@ class HybridScanner:
         final_profile = infer_architecture_profile(combined, "auto")
         threshold = self._to_float(os.environ.get("TRILLOKA_BUSINESS_TYPE_CONFIDENCE_THRESHOLD")) or 0.72
         gate = evaluate_business_type_confirmation(final_profile, threshold)
+        classification_workflow = build_production_workflow(final_profile)
         return {
             "success": True,
             "target_domain": target_domain,
             "business_type": final_profile.get("business_type"),
             "business_type_label": final_profile.get("business_type_label"),
             "business_type_confidence": final_profile.get("business_type_confidence"),
+            "business_subtype": final_profile.get("business_subtype"),
+            "business_subtype_label": final_profile.get("business_subtype_label"),
+            "business_subtype_confidence": final_profile.get("business_subtype_confidence"),
+            "production_workflow": classification_workflow,
+            "production_workflow_trace": workflow_trace(classification_workflow),
             "journey_model": final_profile.get("journey_model"),
             "journey_label": final_profile.get("journey_label"),
             "requires_business_type_confirmation": bool(gate.get("required")),
@@ -2081,11 +2108,15 @@ class HybridScanner:
             return "policy"
         return "support"
 
-    def _select_priority_journey_urls(self, base_url: str, candidates: List[str], journey_model: str, limit: int, context_tags: Optional[List[str]] = None, business_type: str = "general", exclude_urls: Optional[List[str]] = None) -> List[str]:
+    def _select_priority_journey_urls(self, base_url: str, candidates: List[str], journey_model: str, limit: int, context_tags: Optional[List[str]] = None, business_type: str = "general", exclude_urls: Optional[List[str]] = None, workflow_terms: Optional[List[str]] = None, workflow_guesses: Optional[List[str]] = None) -> List[str]:
         parsed = urllib.parse.urlparse(base_url)
         origin = f"{parsed.scheme}://{parsed.netloc}"
         model = str(journey_model or "general")
         terms = list(JOURNEY_PAGE_TERMS.get(model, JOURNEY_PAGE_TERMS["general"]))
+        # Production workflow terms are routing instructions derived from the already resolved
+        # type/subtype. They affect crawl priority only and never manufacture evidence/findings.
+        if workflow_terms:
+            terms = list(workflow_terms) + terms
         # Category-specific knowledge augments page discovery only after the existing
         # business-type inference has resolved a usable category. It never creates findings.
         if str(business_type or "general") != "general":
@@ -2128,6 +2159,8 @@ class HybridScanner:
                 scored.append((score, url))
 
         guessed = list(JOURNEY_PAGE_GUESSES.get(model, JOURNEY_PAGE_GUESSES["general"]))
+        if workflow_guesses:
+            guessed = list(workflow_guesses) + guessed
         if str(business_type or "general") != "general":
             guessed = list(business_page_guesses(str(business_type), model, list(context_tags or []))) + guessed
         guessed = list(dict.fromkeys(guessed))
@@ -2158,12 +2191,15 @@ class HybridScanner:
                 selected.append(url)
         return selected
 
-    def _scan_priority_journey_pages(self, base_url: str, candidates: List[str], journey_model: str, context_tags: Optional[List[str]] = None, business_type: str = "general", exclude_urls: Optional[List[str]] = None, limit_override: Optional[int] = None) -> Dict[str, Any]:
+    def _scan_priority_journey_pages(self, base_url: str, candidates: List[str], journey_model: str, context_tags: Optional[List[str]] = None, business_type: str = "general", exclude_urls: Optional[List[str]] = None, limit_override: Optional[int] = None, workflow_terms: Optional[List[str]] = None, workflow_guesses: Optional[List[str]] = None) -> Dict[str, Any]:
         raw_limit = self._to_int(os.environ.get("TRILLOKA_JOURNEY_MAX_PAGES"), 5) or 5
         if limit_override is not None:
             raw_limit = self._to_int(limit_override, raw_limit) or raw_limit
         limit = max(2, min(8, raw_limit))
-        urls = self._select_priority_journey_urls(base_url, candidates, journey_model, limit, context_tags, business_type, exclude_urls)
+        urls = self._select_priority_journey_urls(
+            base_url, candidates, journey_model, limit, context_tags, business_type, exclude_urls,
+            workflow_terms=workflow_terms, workflow_guesses=workflow_guesses,
+        )
         pages: List[Dict[str, Any]] = []
         errors: List[Dict[str, Any]] = []
         credential_types: List[str] = []
