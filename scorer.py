@@ -35,6 +35,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from behavioural_engine import BehaviouralEngine
 from checkpoint_engine import FAIL, PASS, UNKNOWN, NA, build_50_checkpoints, checkpoint_summary, build_foundation_omission_signal
 from architecture_model import BUSINESS_TYPE_LABELS, COMMON_FOUNDATION_IDS, ARCHITECTURAL_CHECKPOINT_IDS, context_has, infer_architecture_profile
+from category_intelligence import business_rule_multiplier_expansion
+from research_knowledge import research_rule_multiplier, research_basis_for_rule, research_stats as research_knowledge_stats
 
 
 # -------------------------------
@@ -145,6 +147,53 @@ BUSINESS_TYPE_RULE_MULTIPLIERS: Dict[str, Dict[str, float]] = {
     "automotive": {"click_to_call": 1.15, "location_visibility": 1.15, "reviews_social_proof": 1.12, "form_architecture": 1.10},
 }
 
+# V7.4.0 context-specific importance. Context has always been part of Trilloka's
+# applicability model; this bounded post-verification layer lets that same context sharpen
+# importance without manufacturing a finding.
+CONTEXT_RULE_MULTIPLIERS: Dict[str, Dict[str, float]] = {
+    "sensitive_data": {
+        "privacy_terms_missing": 1.22, "policy_content_consistency": 1.18,
+        "form_architecture": 1.10, "lead_form_friction": 1.06,
+    },
+    "regulated_high_trust": {
+        "trust_credentials": 1.18, "proof_placement_gap": 1.08,
+        "policy_content_consistency": 1.12, "about_team_signal": 1.06,
+    },
+    "commerce_payment": {
+        "checkout_cost_transparency": 1.08, "delivery_expectation_clarity": 1.08,
+        "shipping_info_discoverability": 1.06, "return_policy_discoverability": 1.06,
+        "guest_checkout_barrier": 1.05, "checkout_complexity": 1.05,
+    },
+    "local_location_dependent": {
+        "location_visibility": 1.10, "phone_visibility": 1.08, "click_to_call": 1.08,
+        "reviews_social_proof": 1.07,
+    },
+    "enterprise_considered_purchase": {
+        "b2b_pricing_transparency": 1.10, "proof_placement_gap": 1.10,
+        "case_studies_missing": 1.08, "trust_credentials": 1.06,
+    },
+    "hospitality_event": {
+        "primary_conversion_path": 1.08, "conversion_path_error": 1.10,
+        "location_visibility": 1.06, "reviews_social_proof": 1.06,
+    },
+    "recurring_commitment": {
+        "policy_content_consistency": 1.10, "primary_conversion_path": 1.06,
+        "conversion_path_error": 1.06,
+    },
+    "donation_public_trust": {
+        "proof_placement_gap": 1.10, "trust_credentials": 1.08,
+        "primary_conversion_path": 1.08, "form_architecture": 1.06,
+    },
+}
+
+# V7.3.5 research-grounded category knowledge deepens type-specific importance without changing core scoring logic.
+# These multipliers are applied only after the corresponding finding has already been verified.
+for _business_type, _rule_updates in business_rule_multiplier_expansion().items():
+    _target = BUSINESS_TYPE_RULE_MULTIPLIERS.setdefault(_business_type, {})
+    for _rule_key, _multiplier in _rule_updates.items():
+        _target[_rule_key] = max(float(_target.get(_rule_key, 1.0)), float(_multiplier))
+
+
 RULE_BASE_WEIGHTS: Dict[str, Dict[str, float]] = {
     # Major architectural blockers. Journey-specific weights are intentionally stronger than hygiene checks.
     "unsecured_ssl": {"default": 8.0},
@@ -222,8 +271,8 @@ RESEARCH_MULTIPLIER_BY_RULE: Dict[str, Any] = {
     "guest_checkout_barrier": 1.00,
     "checkout_complexity": 1.00,
     "return_policy_discoverability": 1.00,
-    "delivery_expectation_clarity": 0.90,
-    "shipping_info_discoverability": 0.85,
+    "delivery_expectation_clarity": 1.00,
+    "shipping_info_discoverability": 1.00,
     "b2b_pricing_transparency": 1.00,
     "click_to_call": {
         "default": 0.55, "lead_quote": 0.90, "appointment_consultation": 0.95,
@@ -237,10 +286,10 @@ RESEARCH_MULTIPLIER_BY_RULE: Dict[str, Any] = {
     "html_lang_attribute": 0.50,
     "ai_template_similarity": 0.60,
     "measurement_telemetry": 0.80,
-    "proof_placement_gap": 0.90,
-    "cross_page_consistency": 0.90,
-    "public_unfinished_content": 0.80,
-    "policy_content_consistency": 0.85,
+    "proof_placement_gap": 1.00,
+    "cross_page_consistency": 1.00,
+    "public_unfinished_content": 1.00,
+    "policy_content_consistency": 1.00,
     "cta_competition": 0.70,
 
     # 50-checkpoint rules.
@@ -610,7 +659,9 @@ class RevenueScorer:
                 biz_type=biz_type,
             )
         )
-        raw_leaks = self._apply_business_type_weighting(raw_leaks, business_type_key)
+        raw_leaks = self._apply_business_type_weighting(
+            raw_leaks, business_type_key, biz_type, list(profile.get("context_tags") or [])
+        )
         raw_leaks, unconfirmed_high_impact = self._apply_high_impact_confirmation_guardrail(
             raw_leaks, scan_data
         )
@@ -931,12 +982,14 @@ class RevenueScorer:
             "score_ceiling": MAX_REVENUE_READINESS_SCORE,
             "score_ceiling_note": "The public Revenue Readiness Index is calibrated to a 0–90 blueprint. 90/90 is theoretically available only from perfect canonical 22/60/18 strength; the score is not a visitor conversion percentage.",
             "research_calibration": {
-                "model": "mixed-evidence commercial-priority calibration",
-                "baymard_basis": "Ecommerce checkout only: relative weights are normalized against the mean of Baymard's current avoidable abandonment reasons; survey percentages are never copied directly into deductions.",
-                "nng_basis": "Primary conversion paths, B2B information needs and form friction are calibrated with Nielsen Norman Group usability/conversion research.",
-                "google_basis": "Core Web Vitals/performance and local mobile-intent signals use Google/web.dev or Google mobile/local evidence where applicable.",
+                "model": "study-grounded category + journey commercial-priority calibration",
+                "knowledge_stats": research_knowledge_stats(),
+                "baymard_basis": "Ecommerce checkout only: Baymard evidence informs what matters in direct-purchase journeys; survey percentages are never copied directly into deductions.",
+                "nng_basis": "B2B information needs, pricing expectations and form/task friction use Nielsen Norman Group research when the relevant business/journey applies.",
+                "google_basis": "Core Web Vitals/performance, Search Central entity/product guidance, and scoped Google journey studies sharpen observation where applicable; population-specific studies retain explicit transfer limits.",
+                "category_specific_basis": "Clio legal research, M+R nonprofit benchmarks, Zillow housing research, BrightLocal local-review research and scoped Google finance/education/travel/auto/restaurant studies are activated only for matching categories/journeys.",
                 "seo_policy": "SEO and discovery hygiene remain measured and visible, but low-value SEO families are capped so they cannot collectively outrank a verified commercial blocker.",
-                "guardrail": "Research and business-type weighting change relative priority only after the scanner verifies a site-specific condition. Unknown evidence remains neutral.",
+                "guardrail": "Research changes investigation focus and relative priority only after the scanner verifies a site-specific condition. It never creates FAIL evidence; UNKNOWN remains neutral.",
             },
             "score_formula": {
                 "method": "business_type_journey_context_three_layer_v4_blueprint90",
@@ -2602,26 +2655,49 @@ class RevenueScorer:
         category_map = BUSINESS_TYPE_CATEGORY_MULTIPLIERS.get(btype, BUSINESS_TYPE_CATEGORY_MULTIPLIERS["general"])
         return max(0.85, min(1.25, float(category_map.get(category, 1.0))))
 
-    def _apply_business_type_weighting(self, leaks: List[Dict[str, Any]], business_type_key: str) -> List[Dict[str, Any]]:
-        """Apply first-class business-type importance after site-specific failures are verified.
+    @staticmethod
+    def _context_rule_weight_multiplier(rule_key: str, context_tags: Optional[List[str]] = None) -> float:
+        mult = 1.0
+        for tag in context_tags or []:
+            value = CONTEXT_RULE_MULTIPLIERS.get(str(tag), {}).get(str(rule_key))
+            if value is not None:
+                mult *= float(value)
+        return max(1.0, min(1.30, mult))
 
-        This cannot manufacture a leak. It only changes the relative commercial weight of evidence
-        that already exists, and it is bounded so Journey + Context remain meaningful.
+    def _apply_business_type_weighting(
+        self, leaks: List[Dict[str, Any]], business_type_key: str, journey_model: str = "general", context_tags: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """Apply business-type + research-context importance after failures are verified.
+
+        The underlying V7.3 logic is unchanged: a site-specific condition must already exist before
+        either business-type or study knowledge can influence importance. The study-context factor
+        is separately exposed and tightly bounded so research cannot manufacture or dominate a finding.
         """
         weighted: List[Dict[str, Any]] = []
         for raw in leaks or []:
             if not isinstance(raw, dict):
                 continue
             leak = dict(raw)
+            rule_key = str(leak.get("rule_key") or "")
             mult = self._business_type_weight_multiplier(
-                str(leak.get("rule_key") or ""), str(leak.get("category") or ""), business_type_key
+                rule_key, str(leak.get("category") or ""), business_type_key
             )
+            study_mult = research_rule_multiplier(rule_key, business_type_key, journey_model, context_tags or [])
+            study_mult = max(0.94, min(1.12, float(study_mult)))
+            context_mult = self._context_rule_weight_multiplier(rule_key, context_tags or [])
+            combined_mult = min(1.55, mult * study_mult * context_mult)
             leak["scoring_business_type"] = business_type_key
+            leak["scoring_journey_model"] = journey_model
             leak["business_type_multiplier"] = round(mult, 3)
+            leak["study_context_multiplier"] = round(study_mult, 3)
+            leak["context_importance_multiplier"] = round(context_mult, 3)
+            leak["study_research_basis"] = research_basis_for_rule(
+                rule_key, business_type_key, journey_model, context_tags or []
+            )
             for key in ("intrinsic_severity_score", "economic_severity", "pre_dedupe_penalty", "final_score_loss", "score_impact_points", "final_severity_score"):
                 value = self._safe_float(leak.get(key))
                 if value is not None:
-                    leak[key] = round(value * mult, 2)
+                    leak[key] = round(value * combined_mult, 2)
             weighted.append(leak)
         return weighted
 
@@ -2670,7 +2746,11 @@ class RevenueScorer:
             "category_multiplier": leak.get("category_multiplier"),
             "business_multiplier": leak.get("business_multiplier"),
             "business_type_multiplier": leak.get("business_type_multiplier", 1.0),
+            "study_context_multiplier": leak.get("study_context_multiplier", 1.0),
+            "context_importance_multiplier": leak.get("context_importance_multiplier", 1.0),
+            "study_research_basis": leak.get("study_research_basis") or {},
             "scoring_business_type": leak.get("scoring_business_type"),
+            "scoring_journey_model": leak.get("scoring_journey_model"),
             "research_multiplier": leak.get("research_multiplier"),
             "research_basis": leak.get("research_basis") or {},
             "confidence_multiplier": leak.get("confidence_multiplier"),
@@ -2696,7 +2776,11 @@ class RevenueScorer:
             "category_multiplier",
             "business_multiplier",
             "business_type_multiplier",
+            "study_context_multiplier",
+            "context_importance_multiplier",
+            "study_research_basis",
             "scoring_business_type",
+            "scoring_journey_model",
             "research_multiplier",
             "research_basis",
             "severity_factor",

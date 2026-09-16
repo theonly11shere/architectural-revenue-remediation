@@ -51,6 +51,12 @@ from architecture_model import (
     expected_actions as architecture_expected_actions,
     infer_architecture_profile, context_has,
 )
+from category_intelligence import (
+    business_page_terms, business_page_guesses, evaluate_business_type_confirmation,
+    get_business_deep_dive_pack, observe_pack_concepts, knowledge_stats as category_knowledge_stats,
+)
+from commercial_eligibility import evaluate_commercial_eligibility
+from learning_intelligence import learning_memory
 
 
 PHONE_RE = re.compile(r"(?<!\d)(?:\+?1[\s.\-]?)?(?:\(?\d{3}\)?[\s.\-]?)\d{3}[\s.\-]?\d{4}(?!\d)")
@@ -250,7 +256,7 @@ class _StaticHTMLProbe(HTMLParser):
 
 
 class HybridScanner:
-    ENGINE_VERSION = "v7.3.1"
+    ENGINE_VERSION = "v7.4.0"
     """Three-phase scanner with evidence confidence and business context."""
 
     def __init__(self, google_api_key: Optional[str] = None):
@@ -272,9 +278,9 @@ class HybridScanner:
         # Fixed Google API calls use this session. Disable environment proxy inheritance so
         # deployment-level proxy variables cannot silently reroute security-sensitive traffic.
         self.session.trust_env = False
-        self.session.headers.update({"User-Agent": "TrillokaBot/3.3 Business-Type Revenue Architecture Auditor"})
+        self.session.headers.update({"User-Agent": "TrillokaBot/3.4 Category-Deep-Dive Revenue Architecture Auditor"})
         # Every user/page-derived destination goes through a DNS-validated, IP-pinned client.
-        self.safe_http = SafeHTTPClient(default_headers={"User-Agent": "TrillokaBot/3.3 Business-Type Revenue Architecture Auditor"})
+        self.safe_http = SafeHTTPClient(default_headers={"User-Agent": "TrillokaBot/3.4 Category-Deep-Dive Revenue Architecture Auditor"})
 
     async def execute_hybrid_scan(self, target_domain: str, business_name: str = "", business_type: str = "auto") -> Dict[str, Any]:
         """Run HTTP, Google and mobile-browser evidence collection."""
@@ -346,12 +352,26 @@ class HybridScanner:
             urllib.parse.urlparse(combined.get("final_url") or url).scheme == "https"
         )
 
+        # V7.4 adaptive memory contributes recognition-only hints from previously validated
+        # classification knowledge. It cannot create findings or change scoring weights.
+        try:
+            combined["learning_overlay"] = learning_memory.inference_overlay(combined)
+        except Exception as learning_exc:
+            combined["learning_overlay"] = {"scores": {}, "error": str(learning_exc), "policy": "Learning memory failed open; core inference remains authoritative."}
+
         # First-pass Business Type + Journey + Context inference chooses the most commercially relevant internal pages.
         # Business type is a first-class scoring signal; observed actions still resolve the actual website journey.
         initial_architecture_profile = infer_architecture_profile(combined, business_type)
+        initial_category_gate = evaluate_business_type_confirmation(initial_architecture_profile)
+        initial_deep_type = (
+            str(initial_architecture_profile.get("business_type") or "general")
+            if not initial_category_gate.get("required") else "general"
+        )
 
         # Bounded multi-page journey inspection. This is passive: GET requests only, same origin,
-        # no form submissions, no cart mutation, no login and no customer data entry.
+        # no form submissions, no cart mutation, no login and no customer data entry. When the
+        # homepage has already established a confident category, the SAME journey crawler is fed
+        # that category's deeper page vocabulary. Otherwise it stays neutral until more evidence exists.
         candidate_links = self._union_strings(
             static_meta.get("internal_links"),
             dom_meta.get("internal_links"),
@@ -362,6 +382,7 @@ class HybridScanner:
             candidate_links,
             str(initial_architecture_profile.get("journey_model") or "general"),
             list(initial_architecture_profile.get("context_tags") or []),
+            initial_deep_type,
         )
         self._merge_journey_evidence(combined, journey_meta)
 
@@ -391,25 +412,161 @@ class HybridScanner:
             combined["conversion_error_signals"] = existing + list(provider_health.get("error_signals") or [])
             combined["conversion_path_error_detected"] = True
 
-        # V7.3 broad commercial architecture diagnostics.  These are bounded, passive and evidence-first:
-        # they compare page placement/consistency and look for accidentally public unfinished content,
-        # but never submit forms or claim legal non-compliance.
+        # Re-run the SAME Business Type + Journey + Context inference after the neutral/broad pass.
+        # Refresh the bounded learning hint because additional public evidence is now available.
+        try:
+            combined["learning_overlay"] = learning_memory.inference_overlay(combined)
+        except Exception:
+            pass
+        mid_profile = infer_architecture_profile(combined, business_type)
+
+        # Commercial eligibility is a product-fit gate, not a scoring rule. Purely informational/public
+        # sites are recognized so Trilloka can decline an inappropriate Revenue Readiness score instead
+        # of forcing them into a commercial category. Mixed sites may continue on their commercial path.
+        commercial_eligibility = evaluate_commercial_eligibility(combined, mid_profile, business_type)
+        combined["commercial_eligibility"] = commercial_eligibility
+        if not commercial_eligibility.get("allow_scan", True):
+            combined["requires_business_type_confirmation"] = False
+            combined["architecture_profile"] = mid_profile
+            combined["business_profile"] = mid_profile
+            combined["business_type_confirmation"] = {"required": False, "reason": "commercial_eligibility_gate"}
+            combined["business_deep_dive"] = {"status": "not_commercial_target", "policy": commercial_eligibility.get("reason")}
+            combined["commercial_architecture_diagnostics"] = {}
+            combined["public_content_hygiene"] = {}
+            combined["competitor_benchmark"] = {"available": False, "reason": "Commercial eligibility gate did not authorize Revenue Readiness scoring."}
+            combined["competitor_data_available"] = False
+            combined["scan_quality"] = self._build_scan_quality(combined)
+            combined["evidence_coverage"] = self._evidence_coverage(combined)
+            combined["scanner_engine_version"] = self.ENGINE_VERSION
+            combined["scan_started_at"] = scan_started_at
+            combined["scan_completed_at"] = self._utc_now()
+            return combined
+
+        category_threshold = self._to_float(os.environ.get("TRILLOKA_BUSINESS_TYPE_CONFIDENCE_THRESHOLD")) or 0.72
+        category_gate = evaluate_business_type_confirmation(mid_profile, category_threshold)
+        combined["business_type_confirmation"] = category_gate
+        combined["requires_business_type_confirmation"] = bool(category_gate.get("required"))
+
+        if category_gate.get("required"):
+            combined["architecture_profile"] = mid_profile
+            combined["business_profile"] = mid_profile
+            combined["h1_relevance_status"] = self._assess_h1_relevance(combined, mid_profile)
+            combined["business_type_validation"] = self._business_type_validation(business_type, mid_profile)
+            combined["business_deep_dive"] = {
+                "status": "awaiting_business_type_confirmation",
+                "knowledge_stats": category_knowledge_stats(),
+                "policy": "Category deep dive is withheld until the business type is confidently resolved or explicitly selected.",
+            }
+            combined["commercial_architecture_diagnostics"] = {}
+            combined["public_content_hygiene"] = {}
+            combined["competitor_benchmark"] = {"available": False, "reason": "Business type confirmation required before category deep dive."}
+            combined["competitor_data_available"] = False
+            combined["scan_quality"] = self._build_scan_quality(combined)
+            combined["evidence_coverage"] = self._evidence_coverage(combined)
+            combined["scanner_engine_version"] = self.ENGINE_VERSION
+            combined["scan_started_at"] = scan_started_at
+            combined["scan_completed_at"] = self._utc_now()
+            return combined
+
+        deep_business_type = str(mid_profile.get("business_type") or "general")
+        deep_pack = get_business_deep_dive_pack(
+            deep_business_type, str(mid_profile.get("journey_model") or "general"), list(mid_profile.get("context_tags") or [])
+        )
+        existing_journey_urls = [
+            str(page.get("url") or "") for page in (combined.get("journey_pages_scanned") or [])
+            if isinstance(page, dict) and page.get("url")
+        ]
+        expanded_candidates = self._union_strings(
+            candidate_links,
+            journey_meta.get("discovered_internal_links"),
+            combined.get("internal_links"),
+        )
+        deep_limit = self._to_int(os.environ.get("TRILLOKA_CATEGORY_DEEP_DIVE_MAX_PAGES"), 6) or 6
+        deep_meta = await asyncio.to_thread(
+            self._scan_priority_journey_pages,
+            resolved_url,
+            expanded_candidates,
+            str(mid_profile.get("journey_model") or "general"),
+            list(mid_profile.get("context_tags") or []),
+            deep_business_type,
+            existing_journey_urls,
+            deep_limit,
+        )
+        self._merge_journey_evidence(combined, deep_meta)
+
+        # Render one newly discovered deep-dive conversion/evaluation page if the category pass found
+        # a different high-priority destination. This keeps JS-heavy booking/cart/demo paths visible.
+        deep_browser_url = str(deep_meta.get("browser_journey_candidate_url") or "")
+        if deep_browser_url and deep_browser_url.rstrip("/") != browser_journey_url.rstrip("/"):
+            try:
+                deep_browser = await self._run_targeted_playwright(
+                    deep_browser_url, {}, mode="mobile", capture_evidence=True
+                )
+                self._merge_browser_journey_evidence(combined, deep_browser, deep_browser_url)
+            except Exception as exc:
+                combined["deep_dive_browser_probe"] = {"url": deep_browser_url, "browser_loaded": False, "error": str(exc)[:220]}
+
+        category_text = " ".join([
+            str(combined.get("page_text") or ""),
+            str(combined.get("journey_text_sample") or ""),
+        ])[:90000]
+        category_observations = observe_pack_concepts(
+            category_text, deep_business_type, str(mid_profile.get("journey_model") or "general"), list(mid_profile.get("context_tags") or [])
+        )
+        combined["business_deep_dive"] = {
+            "status": "completed",
+            "business_type": deep_business_type,
+            "business_type_label": deep_pack.get("label"),
+            "customer_focus": deep_pack.get("customer_focus") or [],
+            "pages_scanned_in_category_pass": len(deep_meta.get("journey_pages_scanned") or []),
+            "pages_verified_in_category_pass": int(deep_meta.get("journey_pages_verified") or 0),
+            "concept_observations": category_observations,
+            "research_guidance": deep_pack.get("research_guidance") or {},
+            "knowledge_stats": category_knowledge_stats(),
+            "policy": "Category and research knowledge guide evidence collection and importance only. Missing optional concepts do not create failures; research cannot manufacture a website problem.",
+        }
+
+        # V7.3 broad commercial architecture diagnostics. These remain bounded, passive and evidence-first.
+        # The category deep dive simply gives these existing detectors more relevant pages/evidence to inspect.
+        hygiene_links = self._union_strings(candidate_links, combined.get("internal_links"))
         public_content_hygiene = await asyncio.to_thread(
-            self._scan_public_content_hygiene, resolved_url, candidate_links
+            self._scan_public_content_hygiene, resolved_url, hygiene_links
         )
         combined["public_content_hygiene"] = public_content_hygiene
         combined["commercial_architecture_diagnostics"] = self._build_commercial_architecture_diagnostics(
             combined, public_content_hygiene
         )
 
-        # Re-infer Business Type + Journey + Context after the bounded journey sample because internal
-        # conversion/proof pages can expose a clearer commercial model than a generic homepage.
+        # Re-infer Business Type + Journey + Context after the category deep dive. The reasoning logic
+        # is unchanged; it simply has more business-specific evidence and any validated recognition
+        # memory available now.
+        try:
+            combined["learning_overlay"] = learning_memory.inference_overlay(combined)
+        except Exception:
+            pass
         architecture_profile = infer_architecture_profile(combined, business_type)
+        overlay = combined.get("learning_overlay") if isinstance(combined.get("learning_overlay"), dict) else {}
+        if overlay.get("archetype"):
+            architecture_profile["learned_archetype_hint"] = overlay.get("archetype")
+        final_category_gate = evaluate_business_type_confirmation(architecture_profile, category_threshold)
+        combined["business_type_confirmation"] = final_category_gate
+        combined["requires_business_type_confirmation"] = bool(final_category_gate.get("required"))
         combined["architecture_profile"] = architecture_profile
         # Legacy alias retained for current report/frontend integrations.
         combined["business_profile"] = architecture_profile
         combined["h1_relevance_status"] = self._assess_h1_relevance(combined, architecture_profile)
         combined["business_type_validation"] = self._business_type_validation(business_type, architecture_profile)
+
+        # If deeper evidence made an auto classification materially ambiguous, fail safe and ask.
+        if final_category_gate.get("required"):
+            combined["competitor_benchmark"] = {"available": False, "reason": "Business type became ambiguous after deeper evidence inspection."}
+            combined["competitor_data_available"] = False
+            combined["scan_quality"] = self._build_scan_quality(combined)
+            combined["evidence_coverage"] = self._evidence_coverage(combined)
+            combined["scanner_engine_version"] = self.ENGINE_VERSION
+            combined["scan_started_at"] = scan_started_at
+            combined["scan_completed_at"] = self._utc_now()
+            return combined
 
         # Local competitor benchmarking is contextual evidence only. It does not directly change
         # Revenue Readiness. Target identity must be independently credible and competitors must
@@ -429,6 +586,73 @@ class HybridScanner:
         combined["scan_started_at"] = scan_started_at
         combined["scan_completed_at"] = self._utc_now()
         return combined
+
+    async def classify_business_type(self, target_domain: str, business_name: str = "") -> Dict[str, Any]:
+        """Lightweight category preflight used before a full Revenue Readiness scan.
+
+        It uses the same business inference logic as the full scanner, plus a small neutral
+        same-origin discovery pass. No PageSpeed/CrUX/competitor benchmark or scoring is run.
+        """
+        url = self.safe_http.normalize_target(target_domain)
+        http_meta = await asyncio.to_thread(self._fast_http_preflight, url)
+        raw_html = str(http_meta.pop("_http_html", "") or "")
+        static_meta = self._extract_static_html_evidence(
+            raw_html, http_meta.get("final_url") or url, verified=bool(http_meta.get("response_ok"))
+        )
+        resolved_url = http_meta.get("final_url") or url
+        try:
+            mobile_dom = await self._run_targeted_playwright(resolved_url, {}, mode="mobile")
+        except Exception as exc:
+            mobile_dom = self._empty_dom_meta(error=str(exc))
+        evidence = self._merge_static_and_dom(static_meta, mobile_dom)
+        place_query_name = self._business_name_hint(target_domain, business_name, evidence)
+        try:
+            places = await asyncio.to_thread(self._fetch_google_places, target_domain, place_query_name)
+        except Exception:
+            places = {}
+        combined: Dict[str, Any] = {"domain": target_domain, "url": url, **http_meta, **places, **evidence}
+        try:
+            combined["learning_overlay"] = learning_memory.inference_overlay(combined)
+        except Exception:
+            combined["learning_overlay"] = {"scores": {}}
+        first_profile = infer_architecture_profile(combined, "auto")
+        first_gate = evaluate_business_type_confirmation(first_profile)
+
+        # If homepage evidence is not decisive, inspect a few neutral commercial/support pages and
+        # re-run the exact same classifier before asking the user.
+        if first_gate.get("required"):
+            candidates = self._union_strings(static_meta.get("internal_links"), mobile_dom.get("internal_links"))
+            shallow = await asyncio.to_thread(
+                self._scan_priority_journey_pages,
+                resolved_url,
+                candidates,
+                str(first_profile.get("journey_model") or "general"),
+                list(first_profile.get("context_tags") or []),
+                "general",
+                None,
+                4,
+            )
+            self._merge_journey_evidence(combined, shallow)
+        try:
+            combined["learning_overlay"] = learning_memory.inference_overlay(combined)
+        except Exception:
+            pass
+        final_profile = infer_architecture_profile(combined, "auto")
+        threshold = self._to_float(os.environ.get("TRILLOKA_BUSINESS_TYPE_CONFIDENCE_THRESHOLD")) or 0.72
+        gate = evaluate_business_type_confirmation(final_profile, threshold)
+        return {
+            "success": True,
+            "target_domain": target_domain,
+            "business_type": final_profile.get("business_type"),
+            "business_type_label": final_profile.get("business_type_label"),
+            "business_type_confidence": final_profile.get("business_type_confidence"),
+            "journey_model": final_profile.get("journey_model"),
+            "journey_label": final_profile.get("journey_label"),
+            "requires_business_type_confirmation": bool(gate.get("required")),
+            "business_type_confirmation": gate,
+            "scanner_engine_version": self.ENGINE_VERSION,
+            "policy": "Use the inferred category when confidence is sufficient; otherwise ask the user to select a category before the full deep-dive scan.",
+        }
 
     @staticmethod
     def _normalize_url(target_domain: str) -> str:
@@ -1791,7 +2015,7 @@ class HybridScanner:
             return "booking"
         if token_set & {"cart", "checkout"} or "order online" in joined or "online order" in joined or "place order" in joined:
             return "commerce_conversion"
-        if token_set & {"pricing", "plans", "packages", "demo", "trial", "signup"} or "sign up" in joined:
+        if token_set & {"pricing", "plans", "packages", "demo", "trial", "signup", "assessment", "assessments", "quiz", "quizzes", "recommendation", "recommendations", "results", "finder", "selector", "match"} or "sign up" in joined or "find your" in joined or "personalized recommendation" in joined or "personalised recommendation" in joined:
             return "evaluation"
         if token_set & {"about", "team", "staff", "reviews", "testimonials", "portfolio", "projects", "customers"} or "case studies" in joined:
             return "proof"
@@ -1800,11 +2024,15 @@ class HybridScanner:
             return "policy"
         return "support"
 
-    def _select_priority_journey_urls(self, base_url: str, candidates: List[str], journey_model: str, limit: int, context_tags: Optional[List[str]] = None) -> List[str]:
+    def _select_priority_journey_urls(self, base_url: str, candidates: List[str], journey_model: str, limit: int, context_tags: Optional[List[str]] = None, business_type: str = "general", exclude_urls: Optional[List[str]] = None) -> List[str]:
         parsed = urllib.parse.urlparse(base_url)
         origin = f"{parsed.scheme}://{parsed.netloc}"
         model = str(journey_model or "general")
         terms = list(JOURNEY_PAGE_TERMS.get(model, JOURNEY_PAGE_TERMS["general"]))
+        # Category-specific knowledge augments page discovery only after the existing
+        # business-type inference has resolved a usable category. It never creates findings.
+        if str(business_type or "general") != "general":
+            terms = list(business_page_terms(str(business_type), model, list(context_tags or []))) + terms
         tags = {str(x) for x in (context_tags or []) if x}
         if "regulated_high_trust" in tags:
             terms = ["credentials", "team", "privacy"] + terms
@@ -1818,8 +2046,9 @@ class HybridScanner:
 
         scored: List[Tuple[float, str]] = []
         seen = set()
+        excluded = {str(x).rstrip("/") for x in (exclude_urls or []) if x}
         for url in candidates or []:
-            if url in seen or url.rstrip("/") == base_url.rstrip("/"):
+            if url in seen or url.rstrip("/") == base_url.rstrip("/") or url.rstrip("/") in excluded:
                 continue
             seen.add(url)
             low = urllib.parse.unquote(url).lower()
@@ -1842,10 +2071,13 @@ class HybridScanner:
                 scored.append((score, url))
 
         guessed = list(JOURNEY_PAGE_GUESSES.get(model, JOURNEY_PAGE_GUESSES["general"]))
+        if str(business_type or "general") != "general":
+            guessed = list(business_page_guesses(str(business_type), model, list(context_tags or []))) + guessed
+        guessed = list(dict.fromkeys(guessed))
         existing = {url for _, url in scored}
         for idx, path in enumerate(guessed):
             guessed_url = urllib.parse.urljoin(origin + "/", path.lstrip("/"))
-            if guessed_url not in existing and guessed_url.rstrip("/") != base_url.rstrip("/"):
+            if guessed_url not in existing and guessed_url.rstrip("/") != base_url.rstrip("/") and guessed_url.rstrip("/") not in excluded:
                 scored.append((3.4 - idx * 0.18, guessed_url))
                 existing.add(guessed_url)
 
@@ -1869,15 +2101,18 @@ class HybridScanner:
                 selected.append(url)
         return selected
 
-    def _scan_priority_journey_pages(self, base_url: str, candidates: List[str], journey_model: str, context_tags: Optional[List[str]] = None) -> Dict[str, Any]:
+    def _scan_priority_journey_pages(self, base_url: str, candidates: List[str], journey_model: str, context_tags: Optional[List[str]] = None, business_type: str = "general", exclude_urls: Optional[List[str]] = None, limit_override: Optional[int] = None) -> Dict[str, Any]:
         raw_limit = self._to_int(os.environ.get("TRILLOKA_JOURNEY_MAX_PAGES"), 5) or 5
-        limit = max(2, min(6, raw_limit))
-        urls = self._select_priority_journey_urls(base_url, candidates, journey_model, limit, context_tags)
+        if limit_override is not None:
+            raw_limit = self._to_int(limit_override, raw_limit) or raw_limit
+        limit = max(2, min(8, raw_limit))
+        urls = self._select_priority_journey_urls(base_url, candidates, journey_model, limit, context_tags, business_type, exclude_urls)
         pages: List[Dict[str, Any]] = []
         errors: List[Dict[str, Any]] = []
         credential_types: List[str] = []
         text_samples: List[str] = []
         booking_provider_links: List[Dict[str, Any]] = []
+        discovered_internal_links: List[str] = []
         aggregate = {
             "reviews_visible": False,
             "social_proof_present": False,
@@ -1918,6 +2153,7 @@ class HybridScanner:
                 page_credential_types = list(evidence.get("credential_signal_types") or [])
                 credential_types.extend(page_credential_types)
                 booking_provider_links.extend(list(evidence.get("booking_provider_links") or []))
+                discovered_internal_links.extend(list(evidence.get("internal_links") or []))
                 role = self._journey_role(response.url)
                 for key in aggregate:
                     aggregate[key] = bool(aggregate[key] or evidence.get(key))
@@ -1971,6 +2207,7 @@ class HybridScanner:
                     "delivery_date_visible": evidence.get("delivery_date_visible"),
                     "checkout_costs_disclosed_before_final_step": evidence.get("checkout_costs_disclosed_before_final_step"),
                     "guest_checkout_available": evidence.get("guest_checkout_available"),
+                    "internal_links": list(evidence.get("internal_links") or [])[:80],
                 })
             except Exception as exc:
                 pages.append({"url": url, "status_code": None, "role": self._journey_role(url), "verified": False, "error": str(exc)[:220]})
@@ -1988,18 +2225,38 @@ class HybridScanner:
             "credential_signal_types": sorted(set(credential_types)),
             "booking_provider_links": self._dedupe_booking_provider_links(booking_provider_links),
             "browser_journey_candidate_url": browser_candidate,
-            "journey_text_sample": "\n".join(text_samples)[:18000],
+            "journey_text_sample": "\n".join(text_samples)[:26000],
+            "discovered_internal_links": list(dict.fromkeys(discovered_internal_links))[:400],
             **aggregate,
         }
 
     @staticmethod
     def _merge_journey_evidence(target: Dict[str, Any], journey: Dict[str, Any]) -> None:
-        target["journey_evidence_status"] = journey.get("journey_evidence_status", "unavailable")
-        target["journey_pages_scanned"] = journey.get("journey_pages_scanned") or []
-        target["journey_pages_verified"] = journey.get("journey_pages_verified") or 0
-        target["journey_page_limit"] = journey.get("journey_page_limit") or 0
-        target["journey_text_sample"] = journey.get("journey_text_sample") or ""
-        target["browser_journey_candidate_url"] = journey.get("browser_journey_candidate_url")
+        previous_pages = list(target.get("journey_pages_scanned") or [])
+        incoming_pages = list(journey.get("journey_pages_scanned") or [])
+        merged_pages: List[Dict[str, Any]] = []
+        seen_pages = set()
+        for page in previous_pages + incoming_pages:
+            if not isinstance(page, dict):
+                continue
+            marker = str(page.get("url") or "").rstrip("/")
+            if marker and marker in seen_pages:
+                continue
+            if marker:
+                seen_pages.add(marker)
+            merged_pages.append(page)
+        target["journey_evidence_status"] = "verified" if any(p.get("verified") for p in merged_pages) else journey.get("journey_evidence_status", target.get("journey_evidence_status", "unavailable"))
+        target["journey_pages_scanned"] = merged_pages
+        target["journey_pages_verified"] = sum(1 for p in merged_pages if p.get("verified"))
+        target["journey_page_limit"] = max(int(target.get("journey_page_limit") or 0), int(journey.get("journey_page_limit") or 0))
+        prior_text = str(target.get("journey_text_sample") or "")
+        new_text = str(journey.get("journey_text_sample") or "")
+        target["journey_text_sample"] = (prior_text + ("\n" if prior_text and new_text else "") + new_text)[:42000]
+        if not target.get("browser_journey_candidate_url") and journey.get("browser_journey_candidate_url"):
+            target["browser_journey_candidate_url"] = journey.get("browser_journey_candidate_url")
+        target["internal_links"] = HybridScanner._union_strings(
+            target.get("internal_links"), journey.get("discovered_internal_links")
+        )
         target["booking_provider_links"] = HybridScanner._dedupe_booking_provider_links(
             list(target.get("booking_provider_links") or []) + list(journey.get("booking_provider_links") or [])
         )

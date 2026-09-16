@@ -17,6 +17,12 @@ import math
 import re
 from typing import Any, Dict, Iterable, List, Mapping, Set, Tuple
 
+from commercial_knowledge import (
+    BUSINESS_PHRASE_EXPANSIONS, JOURNEY_PHRASE_EXPANSIONS,
+    GENERAL_DISCOVERY_TERMS, GENERAL_PAGE_GUESSES,
+    LOCAL_TERM_EXPANSIONS, HOSPITALITY_TERM_EXPANSIONS,
+)
+
 
 BUSINESS_TYPE_LABELS: Dict[str, str] = {
     "general": "General / Unresolved Business",
@@ -122,7 +128,7 @@ JOURNEY_PAGE_TERMS: Dict[str, Tuple[str, ...]] = {
     "application_enrollment": (
         "apply", "application", "enroll", "enrol", "admissions", "register", "registration", "programs", "courses", "tuition", "contact",
     ),
-    "general": ("contact", "book", "quote", "pricing", "services", "about", "team", "reviews", "apply", "donate"),
+    "general": GENERAL_DISCOVERY_TERMS,
 }
 
 JOURNEY_PAGE_GUESSES: Dict[str, List[str]] = {
@@ -134,7 +140,7 @@ JOURNEY_PAGE_GUESSES: Dict[str, List[str]] = {
     "membership_subscription": ["/subscribe/", "/join/", "/membership/", "/pricing/", "/community/"],
     "donation_support": ["/donate/", "/give/", "/support/", "/impact/", "/about/"],
     "application_enrollment": ["/apply/", "/admissions/", "/enroll/", "/register/", "/programs/"],
-    "general": ["/contact/", "/services/", "/about/"],
+    "general": GENERAL_PAGE_GUESSES,
 }
 
 JOURNEY_EXPECTED_ACTIONS: Dict[str, Set[str]] = {
@@ -277,6 +283,19 @@ BUSINESS_TYPE_PHRASES: Dict[str, Tuple[Tuple[str, float], ...]] = {
     "automotive": (("auto repair", 8), ("car dealership", 8), ("dealership", 6), ("vehicle service", 6), ("service appointment", 4), ("used cars", 5)),
 }
 
+# V7.3.2 knowledge expansion: same inference/scoring logic, larger evidence vocabulary.
+def _merge_weighted_phrase_library(base, expansion):
+    merged = {}
+    for key in set(base) | set(expansion):
+        seen = {}
+        for phrase, weight in tuple(base.get(key, ())) + tuple(expansion.get(key, ())):
+            seen[str(phrase).lower()] = max(float(weight), float(seen.get(str(phrase).lower(), 0.0)))
+        merged[key] = tuple(seen.items())
+    return merged
+
+JOURNEY_PHRASES = _merge_weighted_phrase_library(JOURNEY_PHRASES, JOURNEY_PHRASE_EXPANSIONS)
+BUSINESS_TYPE_PHRASES = _merge_weighted_phrase_library(BUSINESS_TYPE_PHRASES, BUSINESS_PHRASE_EXPANSIONS)
+
 REGULATED_TERMS = (
     "law firm", "lawyer", "attorney", "legal services", "physiotherapy", "physiotherapist", "medical clinic",
     "dentist", "dental clinic", "chiropractic", "psychologist", "counselling", "counseling", "podiatry",
@@ -298,7 +317,8 @@ ENTERPRISE_TERMS = (
 HOSPITALITY_EVENT_TERMS = (
     "wedding", "venue", "cruise", "charter", "yacht", "tour", "reservation",
     "restaurant", "catering", "hotel", "banquet", "rental",
-)
+) + tuple(HOSPITALITY_TERM_EXPANSIONS)
+LOCAL_TERMS = tuple(LOCAL_TERMS) + tuple(LOCAL_TERM_EXPANSIONS)
 
 
 def _safe_float(value: Any) -> float | None:
@@ -427,6 +447,24 @@ def infer_business_type(data: Mapping[str, Any], requested_hint: Any = "auto") -
                 scores[business_type] += float(weight)
                 signals[business_type].append(phrase)
 
+    # V7.4 adaptive knowledge memory is recognition-only and deliberately bounded. Only ACTIVE
+    # learned patterns may contribute here; they cannot touch scoring, applicability or findings.
+    overlay = data.get("learning_overlay") if isinstance(data.get("learning_overlay"), Mapping) else {}
+    learned_scores = overlay.get("scores") if isinstance(overlay.get("scores"), Mapping) else {}
+    learned_terms = overlay.get("matched_terms") if isinstance(overlay.get("matched_terms"), Mapping) else {}
+    for learned_type, raw_boost in learned_scores.items():
+        if learned_type not in scores:
+            continue
+        try:
+            boost = max(0.0, min(4.0, float(raw_boost)))
+        except (TypeError, ValueError):
+            continue
+        if boost <= 0:
+            continue
+        scores[learned_type] += boost
+        for term in list(learned_terms.get(learned_type) or [])[:4]:
+            signals[learned_type].append(f"learned:{term}")
+
     schema_types = {str(x).lower() for x in (data.get("schema_types") or []) if x}
     schema_map = {
         "restaurant": "restaurant", "foodestablishment": "restaurant", "store": "ecommerce", "product": "ecommerce",
@@ -494,7 +532,7 @@ def infer_business_type(data: Mapping[str, Any], requested_hint: Any = "auto") -
             "score_candidates": {k: round(v, 2) for k, v in ranked[:8]},
         }
     confidence = max(0.52, min(0.96, 0.50 + min(0.28, top_score * 0.014) + min(0.18, margin * 0.025)))
-    return {
+    result = {
         "business_type": top_type,
         "business_type_label": BUSINESS_TYPE_LABELS.get(top_type, top_type.replace("_", " ").title()),
         "confidence": round(confidence, 2),
@@ -502,6 +540,11 @@ def infer_business_type(data: Mapping[str, Any], requested_hint: Any = "auto") -
         "signals": list(dict.fromkeys(signals[top_type]))[:12],
         "score_candidates": {k: round(v, 2) for k, v in ranked[:8]},
     }
+    if isinstance(overlay.get("archetype"), Mapping) and overlay.get("archetype"):
+        result["learned_archetype_hint"] = dict(overlay.get("archetype") or {})
+    if learned_scores:
+        result["learning_memory_applied"] = True
+    return result
 
 
 def infer_context_tags(data: Mapping[str, Any], journey_model: str = "general", business_type: str = "general") -> Tuple[List[str], Dict[str, List[str]]]:

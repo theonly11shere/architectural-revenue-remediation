@@ -22,6 +22,7 @@ import requests
 
 from checkpoint_engine import PASS, FAIL, UNKNOWN, NA, build_50_checkpoints, checkpoint_summary
 from architecture_model import BUSINESS_TYPE_LABELS, JOURNEY_LABELS, CONTEXT_LABELS
+from remediation_intelligence import build_outcome_remediation, contextualize_finding, remediation_knowledge_stats
 
 
 class ReportGenerator:
@@ -32,7 +33,7 @@ class ReportGenerator:
         self.vault_dir = os.environ.get("VAULT_DIR", "./vault_archives")
 
     def generate_admin_master_report(self, audit_data: Dict[str, Any], scan_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create the V7.3.1 plain-language, evidence-first master report.
+        """Create the V7.4.0 evidence-first, outcome-guided, Architect-escalated master report.
 
         Verified leaks are never padded to a fixed count. Unknowns, strengths and optional future
         optimization ideas are stored in separate sections so a passing checkpoint cannot be
@@ -90,7 +91,7 @@ class ReportGenerator:
         journey_model = str(business_profile.get("journey_model") or audit.get("journey_model") or "general")
 
         return {
-            "report_type": "ADMIN_LEAD_ALERT_V7_3_1",
+            "report_type": "ADMIN_LEAD_ALERT_V7_4_0",
             "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "target_domain": audit.get("target_domain", scan.get("domain", "Unknown")),
             "business_type": business_type,
@@ -163,6 +164,11 @@ class ReportGenerator:
             "business_type_validation": scan.get("business_type_validation") or {},
             "commercial_architecture_diagnostics": scan.get("commercial_architecture_diagnostics") or {},
             "public_content_hygiene": scan.get("public_content_hygiene") or {},
+            "remediation_knowledge": remediation_knowledge_stats(),
+            "commercial_eligibility": scan.get("commercial_eligibility") or {},
+            "architect_review_queue": list(audit.get("architect_review_queue") or scan.get("architect_review_queue") or []),
+            "architect_review_ids": list(audit.get("architect_review_ids") or []),
+            "learning_memory": audit.get("learning_memory") or {},
         }
 
 
@@ -522,6 +528,9 @@ class ReportGenerator:
         priority = self._priority_for_finding(item)
         effort = "LOW" if key in {"meta_description_length", "meta_description_missing", "title_length", "diluted_h1", "public_unfinished_content"} else ("HIGH" if key in {"conversion_path_error", "core_web_vitals", "mobile_lab_performance"} else "MEDIUM")
         financial = self._financial_mechanism_for_family(family, key)
+        business_type = str(business_profile.get("business_type") or "general")
+        journey_model = str(business_profile.get("journey_model") or "general")
+        contextual = contextualize_finding(key, business_type, journey_model, business_profile.get("context_tags") or [])
 
         item.update({
             "plain_problem": plain_problem,
@@ -533,6 +542,12 @@ class ReportGenerator:
             "what_should_be_done": action,
             "priority": priority,
             "implementation_effort": effort,
+            "business_outcome_context": contextual.get("business_outcome"),
+            "customer_decision_focus": contextual.get("customer_focus"),
+            "decision_surface": contextual.get("decision_surface"),
+            "outcome_measure": contextual.get("outcome_measure"),
+            "journey_goal": contextual.get("journey_goal"),
+            "journey_measure": contextual.get("journey_measure"),
             "evidence_receipt": receipt or item.get("evidence_receipt") or {
                 "url": url,
                 "observed": evidence or item.get("observed") or item.get("impact_summary"),
@@ -719,6 +734,13 @@ class ReportGenerator:
         evidence = leak.get("evidence") or {}
         family = str(leak.get("family") or "")
         supporting = set(str(x) for x in (leak.get("supporting_rule_keys") or []) if x)
+        business_type = str(business_profile.get("business_type") or "general")
+
+        research_grounded = build_outcome_remediation(
+            rule_key, business_type, vertical, context_tags, leak=leak, scan_data=scan_data
+        )
+        if research_grounded:
+            return research_grounded
 
         if rule_key == "proof_placement_gap":
             return {
@@ -1304,8 +1326,41 @@ class ReportGenerator:
             print(f"[Email] Failed to send: {exc}")
         return False
 
+    def send_customer_report_email(self, customer_email: str, customer_report: Dict[str, Any]) -> bool:
+        """Send only the Architect-reviewed customer-safe report.
+
+        V7.4 normally calls this after the owner resolves the Architect review queue.
+        """
+        if not self.resend_api_key or not str(customer_email or "").strip():
+            print("[Email] Customer report delivery skipped — email transport or destination missing")
+            return False
+        report = dict(customer_report or {})
+        domain_safe = re.sub(r"[^A-Za-z0-9._-]+", "_", str(report.get("target_domain") or "site")).strip("_") or "site"
+        html_body = self._build_email_html(report)
+        attachment_content = base64.b64encode(html_body.encode("utf-8")).decode("ascii")
+        try:
+            response = requests.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {self.resend_api_key}", "Content-Type": "application/json"},
+                json={
+                    "from": self.from_email,
+                    "to": str(customer_email).strip(),
+                    "subject": f"Your Trilloka Revenue Readiness Audit — {report.get('target_domain', 'Website')}",
+                    "html": html_body,
+                    "attachments": [{"filename": f"Trilloka_Revenue_Audit_{domain_safe}.html", "content": attachment_content}],
+                },
+                timeout=15,
+            )
+            if response.status_code in (200, 202):
+                print(f"[Email] Architect-reviewed customer report sent to {customer_email}")
+                return True
+            print(f"[Email] Customer report Resend error: {response.status_code} — {response.text}")
+        except Exception as exc:
+            print(f"[Email] Customer report failed: {exc}")
+        return False
+
     def _build_email_html(self, report: Dict[str, Any]) -> str:
-        """Render the V7.3.1 plain-language report used in email and the HTML attachment."""
+        """Render the V7.4.0 plain-language report used in email and the HTML attachment."""
         report = report or {}
 
         def esc(value: Any) -> str:
@@ -1468,6 +1523,7 @@ class ReportGenerator:
                 <p style="font:12px/1.6 Inter,sans-serif;color:#334155;"><strong>Technical Angle:</strong> {esc(angles.get('technical'))}</p>
                 <p style="font:12px/1.6 Inter,sans-serif;color:#334155;"><strong>UX / CRO Angle:</strong> {esc(angles.get('cro_ux'))}</p>
                 <p style="font:12px/1.6 Inter,sans-serif;color:#334155;"><strong>Systems Angle:</strong> {esc(angles.get('systems'))}</p>
+                {f'<p style="font:12px/1.6 Inter,sans-serif;color:#334155;"><strong>How to know it worked:</strong> {esc(angles.get("success_check"))}</p>' if angles.get("success_check") else ""}
                 <p style="font:12px/1.6 Inter,sans-serif;color:#475569;margin-bottom:0;"><strong>Why Trilloka recommends this:</strong> {esc(angles.get('why_recommend'))}</p>
               </div>
               <p style="font:12px Inter,sans-serif;color:#6B7280;margin:12px 0 0;"><strong>Priority:</strong> {esc(priority)} &nbsp;•&nbsp; <strong>Estimated effort:</strong> {esc(item.get('implementation_effort'))} &nbsp;•&nbsp; <strong>Cadence:</strong> {esc(angles.get('cadence_title'))} — {esc(angles.get('cadence_text'))}</p>
@@ -1511,6 +1567,39 @@ class ReportGenerator:
             )
         optional_html = ''.join(optional_cards) or '<p style="font:13px Inter,sans-serif;color:#6B7280;">No separate future optimizations were promoted in this scan.</p>'
 
+        architect_cards = []
+        for item in report.get("architect_review_queue") or []:
+            if not isinstance(item, dict):
+                continue
+            sev = str(item.get("severity") or "IMPORTANT").upper()
+            tone = "high" if sev == "CRITICAL" else ("medium" if sev == "IMPORTANT" else "optional")
+            inspect = item.get("architect_should_inspect") if isinstance(item.get("architect_should_inspect"), dict) else {}
+            architect_cards.append(
+                '<div style="border:1px solid #C4B5FD;background:#F5F3FF;border-radius:10px;padding:13px;margin:9px 0;">'
+                f'{badge("ARCHITECT REVIEW — "+sev, tone)} <strong style="font:12px Inter,sans-serif;color:#312E81;">{esc(item.get("title"))}</strong>'
+                f'<p style="font:11px/1.55 Inter,sans-serif;color:#4C1D95;margin:6px 0 0;">{esc(item.get("reason"))}</p>'
+                f'<p style="font:11px/1.55 Inter,sans-serif;color:#4C1D95;margin:6px 0 0;"><strong>Architect should inspect:</strong> {esc(inspect.get("check") or "Review the evidence and customer path in context.")}</p>'
+                '</div>'
+            )
+        architect_html = ''.join(architect_cards) or '<p style="font:13px Inter,sans-serif;color:#6B7280;">No additional machine-limit escalation was generated beyond final human proof.</p>'
+
+        architect_review = report.get("architect_review") if isinstance(report.get("architect_review"), dict) else {}
+        completed_review_html = ""
+        if architect_review.get("status") == "completed":
+            resolved = []
+            for item in architect_review.get("items") or []:
+                if not isinstance(item, dict):
+                    continue
+                resolved.append(
+                    '<div style="border-left:3px solid #16A34A;padding:8px 12px;margin:8px 0;background:#F0FDF4;">'
+                    f'<strong style="font:12px Inter,sans-serif;color:#166534;">{esc(item.get("title"))}</strong>'
+                    f'<p style="font:11px/1.5 Inter,sans-serif;color:#166534;margin:4px 0 0;">Architect decision: {esc(item.get("resolution"))}'
+                    + (f' · Priority: {esc(item.get("priority"))}' if item.get("priority") else '')
+                    + (f'<br>{esc(item.get("architect_note"))}' if item.get("architect_note") else '')
+                    + '</p></div>'
+                )
+            completed_review_html = '<div style="margin:14px 0;"><p style="font:700 12px Inter,sans-serif;color:#166534;">Architect review completed</p>' + ''.join(resolved) + '</div>'
+
         foundation = report.get("foundation_omission_signal") if isinstance(report.get("foundation_omission_signal"), dict) else {}
         foundation_notice = ""
         if foundation.get("triggered"):
@@ -1539,7 +1628,7 @@ class ReportGenerator:
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trilloka Revenue Readiness Audit — {domain}</title></head>
 <body style="margin:0;background:#F4F1EB;padding:0;">
 <main style="max-width:920px;margin:0 auto;background:#FCFBF8;padding:32px 24px 60px;">
-  <div style="font:700 11px Inter,sans-serif;color:#9A7A31;letter-spacing:1.5px;text-transform:uppercase;">TRILLOKA TELEMETRY & EXECUTIVE AUDIT — V7.3.1</div>
+  <div style="font:700 11px Inter,sans-serif;color:#9A7A31;letter-spacing:1.5px;text-transform:uppercase;">TRILLOKA TELEMETRY & EXECUTIVE AUDIT — V7.4.0</div>
   <h1 style="font:700 34px Georgia,serif;color:#111827;margin:8px 0 8px;">Revenue Readiness Audit</h1>
   <p style="font:13px Inter,sans-serif;color:#6B7280;margin:0 0 22px;">Target: <strong>{domain}</strong> &nbsp;•&nbsp; Vault ID: <strong>{vault_id}</strong></p>
 
@@ -1581,6 +1670,11 @@ class ReportGenerator:
 
   <h2 style="font:700 24px Georgia,serif;color:#111827;margin:32px 0 12px;">Verification Required</h2>
   {verification_html}
+
+  <h2 style="font:700 24px Georgia,serif;color:#111827;margin:32px 0 12px;">Architect Review</h2>
+  <p style="font:12px/1.6 Inter,sans-serif;color:#6B7280;">These are areas where automation should not pretend certainty. They are routed to the human Architect for visual, contextual, interactive or final-priority judgment and do not become automatic failures merely because review is requested.</p>
+  {architect_html}
+  {completed_review_html}
 
   <h2 style="font:700 24px Georgia,serif;color:#111827;margin:32px 0 12px;">Verified Strengths</h2>
   <p style="font:12px/1.6 Inter,sans-serif;color:#6B7280;">These items passed. They are not problems and should generally be preserved while higher-priority customer-loss risks are addressed.</p>

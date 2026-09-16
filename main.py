@@ -45,6 +45,8 @@ from hybrid_scanner import HybridScanner
 from network_security import NetworkTargetError, validate_public_http_url
 from scan_access import AccessDenied, AccessTicket, PLAN_CATALOG, ScanAccessManager
 from scorer import RevenueScorer
+from architect_review import build_architect_review_queue
+from learning_intelligence import learning_memory
 
 try:
     from report_engine import ReportGenerator
@@ -106,7 +108,7 @@ _PROTECTED_DOMAIN_ROOTS = tuple(
 app = FastAPI(
     title="Trilloka Architect Engine API",
     description="Evidence-weighted Revenue Readiness Diagnostic, local competitor benchmark & tiered report gateway",
-    version="7.3.1",
+    version="7.4.0",
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -303,12 +305,22 @@ def _protect_methodology_for_customer(payload: Dict[str, Any]) -> Dict[str, Any]
     return result
 
 
+class BusinessClassificationRequest(BaseModel):
+    domain: str
+    business_name: Optional[str] = ""
+
+
 class AuditRequest(BaseModel):
     domain: str
     business_name: Optional[str] = ""
     business_type: str = "auto"
     competitor_has_feature: Optional[bool] = None
     email: Optional[EmailStr] = None
+    # V7.4 additive learning context. Set by the frontend only when the user is answering
+    # Trilloka's own category-confirmation request. It does not alter scoring directly.
+    classification_confirmation: bool = False
+    classification_previous_candidates: Optional[Dict[str, Any]] = None
+    business_subtype: Optional[str] = ""
     # Additive V6.3 field. Free scans do not require it. Paid scans require the pass issued after
     # the verified purchase was activated for this email + domain.
     access_pass: Optional[str] = None
@@ -377,6 +389,47 @@ class AdminOtpVerifyRequest(BaseModel):
 class SelfSnapshotRefreshRequest(BaseModel):
     # Owner-only. False reuses a still-fresh stored snapshot; True forces a real controlled self-scan.
     force: bool = False
+
+
+class ArchitectReviewResolveRequest(BaseModel):
+    review_id: int
+    resolution: str
+    priority: Optional[str] = ""
+    notes: Optional[str] = ""
+
+
+class LearningPromoteRequest(BaseModel):
+    kind: str
+    identifier: Any
+    label: Optional[str] = ""
+
+
+class LearningMissRequest(BaseModel):
+    domain: str
+    business_type: str
+    subtype: Optional[str] = ""
+    journey_model: Optional[str] = "general"
+    finding_type: str
+    evidence_page: Optional[str] = ""
+    why_it_matters: str
+    priority: Optional[str] = ""
+    recommended_remedy: Optional[str] = ""
+
+
+class LearningOutcomeRequest(BaseModel):
+    domain: str
+    business_type: str
+    journey_model: Optional[str] = "general"
+    rule_key: str
+    outcome_status: str
+    technical_note: Optional[str] = ""
+    cro_note: Optional[str] = ""
+    systems_note: Optional[str] = ""
+    verification_note: Optional[str] = ""
+
+
+class PendingReportFinalizeRequest(BaseModel):
+    vault_id: str
 
 
 def _legacy_admin_key_valid(value: Optional[str]) -> bool:
@@ -724,10 +777,11 @@ def handle_trilloka_guardrail(target_domain: str) -> Optional[Dict[str, Any]]:
 def health_check() -> Dict[str, Any]:
     return {
         "status": "online",
-        "system": "Trilloka Architect Engine v7.3.1",
+        "system": "Trilloka Architect Engine v7.4.0",
         "google_api_configured": bool(os.environ.get("PAGESPEED_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
         "places_api_configured": bool(os.environ.get("GOOGLE_PLACES_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("PAGESPEED_API_KEY")),
         "report_engine": REPORT_ENGINE_AVAILABLE,
+        "adaptive_learning": learning_memory.stats(),
         "owner_otp_auth": {
             "enabled": admin_auth.configured,
             "locked_owner_email": True,
@@ -792,14 +846,15 @@ def _admin_console_html() -> str:
     <div class="grid">
       <input id="ownerScanDomain" placeholder="example.com" autocomplete="off">
       <select id="ownerScanType">
-        <option value="auto" selected>Auto-detect customer journey (recommended)</option>
-        <option value="general">General / no journey hint</option>
-        <option value="lead_quote">Lead / Quote</option>
-        <option value="appointment_consultation">Appointment / Consultation</option>
-        <option value="reservation_event">Reservation / Event</option>
-        <option value="direct_purchase">Direct Purchase</option>
-        <option value="demo_sales">Demo / Sales</option>
-        <option value="membership_subscription">Membership / Subscription</option>
+        <option value="auto" selected>Auto-detect business type (recommended)</option>
+        <option value="ecommerce">E-commerce / Retail</option><option value="marketplace">Marketplace</option>
+        <option value="local_service">Local Service</option><option value="professional_service">Professional Service</option>
+        <option value="healthcare">Healthcare</option><option value="medspa">MedSpa</option><option value="legal">Legal</option>
+        <option value="financial_services">Financial Services</option><option value="real_estate">Real Estate</option>
+        <option value="restaurant">Restaurant / Food Service</option><option value="hospitality_event">Hospitality / Events</option>
+        <option value="saas">SaaS</option><option value="b2b">B2B / Industrial</option><option value="agency">Agency</option>
+        <option value="membership_creator">Membership / Creator</option><option value="education">Education / Training</option>
+        <option value="automotive">Automotive</option>
       </select>
     </div>
     <button id="ownerScan">Your Architectural Analysis</button>
@@ -811,6 +866,46 @@ def _admin_console_html() -> str:
     <p class="muted">Runs the real V7 engine directly against the configured Trilloka public site, bypassing only the public self-scan intercept, then atomically replaces the stored 30-day snapshot. The stored public guardrail snapshot intentionally excludes local competitor benchmarking.</p>
     <div class="actions"><button id="selfSnapshot">Update Trilloka Snapshot Now</button></div>
     <pre id="selfSnapshotOutput">No update requested in this owner session.</pre>
+  </div>
+
+  <div class="card">
+    <h2>Architect Review Queue</h2>
+    <p class="muted">Human-only judgments are separated from automated scoring. Resolve them before a paid customer report can be delivered.</p>
+    <div class="actions"><button id="loadReviews">Load open reviews</button><button id="loadPending" class="secondary">Pending reports</button><button id="loadLearning" class="secondary">Learning status</button></div>
+    <div class="grid"><input id="reviewId" type="number" placeholder="Review ID"><select id="reviewResolution"><option value="confirmed_problem">Confirmed problem</option><option value="not_a_problem">Not a problem</option><option value="optimization">Optimization only</option><option value="insufficient_evidence">Still insufficient evidence</option></select><select id="reviewPriority"><option value="">Keep / no priority</option><option>CRITICAL</option><option>HIGH</option><option>MEDIUM</option><option>LOW</option></select><input id="reviewNotes" placeholder="Architect note"></div>
+    <div class="actions"><button id="resolveReview">Resolve review</button></div>
+    <pre id="architectOutput">Load open reviews to begin.</pre>
+  </div>
+  <div class="card">
+    <h2>Knowledge Vault Teaching</h2>
+    <p class="muted">Teach Trilloka from confirmed misses and outcomes without changing its scoring formula. Candidate recognition stays separate until validated.</p>
+    <div class="actions"><button id="loadCandidates">Load learning candidates</button></div>
+    <div class="grid">
+      <select id="promoteKind"><option value="archetype">Promote / name archetype</option><option value="term">Promote recognition term</option></select>
+      <input id="promoteId" placeholder="Archetype ID or term">
+      <input id="promoteType" placeholder="Business type for term only">
+      <input id="promoteLabel" placeholder="Subtype label (archetype only)">
+    </div>
+    <button id="promoteKnowledge">Approve candidate knowledge</button>
+    <hr style="border:0;border-top:1px solid #263743;margin:18px 0">
+    <h3>Scanner missed a finding</h3>
+    <div class="grid"><input id="missDomain" placeholder="domain"><input id="missType" placeholder="business type e.g. ecommerce"><input id="missJourney" placeholder="journey e.g. direct_purchase"><input id="missFinding" placeholder="finding type"><input id="missPriority" placeholder="priority"><input id="missPage" placeholder="evidence page"></div>
+    <textarea id="missWhy" placeholder="Why this matters"></textarea><textarea id="missRemedy" placeholder="Recommended remedy"></textarea>
+    <button id="recordMiss">Record supervised learning example</button>
+    <hr style="border:0;border-top:1px solid #263743;margin:18px 0">
+    <h3>Record remediation outcome</h3>
+    <div class="grid"><input id="outcomeDomain" placeholder="domain"><input id="outcomeType" placeholder="business type"><input id="outcomeJourney" placeholder="journey"><input id="outcomeRule" placeholder="rule key"><select id="outcomeStatus"><option value="improved">Improved</option><option value="resolved">Resolved</option><option value="no_change">No change</option><option value="worse">Worse</option><option value="not_applicable">Not applicable</option></select></div>
+    <textarea id="outcomeCro" placeholder="What UX/CRO change was made / learned"></textarea><textarea id="outcomeTech" placeholder="Technical note"></textarea><textarea id="outcomeSystems" placeholder="Systems/process note"></textarea><textarea id="outcomeVerify" placeholder="How the outcome was verified"></textarea>
+    <button id="recordOutcome">Record Architect-confirmed outcome</button>
+    <pre id="learningOutput">Knowledge teaching actions will appear here.</pre>
+  </div>
+
+  <div class="card">
+    <h2>Finalize Architect-Reviewed Report</h2>
+    <p class="muted">Customer delivery is blocked while any Architect review item for the Vault is open.</p>
+    <div class="grid"><input id="finalizeVault" placeholder="Vault ID"></div>
+    <button id="finalizeReport">Finalize &amp; email customer report</button>
+    <pre id="finalizeOutput">Enter a Vault ID after all review items are resolved.</pre>
   </div>
 
   <div class="card"><h2>Activate / complimentary plan</h2><div class="grid"><input id="aEmail" placeholder="customer@email.com"><input id="aDomain" placeholder="example.com"><select id="aPlan"><option value="essential_350">$350 Essential</option><option value="advanced_550">$550 Advanced</option><option value="architect_850">$850 Architect</option></select><input id="aRef" placeholder="purchase reference"></div><button id="activate">Activate plan</button></div>
@@ -862,6 +957,15 @@ $('selfSnapshot').onclick=async()=>{
     $('selfSnapshot').disabled=false;
   }
 };
+$('loadCandidates').onclick=async()=>{try{const j=await api('/api/admin/learning/candidates?limit=100');$('learningOutput').textContent=JSON.stringify(j,null,2)}catch(e){$('learningOutput').textContent=e.message}};
+$('promoteKnowledge').onclick=async()=>{try{const kind=$('promoteKind').value;let identifier=$('promoteId').value.trim();if(kind==='archetype')identifier=Number(identifier);else identifier={business_type:$('promoteType').value.trim(),term:identifier};const j=await api('/api/admin/learning/promote',{method:'POST',body:JSON.stringify({kind:kind,identifier:identifier,label:$('promoteLabel').value.trim()})});$('learningOutput').textContent=JSON.stringify(j,null,2)}catch(e){$('learningOutput').textContent=e.message}};
+$('recordMiss').onclick=async()=>{try{const j=await api('/api/admin/learning/missed-finding',{method:'POST',body:JSON.stringify({domain:$('missDomain').value,business_type:$('missType').value,journey_model:$('missJourney').value||'general',finding_type:$('missFinding').value,evidence_page:$('missPage').value,why_it_matters:$('missWhy').value,priority:$('missPriority').value,recommended_remedy:$('missRemedy').value})});$('learningOutput').textContent=JSON.stringify(j,null,2)}catch(e){$('learningOutput').textContent=e.message}};
+$('recordOutcome').onclick=async()=>{try{const j=await api('/api/admin/learning/outcome',{method:'POST',body:JSON.stringify({domain:$('outcomeDomain').value,business_type:$('outcomeType').value,journey_model:$('outcomeJourney').value||'general',rule_key:$('outcomeRule').value,outcome_status:$('outcomeStatus').value,technical_note:$('outcomeTech').value,cro_note:$('outcomeCro').value,systems_note:$('outcomeSystems').value,verification_note:$('outcomeVerify').value})});$('learningOutput').textContent=JSON.stringify(j,null,2)}catch(e){$('learningOutput').textContent=e.message}};
+$('loadReviews').onclick=async()=>{try{const j=await api('/api/admin/architect-reviews?status=open');$('architectOutput').textContent=JSON.stringify(j,null,2)}catch(e){$('architectOutput').textContent=e.message}};
+$('loadPending').onclick=async()=>{try{const j=await api('/api/admin/pending-reports?status=awaiting_architect');$('architectOutput').textContent=JSON.stringify(j,null,2)}catch(e){$('architectOutput').textContent=e.message}};
+$('loadLearning').onclick=async()=>{try{const j=await api('/api/admin/learning/status');$('architectOutput').textContent=JSON.stringify(j,null,2)}catch(e){$('architectOutput').textContent=e.message}};
+$('resolveReview').onclick=async()=>{try{const id=Number($('reviewId').value);if(!id)throw new Error('Enter a Review ID');const j=await api('/api/admin/architect-review/resolve',{method:'POST',body:JSON.stringify({review_id:id,resolution:$('reviewResolution').value,priority:$('reviewPriority').value,notes:$('reviewNotes').value})});$('architectOutput').textContent=JSON.stringify(j,null,2)}catch(e){$('architectOutput').textContent=e.message}};
+$('finalizeReport').onclick=async()=>{const vault=$('finalizeVault').value.trim();if(!vault){$('finalizeOutput').textContent='Enter a Vault ID first.';return}try{$('finalizeReport').disabled=true;$('finalizeOutput').textContent='Checking Architect review and delivering report...';const j=await api('/api/admin/report/finalize',{method:'POST',body:JSON.stringify({vault_id:vault})});$('finalizeOutput').textContent=JSON.stringify(j,null,2)}catch(e){$('finalizeOutput').textContent=e.message}finally{$('finalizeReport').disabled=false}};
 $('activate').onclick=async()=>{try{print(await api('/api/admin/activate-plan',{method:'POST',body:JSON.stringify({email:$('aEmail').value,domain:$('aDomain').value,plan_id:$('aPlan').value,purchase_ref:$('aRef').value})}))}catch(e){out.textContent=e.message}};
 document.querySelectorAll('[data-act]').forEach(b=>b.onclick=async()=>{const email=$('mEmail').value,domain=$('mDomain').value,ref={email,domain};let path='',body=ref;switch(b.dataset.act){case'status':path='/api/admin/entitlement/status';break;case'update':path='/api/admin/entitlement/update';body={...ref,plan_id:$('mPlan').value||null,extend_days:$('extendDays').value?Number($('extendDays').value):null};break;case'reset':path='/api/admin/entitlement/reset-daily-usage';break;case'callplus':path='/api/admin/entitlement/guidance-call';body={...ref,delta:1};break;case'callminus':path='/api/admin/entitlement/guidance-call';body={...ref,delta:-1};break;case'rotate':path='/api/admin/entitlement/rotate-pass';break;case'domain':path='/api/admin/entitlement/change-domain';body={...ref,new_domain:$('newDomain').value};break;case'restore':path='/api/admin/entitlement/restore';break;case'revoke':path='/api/admin/entitlement/revoke';break}try{print(await api(path,{method:'POST',body:JSON.stringify(body)}))}catch(e){out.textContent=e.message}});
 status();
@@ -948,6 +1052,93 @@ def admin_logout(
     response.delete_cookie(admin_auth.cookie_name, path="/", samesite="strict")
     response.delete_cookie(admin_auth.challenge_cookie_name, path="/", samesite="strict")
     return {"success": True, "authenticated": False}
+
+
+@app.get("/api/admin/learning/status", include_in_schema=False)
+def admin_learning_status(
+    http_request: FastAPIRequest,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
+    x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
+) -> Dict[str, Any]:
+    _require_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
+    return {"success": True, "learning": learning_memory.stats()}
+
+
+@app.get("/api/admin/learning/candidates", include_in_schema=False)
+def admin_learning_candidates(
+    http_request: FastAPIRequest,
+    limit: int = 100,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
+    x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
+) -> Dict[str, Any]:
+    _require_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
+    return {"success": True, **learning_memory.list_candidates(limit)}
+
+
+@app.post("/api/admin/learning/promote", include_in_schema=False)
+def admin_learning_promote(
+    payload: LearningPromoteRequest,
+    http_request: FastAPIRequest,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
+    x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
+) -> Dict[str, Any]:
+    _require_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
+    try:
+        return {"success": True, **learning_memory.promote(kind=payload.kind, identifier=payload.identifier, label=payload.label or "")}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/learning/missed-finding", include_in_schema=False)
+def admin_learning_missed_finding(
+    payload: LearningMissRequest,
+    http_request: FastAPIRequest,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
+    x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
+) -> Dict[str, Any]:
+    _require_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
+    return learning_memory.record_missed_finding(payload.model_dump())
+
+
+@app.post("/api/admin/learning/outcome", include_in_schema=False)
+def admin_learning_outcome(
+    payload: LearningOutcomeRequest,
+    http_request: FastAPIRequest,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
+    x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
+) -> Dict[str, Any]:
+    _require_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
+    try:
+        return {"success": True, **learning_memory.record_remediation_outcome(payload.model_dump())}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/admin/architect-reviews", include_in_schema=False)
+def admin_architect_reviews(
+    http_request: FastAPIRequest,
+    status: str = "open",
+    limit: int = 100,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
+    x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
+) -> Dict[str, Any]:
+    _require_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
+    rows = learning_memory.list_architect_reviews(status=status, limit=limit)
+    return {"success": True, "status": status, "count": len(rows), "reviews": rows}
+
+
+@app.post("/api/admin/architect-review/resolve", include_in_schema=False)
+def admin_architect_review_resolve(
+    payload: ArchitectReviewResolveRequest,
+    http_request: FastAPIRequest,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
+    x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
+) -> Dict[str, Any]:
+    _require_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
+    try:
+        return {"success": True, "review": learning_memory.resolve_architect_review(payload.review_id, payload.resolution, payload.priority or "", payload.notes or "")}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/admin/self-scan-snapshot", include_in_schema=False)
@@ -1126,6 +1317,41 @@ def grant_scan_package(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"success": True, "entitlement_created": True, **result}
+
+
+@app.get("/api/admin/pending-reports", include_in_schema=False)
+def admin_pending_reports(
+    http_request: FastAPIRequest,
+    status: str = "awaiting_architect",
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
+    x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
+) -> Dict[str, Any]:
+    _require_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
+    return {"success": True, "reports": learning_memory.list_pending_reports(status=status, limit=100)}
+
+
+@app.post("/api/admin/report/finalize", include_in_schema=False)
+def admin_finalize_customer_report(
+    payload: PendingReportFinalizeRequest,
+    http_request: FastAPIRequest,
+    x_trilloka_admin_session: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Session"),
+    x_trilloka_admin_key: Optional[str] = Header(default=None, alias="X-Trilloka-Admin-Key"),
+) -> Dict[str, Any]:
+    _require_admin_session(http_request, x_trilloka_admin_session, x_trilloka_admin_key)
+    if not REPORT_ENGINE_AVAILABLE or reporter is None or not hasattr(reporter, "send_customer_report_email"):
+        raise HTTPException(status_code=503, detail="Customer report delivery is not configured")
+    try:
+        prepared = learning_memory.prepare_pending_report_delivery(payload.vault_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    sent = reporter.send_customer_report_email(prepared["customer_email"], prepared["report"])
+    if not sent:
+        raise HTTPException(status_code=502, detail="Customer report email could not be delivered; pending report was retained")
+    learning_memory.mark_pending_report_delivered(payload.vault_id)
+    return {
+        "success": True, "vault_id": payload.vault_id, "delivered": True,
+        "architect_review_count": len(prepared.get("reviews") or []),
+    }
 
 
 @app.get("/api/admin/scan-usage")
@@ -1355,6 +1581,14 @@ def _base_success_payload(
         "context_tags": (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("context_tags", []),
         "commercial_architecture_diagnostics": scan_data.get("commercial_architecture_diagnostics", {}),
         "public_content_hygiene": scan_data.get("public_content_hygiene", {}),
+        "commercial_eligibility": scan_data.get("commercial_eligibility", {}),
+        "architect_review_queue": audit_results.get("architect_review_queue", []),
+        "architect_review_summary": {
+            "count": len(audit_results.get("architect_review_queue") or []),
+            "critical": sum(1 for x in (audit_results.get("architect_review_queue") or []) if isinstance(x, dict) and str(x.get("severity")) == "CRITICAL"),
+            "important": sum(1 for x in (audit_results.get("architect_review_queue") or []) if isinstance(x, dict) and str(x.get("severity")) == "IMPORTANT"),
+            "status": "awaiting_architect" if (audit_results.get("architect_review_queue") or []) else "none",
+        },
         "analysis_layers": audit_results.get("analysis_layers", {}),
         # Legacy alias retained for existing consumers.
         "business_profile": audit_results.get("business_profile", audit_results.get("architecture_profile", {})),
@@ -1374,6 +1608,8 @@ def _base_success_payload(
         "high_impact_confirmation": audit_results.get("high_impact_confirmation", {}),
         "unconfirmed_high_impact_observations": audit_results.get("unconfirmed_high_impact_observations", []),
         "rescan_comparison": audit_results.get("rescan_comparison", {}),
+        "customer_report_delivery": audit_results.get("customer_report_delivery", {}),
+        "learning_memory": audit_results.get("learning_memory", {}),
     }
 
 
@@ -1539,6 +1775,7 @@ def _apply_report_access(base_payload: Dict[str, Any], ticket: AccessTicket) -> 
     result.pop("evidence_receipts", None)
     result.pop("high_impact_confirmation", None)
     result.pop("unconfirmed_high_impact_observations", None)
+    result.pop("architect_review_queue", None)
     result["report_access"] = {
         "plan_id": "free_preview",
         "plan_name": "Free Preview",
@@ -1638,6 +1875,39 @@ async def _execute_reserved_scan(
                 detail=f"Domain '{payload.domain}' is offline, unreachable, or blocking both HTTP and browser inspection.",
             )
 
+        eligibility = scan_data.get("commercial_eligibility") if isinstance(scan_data.get("commercial_eligibility"), dict) else {}
+        if eligibility and not eligibility.get("allow_scan", True):
+            # Product-fit decline: do not consume allowance or fabricate a commercial score.
+            access_manager.finish(ticket, success=False)
+            return {
+                "success": False,
+                "status": "not_commercial_target",
+                "target_domain": payload.domain,
+                "commercial_eligibility": eligibility,
+                "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.4.0"),
+                "message": eligibility.get("reason") or "This site does not expose a sufficiently strong commercial/revenue journey for Trilloka Revenue Readiness scoring.",
+            }
+
+        if scan_data.get("requires_business_type_confirmation"):
+            # This is not a failed website scan and must not consume the user's scan allowance.
+            # The scanner deliberately stops before scoring because category-specific importance
+            # would otherwise be based on an unresolved business model.
+            access_manager.finish(ticket, success=False)
+            confirmation = dict(scan_data.get("business_type_confirmation") or {})
+            profile = scan_data.get("architecture_profile") or scan_data.get("business_profile") or {}
+            return {
+                "success": False,
+                "status": "business_type_confirmation_required",
+                "target_domain": payload.domain,
+                "requires_business_type_confirmation": True,
+                "business_type": profile.get("business_type", "general"),
+                "business_type_label": profile.get("business_type_label", "General / Unresolved Business"),
+                "business_type_confidence": profile.get("business_type_confidence"),
+                "business_type_confirmation": confirmation,
+                "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.4.0"),
+                "message": "Trilloka could not resolve the business category confidently enough for the category deep dive. Choose the closest business type and run the scan again; no score was generated and this attempt was released rather than counted as a completed scan.",
+            }
+
         try:
             # Pass 1 identifies candidates. It is not the final commercial score when a finding can
             # create a large deduction; proof-backed candidates must survive an independent passive recheck.
@@ -1697,6 +1967,43 @@ async def _execute_reserved_scan(
                 except Exception as compare_exc:
                     print(f"[Rescan] Vault comparison skipped — {compare_exc}")
             audit_results["rescan_comparison"] = rescan_comparison
+
+            # V7.4 human-escalation layer: difficult visual/interactive/external judgments are
+            # surfaced to the Architect instead of being converted into automatic failures.
+            architect_queue = build_architect_review_queue(scan_data, audit_results, require_final_proof=(ticket.mode == "paid"))
+            audit_results["architect_review_queue"] = architect_queue
+            scan_data["architect_review_queue"] = architect_queue
+            try:
+                review_ids = []
+                # Free previews may disclose that human judgment is advisable, but they do not
+                # create operational owner workload. Paid reports and owner/internal scans can.
+                if ticket.mode in {"paid", "admin"}:
+                    review_ids = learning_memory.add_architect_reviews(
+                        domain=payload.domain,
+                        vault_id=str(audit_results.get("vault_id") or ""),
+                        reviews=architect_queue,
+                    )
+                audit_results["architect_review_ids"] = review_ids
+            except Exception as review_exc:
+                print(f"[Architect Review] Queue persistence skipped — {review_exc}")
+
+            # User category corrections become bounded recognition knowledge. Candidate knowledge
+            # never changes production scoring automatically.
+            if payload.classification_confirmation and str(payload.business_type or "auto").lower() not in {"", "auto", "general"}:
+                try:
+                    learning_memory.record_classification_confirmation(
+                        domain=payload.domain, selected_business_type=payload.business_type, scan=scan_data,
+                        previous_candidates=payload.classification_previous_candidates or {},
+                        source="user_category_confirmation", subtype_label=str(payload.business_subtype or ""),
+                    )
+                except Exception as learn_exc:
+                    print(f"[Learning] Classification correction skipped — {learn_exc}")
+
+            try:
+                learning_memory.record_completed_scan(domain=payload.domain, scan=scan_data, audit=audit_results)
+                audit_results["learning_memory"] = learning_memory.stats()
+            except Exception as learn_exc:
+                print(f"[Learning] Completed-scan memory skipped — {learn_exc}")
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except Exception as exc:
@@ -1732,11 +2039,21 @@ async def _execute_reserved_scan(
                 )
                 background_tasks.add_task(reporter.send_admin_alert_email, admin_report=admin_master_report)
                 if customer_report is not None and email and hasattr(reporter, "send_customer_report_email"):
-                    background_tasks.add_task(
-                        reporter.send_customer_report_email,
-                        customer_email=email,
-                        customer_report=customer_report,
-                    )
+                    # V7.4 holds the paid customer email until the human Architect resolves the
+                    # review queue. This makes "Architect-reviewed" an operational truth rather
+                    # than marketing copy. The automated scan result remains available immediately.
+                    review_ids = list(audit_results.get("architect_review_ids") or [])
+                    try:
+                        queued = learning_memory.queue_pending_report(
+                            vault_id=str(admin_master_report.get("vault_id") or audit_results.get("vault_id") or ""),
+                            domain=payload.domain, customer_email=str(email), report=customer_report, review_ids=review_ids
+                        )
+                        audit_results["customer_report_delivery"] = {
+                            "status": "awaiting_architect_review" if queued.get("queued") else "not_queued",
+                            "review_count": len(review_ids),
+                        }
+                    except Exception as pending_exc:
+                        print(f"[Report Engine] Pending Architect delivery queue failed — {pending_exc}")
             except Exception as exc:
                 print(f"[Report Engine] Delivery/archive skipped — {exc}")
 
@@ -1979,6 +2296,33 @@ async def _process_scan_job(
         print(f"[Scan Job] Fatal worker error — {exc}")
 
 
+@app.post("/api/scan/classify")
+async def classify_scan_business(payload: BusinessClassificationRequest) -> Dict[str, Any]:
+    """Preflight business-category inference before quota reservation or full scoring.
+
+    Frontends may call this first. If the category is ambiguous, show the returned options and
+    resubmit the full scan with the user's chosen business_type.
+    """
+    guardrail_response = handle_trilloka_guardrail(payload.domain)
+    if guardrail_response:
+        return {
+            "success": True,
+            "status": "protected_domain",
+            "target_domain": payload.domain,
+            "requires_business_type_confirmation": False,
+            "message": "Protected Trilloka domain; public category preflight was not run.",
+        }
+    try:
+        validated_target = await asyncio.to_thread(validate_public_http_url, payload.domain)
+    except NetworkTargetError as exc:
+        raise HTTPException(status_code=400, detail=f"Unsafe or invalid scan target ({exc.reason}): {exc}") from exc
+    try:
+        return await scanner.classify_business_type(validated_target.url, payload.business_name or "")
+    except Exception as exc:
+        print(f"[Classification] Preflight failed — {exc}")
+        raise HTTPException(status_code=500, detail="Business-category preflight failed before a category could be resolved.") from exc
+
+
 @app.post("/api/scan/start")
 async def start_scan_job(
     payload: AuditRequest,
@@ -2036,9 +2380,11 @@ async def start_scan_job(
                 "job": _scan_job_public_meta(existing),
                 "message": "Your existing scan is still processing. No second scan was started.",
             }
+        existing_result = existing.get("result") if isinstance(existing.get("result"), dict) else {}
         allow_replay = (
             state == "complete"
             and isinstance(existing.get("result"), dict)
+            and str(existing_result.get("status") or "") != "business_type_confirmation_required"
             and not (existing_mode == "free" and access_pass)
             and not (existing_mode == "paid" and bool(payload.force_refresh))
         )
