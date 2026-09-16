@@ -256,7 +256,7 @@ class _StaticHTMLProbe(HTMLParser):
 
 
 class HybridScanner:
-    ENGINE_VERSION = "v7.5.0"
+    ENGINE_VERSION = "v7.5.1"
     """Three-phase scanner with evidence confidence and business context."""
 
     def __init__(self, google_api_key: Optional[str] = None):
@@ -1759,6 +1759,14 @@ class HybridScanner:
         )
 
         internal_links = self._same_origin_internal_links(url, raw_internal_link_inputs)
+        origin_host = urllib.parse.urlparse(url).netloc.lower().split(":")[0]
+        external_commerce_handoffs = []
+        for item in probe.actions:
+            href_abs = urllib.parse.urljoin(url, str(item.get("href") or ""))
+            action_kind = self._classify_action_text(str(item.get("text") or ""), href_abs)
+            target_host = urllib.parse.urlparse(href_abs).netloc.lower().split(":")[0]
+            if action_kind in {"order", "buy", "add_to_cart"} and target_host and target_host != origin_host:
+                external_commerce_handoffs.append({"action": action_kind, "target_host": target_host, "label": str(item.get("text") or "")[:120]})
         booking_provider_links = self._extract_booking_provider_links(url, probe.actions)
         conversion_error_signals = self._detect_conversion_error_signals(visible_text, html_lower, url)
         content_signals = self._static_content_signals(visible_text, links, schema_types, probe)
@@ -1865,9 +1873,12 @@ class HybridScanner:
                 "mobile_cta_visible": False,
                 "mobile_cta_status": "unknown",
                 "mobile_cta_types": action_types,
+                "observed_action_types": action_types,
                 "mobile_cta_type": action_types[0] if action_types else "unknown",
                 "add_to_cart_visible": any(t in action_types for t in ("add_to_cart", "buy")),
                 "order_online_present": "order" in action_types,
+                "external_order_handoff_present": bool(external_commerce_handoffs),
+                "external_commerce_handoffs": external_commerce_handoffs[:20],
                 "reservation_present": "reserve" in action_types,
                 "booking_action_present": "book" in action_types,
                 "directions_present": "directions" in action_types,
@@ -1937,7 +1948,7 @@ class HybridScanner:
             return "add_to_cart"
         if re.search(r"\b(?:checkout|buy\s+now|purchase\s+now|complete\s+purchase)\b", label) or re.search(r"(?:^|\s)checkout(?:\s|$)", href_tokens):
             return "buy"
-        if re.search(r"\b(?:order\s+(?:online|now|pickup|delivery)|start\s+(?:an?\s+)?order|place\s+(?:an?\s+)?order)\b", label) or re.search(r"(?:^|\s)(?:order-online|online-order)(?:\s|$)", path.replace("/", " ")):
+        if re.search(r"\b(?:order(?:\s+(?:online|now|pickup|delivery))?|start\s+(?:an?\s+)?order|place\s+(?:an?\s+)?order)\b", label) or re.search(r"(?:^|\s)(?:order-online|online-order|order)(?:\s|$)", path.replace("/", " ")):
             return "order"
         # Hospitality booking language is distinct from appointment booking.
         if re.search(r"\b(?:reserve(?:\s+(?:now|a\s+table|a\s+room|a\s+spot))?|make\s+(?:a\s+)?reservation|book\s+(?:a\s+)?(?:table|room|venue|tour|charter|cruise))\b", label) or re.search(r"(?:^|\s)reservations?(?:\s|$)", href_tokens):
@@ -2164,6 +2175,7 @@ class HybridScanner:
             "click_to_call_present": False,
             "add_to_cart_visible": False,
             "order_online_present": False,
+            "external_order_handoff_present": False,
             "reservation_present": False,
             "booking_action_present": False,
             "directions_present": False,
@@ -2244,6 +2256,8 @@ class HybridScanner:
                     "cta_types": evidence.get("mobile_cta_types") or [],
                     "add_to_cart_visible": bool(evidence.get("add_to_cart_visible")),
                     "order_online_present": bool(evidence.get("order_online_present")),
+                    "external_order_handoff_present": bool(evidence.get("external_order_handoff_present")),
+                    "external_commerce_handoffs": list(evidence.get("external_commerce_handoffs") or [])[:20],
                     "reservation_present": bool(evidence.get("reservation_present")),
                     "booking_action_present": bool(evidence.get("booking_action_present")),
                     "directions_present": bool(evidence.get("directions_present")),
@@ -2366,7 +2380,7 @@ class HybridScanner:
             "case_studies_portfolio_present", "return_policy_linked", "shipping_info_linked",
             "pricing_linked", "blog_present", "social_links_present",
             "address_location_visible", "phone_number_visible", "click_to_call_present",
-            "add_to_cart_visible", "order_online_present", "reservation_present",
+            "add_to_cart_visible", "order_online_present", "external_order_handoff_present", "reservation_present",
             "booking_action_present", "directions_present", "checkout_context_detected",
             "forms_present",
         ):
@@ -2556,7 +2570,7 @@ class HybridScanner:
             "privacy_policy_linked", "terms_linked", "about_team_linked", "case_studies_portfolio_present",
             "return_policy_linked", "shipping_info_linked", "pricing_linked",
             "address_location_visible", "phone_number_visible", "click_to_call_present",
-            "add_to_cart_visible", "order_online_present", "reservation_present",
+            "add_to_cart_visible", "order_online_present", "external_order_handoff_present", "reservation_present",
             "booking_action_present", "directions_present", "checkout_context_detected", "forms_present",
         ):
             if browser_probe.get(key) is True:
@@ -3499,7 +3513,7 @@ class HybridScanner:
             for key in (
                 "mobile_cta_visible", "mobile_primary_cta_present", "mobile_sticky_cta_present",
                 "mobile_cta_status", "mobile_cta_type", "mobile_cta_types", "mobile_cta_evidence",
-                "add_to_cart_visible", "order_online_present", "reservation_present", "booking_action_present", "directions_present",
+                "add_to_cart_visible", "order_online_present", "external_order_handoff_present", "reservation_present", "booking_action_present", "directions_present",
             ):
                 merged[key] = mobile_attempt.get(key)
         elif mobile_status == "partial":
@@ -3509,7 +3523,7 @@ class HybridScanner:
             merged["mobile_cta_type"] = mobile_attempt.get("mobile_cta_type") or "unknown"
             for key in (
                 "mobile_cta_visible", "mobile_primary_cta_present", "mobile_sticky_cta_present",
-                "add_to_cart_visible", "order_online_present", "reservation_present", "booking_action_present", "directions_present",
+                "add_to_cart_visible", "order_online_present", "external_order_handoff_present", "reservation_present", "booking_action_present", "directions_present",
             ):
                 merged[key] = True if mobile_attempt.get(key) is True else None
         else:
@@ -3747,7 +3761,7 @@ class HybridScanner:
             for key in (
                 "mobile_cta_visible", "mobile_primary_cta_present", "mobile_sticky_cta_present",
                 "mobile_cta_status", "mobile_cta_type", "mobile_cta_types", "mobile_cta_evidence",
-                "add_to_cart_visible", "order_online_present", "reservation_present", "booking_action_present", "directions_present",
+                "add_to_cart_visible", "order_online_present", "external_order_handoff_present", "reservation_present", "booking_action_present", "directions_present",
             ):
                 merged[key] = dom.get(key)
         elif dom_mobile_status == "partial":
@@ -3756,12 +3770,28 @@ class HybridScanner:
             merged["mobile_cta_evidence"] = list(dom.get("mobile_cta_evidence") or [])
             for key in (
                 "mobile_cta_visible", "mobile_primary_cta_present", "mobile_sticky_cta_present",
-                "add_to_cart_visible", "order_online_present", "reservation_present", "booking_action_present", "directions_present",
+                "add_to_cart_visible", "order_online_present", "external_order_handoff_present", "reservation_present", "booking_action_present", "directions_present",
             ):
                 if dom.get(key) is True:
                     merged[key] = True
                 elif merged.get(key) is not True:
                     merged[key] = None
+
+        # V7.5.1 pathway evidence is not the same thing as mobile visibility. Preserve
+        # verified action existence from either static HTML or rendered DOM even when the
+        # browser does not classify the same CTA. This prevents a stronger positive source
+        # from being erased by a weaker negative pass.
+        merged["observed_action_types"] = self._union_strings(
+            static.get("observed_action_types") or static.get("mobile_cta_types"),
+            dom.get("observed_action_types") or dom.get("mobile_cta_types"),
+        )
+        for key in ("add_to_cart_visible", "order_online_present", "external_order_handoff_present", "reservation_present", "booking_action_present", "directions_present"):
+            if static.get(key) is True or dom.get(key) is True:
+                merged[key] = True
+        merged["external_commerce_handoffs"] = list(static.get("external_commerce_handoffs") or []) + [
+            item for item in (dom.get("external_commerce_handoffs") or [])
+            if item not in (static.get("external_commerce_handoffs") or [])
+        ]
 
         # Images: rendered DOM is preferred when available; otherwise keep complete static evidence.
         if (self._to_int(dom.get("total_images"), 0) or 0) > 0 or (dom_complete and dom.get("missing_alt_images") is not None):
@@ -3836,6 +3866,7 @@ class HybridScanner:
             "mobile_cta_types": [],
             "add_to_cart_visible": False,
             "order_online_present": False,
+            "external_order_handoff_present": False,
             "reservation_present": False,
             "booking_action_present": False,
             "directions_present": False,

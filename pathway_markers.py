@@ -45,7 +45,7 @@ BUSINESS_JOURNEY_CANDIDATES: Dict[str, Tuple[str,...]] = {
 
 # Journey grammar. Marker tiers: semantic(1), page/action(2-3), progression(4), terminal(5).
 JOURNEY_GRAMMAR: Dict[str, Dict[str, Tuple[str,...]]] = {
- "direct_purchase":{"action":("order","buy","add_to_cart"),"progression":("add_to_cart","cart","product_selection"),"terminal":("checkout","payment","order_confirmation")},
+ "direct_purchase":{"action":("order","buy","add_to_cart"),"progression":("add_to_cart","cart","product_selection","external_commerce_handoff"),"terminal":("checkout","payment","order_confirmation")},
  "reservation_event":{"action":("reserve","reservation","book_table","book_room","book_event"),"progression":("party_size","guests","date","time","availability"),"terminal":("booking_confirmation","reservation_confirmation","payment")},
  "appointment_consultation":{"action":("book","schedule","consultation","appointment"),"progression":("service_selection","provider_selection","date","time","availability"),"terminal":("appointment_confirmation","booking_confirmation")},
  "lead_quote":{"action":("quote","contact","estimate","enquire"),"progression":("requirements","contact_fields","project_details","budget","upload"),"terminal":("form_submission","request_sent","quote_request")},
@@ -90,7 +90,7 @@ def _observed_markers(data:Mapping[str,Any])->Dict[str,List[Dict[str,Any]]]:
     out:Dict[str,List[Dict[str,Any]]]={}
     def add(key,authority,source,detail=""):
         out.setdefault(key,[]).append({"authority":authority,"source":source,"detail":detail or key})
-    actions=set(str(x).lower() for x in (data.get("mobile_cta_types") or []))|set(str(x).lower() for x in (data.get("journey_action_types") or []))
+    actions=set(str(x).lower() for x in (data.get("mobile_cta_types") or []))|set(str(x).lower() for x in (data.get("observed_action_types") or []))|set(str(x).lower() for x in (data.get("journey_action_types") or []))
     for a in actions:
         if a in ACTION_ALIASES:add(ACTION_ALIASES[a],3,"observed_action",a)
     bools={"add_to_cart_visible":"add_to_cart","checkout_context_detected":"checkout","order_online_present":"order","reservation_present":"reserve","booking_action_present":"book"}
@@ -115,6 +115,31 @@ def _observed_markers(data:Mapping[str,Any])->Dict[str,List[Dict[str,Any]]]:
     for marker,phrases in TEXT_MARKERS.items():
         hits=[p for p in phrases if p in text]
         if hits:add(marker,4 if marker not in {"payment","order_confirmation","booking_confirmation","reservation_confirmation","appointment_confirmation","demo_confirmation","trial_activation","subscription_confirmation","account_activation","donation_confirmation","application_submission","registration_confirmation","enrollment_confirmation"} else 5,"page_text",hits[0])
+    # An explicit commerce CTA that hands the visitor to another host is verified
+    # progression evidence, even when Trilloka deliberately does not crawl arbitrary
+    # third-party transaction systems. This is a handoff, not a claimed checkout.
+    base_host = str(data.get("domain") or data.get("url") or "")
+    try:
+        from urllib.parse import urlparse
+        base_host = urlparse(base_host if "://" in base_host else "https://" + base_host).netloc.lower().split(":")[0]
+    except Exception:
+        base_host = ""
+    external_order = False
+    for item in data.get("journey_action_evidence") or []:
+        if not isinstance(item, Mapping) or "order" not in [str(x).lower() for x in (item.get("action_types") or [])]:
+            continue
+        try:
+            host = urlparse(str(item.get("url") or "")).netloc.lower().split(":")[0]
+        except Exception:
+            host = ""
+        if host and base_host and host != base_host:
+            external_order = True
+            break
+    # Homepage/static evidence can expose an external action without being a scanned page.
+    if data.get("external_order_handoff_present") is True:
+        external_order = True
+    if external_order:
+        add("external_commerce_handoff",4,"verified_external_handoff","explicit order CTA leaves the site")
     return out
 
 def resolve_journeys(data:Mapping[str,Any],business_type:str)->Dict[str,Any]:
