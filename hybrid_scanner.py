@@ -1,7 +1,7 @@
 """Trilloka production scanning engine.
 
-V7.2 Journey + Context architecture:
-- Infers the observable customer journey instead of expanding an industry/subtype taxonomy.
+V7.6.1 Real-World Sales Path architecture:
+- Resolves business type/subtype first, then uses observed real-world customer-path evidence to resolve the journey.
 - Adds independent context tags for regulated/high-trust, local, commerce, sensitive-data,
   enterprise/considered-purchase and hospitality/event requirements.
 - Keeps universal low-weight foundation evidence separate from adaptive revenue architecture.
@@ -260,7 +260,7 @@ class _StaticHTMLProbe(HTMLParser):
 
 
 class HybridScanner:
-    ENGINE_VERSION = "v7.5.3"
+    ENGINE_VERSION = "v7.6.1-real-world-sales-stable"
     """Three-phase scanner with evidence confidence and business context."""
 
     def __init__(self, google_api_key: Optional[str] = None):
@@ -389,8 +389,6 @@ class HybridScanner:
             "general",  # V7.5 neutral differentiation crawl: do not let an early journey guess steer evidence
             list(initial_architecture_profile.get("context_tags") or []),
             initial_deep_type,
-            workflow_terms=(workflow_routing_terms(initial_workflow) if initial_deep_type != "general" else None),
-            workflow_guesses=(workflow_page_guesses(initial_workflow) if initial_deep_type != "general" else None),
         )
         self._merge_journey_evidence(combined, journey_meta)
 
@@ -2173,8 +2171,36 @@ class HybridScanner:
 
         ranked = sorted(scored, key=lambda item: (-item[0], len(item[1]), item[1]))
         ordered = [url for _, url in ranked]
-        # Preserve breadth: one conversion/evaluation path, one proof path, one policy path, then fill by relevance.
+        # Production breadth rule: before generic proof/policy coverage, preserve several
+        # type/subtype decision surfaces. This prevents a bounded crawl from knowing the
+        # category yet spending most of its budget outside the real customer path.
         selected: List[str] = []
+        workflow_vocab = [str(x).lower() for x in (workflow_terms or []) if str(x).strip()]
+        if workflow_vocab:
+            for url in ordered:
+                low = urllib.parse.unquote(url).lower()
+                if any(term in low for term in workflow_vocab) and url not in selected:
+                    selected.append(url)
+                    if len(selected) >= min(3, limit):
+                        break
+        # During the neutral/common-discovery pass, deliberately reserve one slot for a
+        # first-party self-description surface when the site exposes one. This lets the existing
+        # business classifier use the company's own About/Our Story/Services language before
+        # subtype-specific routing starts, without making that page sole authority.
+        if not workflow_vocab and len(selected) < limit:
+            identity_tokens = (
+                "/about", "/our-story", "/our_story", "/who-we-are", "/who_we_are",
+                "/what-we-do", "/what_we_do", "/company", "/services", "/solutions",
+            )
+            identity_candidate = next((
+                url for token in identity_tokens
+                for url in ordered
+                if url not in selected and token in urllib.parse.unquote(url).lower()
+            ), None)
+            if identity_candidate:
+                selected.append(identity_candidate)
+
+        # Then preserve universal breadth: conversion/evaluation, proof and policy.
         role_groups = (
             {"contact_or_lead", "booking", "commerce_conversion", "evaluation"},
             {"proof"},

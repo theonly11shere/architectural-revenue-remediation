@@ -33,7 +33,7 @@ SUBTYPE_MARKERS: Dict[str, Dict[str, Tuple[str, ...]]] = {
 
 # Candidate journeys per broad type: routing only, never proof.
 BUSINESS_JOURNEY_CANDIDATES: Dict[str, Tuple[str,...]] = {
- "restaurant":("direct_purchase","reservation_event","lead_quote","appointment_consultation"), "ecommerce":("direct_purchase","membership_subscription","lead_quote"),
+ "restaurant":("local_visit","direct_purchase","reservation_event","lead_quote","appointment_consultation"), "ecommerce":("direct_purchase","membership_subscription","lead_quote"),
  "marketplace":("direct_purchase","membership_subscription","lead_quote","reservation_event"), "local_service":("lead_quote","appointment_consultation","direct_purchase"),
  "professional_service":("lead_quote","appointment_consultation","direct_purchase"), "healthcare":("appointment_consultation","lead_quote"), "medspa":("appointment_consultation","direct_purchase","membership_subscription"),
  "legal":("lead_quote","appointment_consultation"), "financial_services":("application_enrollment","appointment_consultation","lead_quote"), "real_estate":("lead_quote","appointment_consultation","application_enrollment"),
@@ -45,7 +45,8 @@ BUSINESS_JOURNEY_CANDIDATES: Dict[str, Tuple[str,...]] = {
 
 # Journey grammar. Marker tiers: semantic(1), page/action(2-3), progression(4), terminal(5).
 JOURNEY_GRAMMAR: Dict[str, Dict[str, Tuple[str,...]]] = {
- "direct_purchase":{"action":("order","buy","add_to_cart"),"progression":("add_to_cart","cart","product_selection","external_commerce_handoff"),"terminal":("checkout","payment","order_confirmation")},
+ "local_visit":{"action":("directions","visit_location"),"progression":("menu","hours","location"),"terminal":()},
+ "direct_purchase":{"action":("order","buy","add_to_cart"),"progression":("add_to_cart","cart","product_selection"),"terminal":("checkout","payment","order_confirmation")},
  "reservation_event":{"action":("reserve","reservation","book_table","book_room","book_event"),"progression":("party_size","guests","date","time","availability"),"terminal":("booking_confirmation","reservation_confirmation","payment")},
  "appointment_consultation":{"action":("book","schedule","consultation","appointment"),"progression":("service_selection","provider_selection","date","time","availability"),"terminal":("appointment_confirmation","booking_confirmation")},
  "lead_quote":{"action":("quote","contact","estimate","enquire"),"progression":("requirements","contact_fields","project_details","budget","upload"),"terminal":("form_submission","request_sent","quote_request")},
@@ -56,6 +57,7 @@ JOURNEY_GRAMMAR: Dict[str, Dict[str, Tuple[str,...]]] = {
 }
 
 TEXT_MARKERS = {
+ "menu":("menu","our menu","food menu","drink menu"), "hours":("hours","opening hours","open daily","hours of operation"), "location":("our location","locations","address","find us"), "directions":("get directions","directions","map"), "visit_location":("visit us","come visit","find us"),
  "cart":("shopping cart","your cart","view cart","/cart"), "checkout":("checkout","/checkout","secure checkout"), "payment":("payment","card number","billing address","pay now"),
  "order_confirmation":("order confirmed","order confirmation","thank you for your order"), "party_size":("party size","number of guests","guests"), "date":("select date","choose date","appointment date","check-in"), "time":("select time","choose time","available times"), "availability":("check availability","availability"),
  "booking_confirmation":("booking confirmed","booking confirmation"), "reservation_confirmation":("reservation confirmed","reservation confirmation"), "appointment_confirmation":("appointment confirmed","appointment confirmation"),
@@ -67,7 +69,7 @@ TEXT_MARKERS = {
  "eligibility":("eligibility","are you eligible","requirements"), "application_fields":("application form","applicant information"), "documents":("upload documents","supporting documents","transcript"), "program_selection":("select program","choose program","program of study"), "application_submission":("submit application","application submitted"), "registration_confirmation":("registration confirmed","registered successfully"), "enrollment_confirmation":("enrollment confirmed","enrolment confirmed"),
  "product_selection":("select options","choose option","quantity","menu item"),
 }
-ACTION_ALIASES={"order":"order","buy":"buy","add_to_cart":"add_to_cart","checkout":"checkout","reserve":"reserve","book":"book","quote":"quote","contact":"contact","demo":"demo","trial":"trial","subscribe":"subscribe","join":"join","donate":"donate","support":"support","apply":"apply","register":"register","enroll":"enroll","enrol":"enrol"}
+ACTION_ALIASES={"directions":"directions","visit":"visit_location","order":"order","buy":"buy","add_to_cart":"add_to_cart","checkout":"checkout","reserve":"reserve","book":"book","quote":"quote","contact":"contact","demo":"demo","trial":"trial","subscribe":"subscribe","join":"join","donate":"donate","support":"support","apply":"apply","register":"register","enroll":"enroll","enrol":"enrol"}
 
 def _all_text(data: Mapping[str,Any]) -> str:
     bits=[data.get("title"),data.get("meta_description")," ".join(data.get("h1_tags") or []),data.get("page_text"),data.get("journey_text_sample")]
@@ -88,19 +90,14 @@ def infer_subtype(data: Mapping[str,Any], business_type:str)->Dict[str,Any]:
 
 def _observed_markers(data:Mapping[str,Any])->Dict[str,List[Dict[str,Any]]]:
     out:Dict[str,List[Dict[str,Any]]]={}
-    def add(key,authority,source,detail="",url=""):
-        out.setdefault(key,[]).append({"authority":authority,"source":source,"detail":detail or key,"url":url})
-
-    actions=set(str(x).lower() for x in (data.get("mobile_cta_types") or []))|set(str(x).lower() for x in (data.get("observed_action_types") or []))|set(str(x).lower() for x in (data.get("journey_action_types") or []))
+    def add(key,authority,source,detail=""):
+        out.setdefault(key,[]).append({"authority":authority,"source":source,"detail":detail or key})
+    actions=set(str(x).lower() for x in (data.get("mobile_cta_types") or []))|set(str(x).lower() for x in (data.get("journey_action_types") or []))
     for a in actions:
         if a in ACTION_ALIASES:add(ACTION_ALIASES[a],3,"observed_action",a)
-
-    bools={"add_to_cart_visible":"add_to_cart","checkout_context_detected":"checkout","order_online_present":"order","reservation_present":"reserve","booking_action_present":"book"}
+    bools={"add_to_cart_visible":"add_to_cart","checkout_context_detected":"checkout","order_online_present":"order","reservation_present":"reserve","booking_action_present":"book","directions_present":"directions"}
     for field,m in bools.items():
         if data.get(field) is True:add(m,4 if m in {"add_to_cart","checkout"} else 3,"verified_site_evidence",field)
-
-    # Explicit commercial actions may be recognized site-wide, but semantic business copy alone
-    # cannot create progression or terminal proof.
     text=_all_text(data)
     explicit_action_phrases = {
         "quote": ("request a quote", "get a quote", "free estimate", "request a proposal"),
@@ -117,53 +114,14 @@ def _observed_markers(data:Mapping[str,Any])->Dict[str,List[Dict[str,Any]]]:
     for marker, phrases in explicit_action_phrases.items():
         hits=[p for p in phrases if p in text]
         if hits:add(marker,3,"explicit_action_text",hits[0])
-
-    # Progression/terminal markers are page-scoped. Only verified conversion/evaluation pages
-    # can supply them; generic homepage/policy/hours copy cannot manufacture date/time/payment proof.
-    allowed_roles={"contact_or_lead","booking","commerce_conversion","evaluation"}
-    for page in data.get("journey_pages_scanned") or []:
-        if not isinstance(page,Mapping) or not page.get("verified") or str(page.get("role") or "") not in allowed_roles:
-            continue
-        page_text=str(page.get("page_text_sample") or "").lower()
-        page_url=str(page.get("url") or "")
-        for marker,phrases in TEXT_MARKERS.items():
-            hits=[p for p in phrases if p in page_text]
-            if hits:
-                terminal = marker in {"payment","order_confirmation","booking_confirmation","reservation_confirmation","appointment_confirmation","demo_confirmation","trial_activation","subscription_confirmation","account_activation","donation_confirmation","application_submission","registration_confirmation","enrollment_confirmation"}
-                add(marker,5 if terminal else 4,"verified_path_page",hits[0],page_url)
-
-    # Static and browser CTA receipts preserve the actual destination href. An explicit order
-    # action leaving the target host proves a commerce handoff (progression), never checkout.
-    from urllib.parse import urlparse, urljoin
-    raw_base=str(data.get("final_url") or data.get("url") or data.get("domain") or "")
-    if raw_base and "://" not in raw_base: raw_base="https://"+raw_base
-    try: base_host=urlparse(raw_base).netloc.lower().split(":")[0]
-    except Exception: base_host=""
-
-    external_order=False
-    evidence_lists=[
-        data.get("static_cta_evidence") or [],
-        data.get("mobile_cta_evidence") or [],
-        data.get("journey_action_evidence") or [],
-    ]
-    for items in evidence_lists:
-        for item in items:
-            if not isinstance(item,Mapping): continue
-            types=[str(x).lower() for x in (item.get("action_types") or [])]
-            one_type=str(item.get("type") or "").lower()
-            if one_type: types.append(one_type)
-            if "order" not in types: continue
-            dest=str(item.get("href") or item.get("destination_url") or "")
-            if not dest: continue
-            try: host=urlparse(urljoin(raw_base,dest)).netloc.lower().split(":")[0]
-            except Exception: host=""
-            if host and base_host and host != base_host:
-                external_order=True
-                add("external_commerce_handoff",4,"verified_external_handoff","explicit order CTA leaves the site",dest)
-                break
-        if external_order: break
-    if data.get("external_order_handoff_present") is True and not external_order:
-        add("external_commerce_handoff",4,"verified_external_handoff","explicit order CTA leaves the site")
+    for marker,phrases in TEXT_MARKERS.items():
+        hits=[p for p in phrases if p in text]
+        if hits:add(marker,4 if marker not in {"payment","order_confirmation","booking_confirmation","reservation_confirmation","appointment_confirmation","demo_confirmation","trial_activation","subscription_confirmation","account_activation","donation_confirmation","application_submission","registration_confirmation","enrollment_confirmation"} else 5,"page_text",hits[0])
+    # A physical address alone is identity/location evidence, not proof of a customer path.
+    # Resolve a visit action only when location is corroborated by another current-site
+    # visit-planning signal such as hours, menu or directions.
+    if data.get("address_location_visible") is True and any(k in out for k in ("hours","menu","directions")):
+        add("visit_location",3,"composite_site_evidence","verified location + visit-planning evidence")
     return out
 
 def resolve_journeys(data:Mapping[str,Any],business_type:str)->Dict[str,Any]:
@@ -194,9 +152,4 @@ def build_differentiation_plan(data:Mapping[str,Any],business_type:str)->Dict[st
     for j in paths["candidate_journeys"]:
         g=JOURNEY_GRAMMAR[j]
         seek.extend(g["action"]); seek.extend(g["progression"]); seek.extend(g["terminal"])
-    observed=set(paths.get("observed_markers") or {})
-    missing={}
-    for j in paths["candidate_journeys"]:
-        g=JOURNEY_GRAMMAR[j]
-        missing[j]={stage:[m for m in g[stage] if m not in observed] for stage in ("action","progression","terminal")}
-    return {"business_type":business_type,"subtype":subtype,"candidate_journeys":paths["candidate_journeys"],"seek_markers":list(dict.fromkeys(seek)),"missing_markers":missing,"policy":"Business type/subtype narrows the evidence search. Only observed path markers resolve the customer journey."}
+    return {"business_type":business_type,"subtype":subtype,"candidate_journeys":paths["candidate_journeys"],"seek_markers":list(dict.fromkeys(seek)),"policy":"Business type/subtype narrows the evidence search. Only observed path markers resolve the customer journey."}

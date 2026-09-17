@@ -52,6 +52,7 @@ JOURNEY_LABELS: Dict[str, str] = {
     "lead_quote": "Lead / Quote",
     "appointment_consultation": "Appointment / Consultation",
     "reservation_event": "Reservation / Event",
+    "local_visit": "Visit / In-Person",
     "direct_purchase": "Direct Purchase",
     "demo_sales": "Demo / Sales",
     "membership_subscription": "Membership / Subscription",
@@ -64,6 +65,7 @@ JOURNEY_PRIMARY_CONVERSION: Dict[str, str] = {
     "lead_quote": "qualified_lead_or_quote",
     "appointment_consultation": "appointment_or_consultation",
     "reservation_event": "reservation_or_event_enquiry",
+    "local_visit": "visit_location_or_directions",
     "direct_purchase": "purchase_or_checkout",
     "demo_sales": "demo_trial_or_sales_contact",
     "membership_subscription": "subscribe_join_or_membership",
@@ -76,6 +78,7 @@ JOURNEY_SECONDARY_CONVERSIONS: Dict[str, List[str]] = {
     "lead_quote": ["contact_form", "call", "booking"],
     "appointment_consultation": ["contact_form", "call", "directions"],
     "reservation_event": ["contact_form", "call", "directions"],
+    "local_visit": ["menu", "hours", "call", "order"],
     "direct_purchase": ["product_question", "chat", "contact"],
     "demo_sales": ["contact_form", "call", "chat"],
     "membership_subscription": ["contact", "follow", "community"],
@@ -109,6 +112,7 @@ JOURNEY_PAGE_TERMS: Dict[str, Tuple[str, ...]] = {
         "appointment", "book", "booking", "schedule", "consultation", "patient", "treatment",
         "services", "team", "credentials", "reviews", "contact", "pricing",
     ),
+    "local_visit": ("menu", "hours", "location", "locations", "directions", "find-us", "contact", "order", "pickup", "reviews", "gallery"),
     "reservation_event": (
         "reserve", "reservation", "booking", "book", "charter", "cruise", "event", "venue",
         "tour", "rental", "wedding", "corporate", "contact", "reviews", "menu",
@@ -137,6 +141,7 @@ JOURNEY_PAGE_GUESSES: Dict[str, List[str]] = {
     "lead_quote": ["/contact/", "/request-a-quote/", "/quote/", "/services/", "/projects/"],
     "appointment_consultation": ["/book/", "/appointments/", "/consultation/", "/services/", "/contact/"],
     "reservation_event": ["/reservations/", "/book/", "/events/", "/charters/", "/contact/"],
+    "local_visit": ["/menu/", "/hours/", "/location/", "/locations/", "/contact/"],
     "direct_purchase": ["/shop/", "/products/", "/cart/", "/checkout/", "/returns/"],
     "demo_sales": ["/demo/", "/contact-sales/", "/pricing/", "/solutions/", "/case-studies/"],
     "membership_subscription": ["/subscribe/", "/join/", "/membership/", "/pricing/", "/community/"],
@@ -149,6 +154,7 @@ JOURNEY_EXPECTED_ACTIONS: Dict[str, Set[str]] = {
     "lead_quote": {"quote", "contact", "call", "book"},
     "appointment_consultation": {"book", "contact", "call", "reserve"},
     "reservation_event": {"reserve", "book", "contact", "call", "directions", "order"},
+    "local_visit": {"directions", "call", "order", "contact"},
     "direct_purchase": {"add_to_cart", "buy", "order", "checkout"},
     "demo_sales": {"demo", "trial", "contact", "quote", "book"},
     "membership_subscription": {"subscribe", "join", "contact", "buy"},
@@ -588,7 +594,7 @@ def infer_context_tags(data: Mapping[str, Any], journey_model: str = "general", 
         local_hits.append("verified local phone path")
     # A phone number by itself is not enough to classify a national/enterprise lead site as local.
     # Journey types may still become local when real geographic/location evidence is present.
-    if journey_model in {"lead_quote", "appointment_consultation", "reservation_event"} or local_business_type:
+    if journey_model in {"lead_quote", "appointment_consultation", "reservation_event", "local_visit"} or local_business_type:
         local_hits.extend(term for term in geographic_terms if term in text)
     mark("local_location_dependent", local_hits)
 
@@ -752,25 +758,20 @@ def infer_architecture_profile(data: Mapping[str, Any], requested_hint: Any = "a
         winning_signals = ["requested:general"]
 
     secondary_journeys: List[Dict[str, Any]] = []
-    # Secondary journeys are evidence paths too. Weighted semantic candidates remain diagnostic
-    # and cannot be published as a secondary journey without marker authority >= 3.
-    ranked_marker_paths = list(marker_resolution.get("ranked_paths") or [])
-    for path in ranked_marker_paths:
-        model = str(path.get("journey_model") or "")
-        if not model or model == str(marker_resolution.get("journey_model") or ""):
-            continue
-        if int(path.get("authority") or 0) < 3:
-            continue
-        secondary_journeys.append({
-            "journey_model": model,
-            "journey_label": JOURNEY_LABELS.get(model, model.replace("_", " ").title()),
-            "authority": int(path.get("authority") or 0),
-            "status": str(path.get("status") or "SUPPORTED"),
-            "path_completeness": str(path.get("completeness") or "0/3"),
-            "markers": path.get("markers") or {},
-        })
-        if len(secondary_journeys) >= 3:
-            break
+    if top_score > 0:
+        for model, score in ranked[1:4]:
+            if score < 4.0:
+                continue
+            ratio = score / top_score
+            if ratio < 0.32:
+                continue
+            secondary_journeys.append({
+                "journey_model": model,
+                "journey_label": JOURNEY_LABELS.get(model, model.replace("_", " ").title()),
+                "relative_strength": round(ratio, 2),
+                "score": round(score, 2),
+                "signals": list(dict.fromkeys(signals.get(model) or []))[:6],
+            })
 
     # V7.5 authority resolver: observed customer-path sequences outrank weighted language/priors.
     weighted_journey_model = journey_model
@@ -795,7 +796,7 @@ def infer_architecture_profile(data: Mapping[str, Any], requested_hint: Any = "a
     provisional = bool(journey_model == "general" or confidence < 0.72 or (not force_general_journey and int(marker_resolution.get("authority") or 0) < 4) or (business_type == "general" and float(business.get("confidence") or 0.0) < 0.60))
     secondary = JOURNEY_SECONDARY_CONVERSIONS.get(journey_model, JOURNEY_SECONDARY_CONVERSIONS["general"])
     return {
-        "model_basis": "hierarchical_business_subtype_path_markers_v4",
+        "model_basis": "hierarchical_business_subtype_path_markers_v3",
         "business_type": business_type,
         "business_type_label": business.get("business_type_label") or BUSINESS_TYPE_LABELS.get(business_type, business_type.replace("_", " ").title()),
         "business_type_confidence": round(float(business.get("confidence") or 0.0), 2),
