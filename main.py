@@ -42,6 +42,10 @@ from pydantic import BaseModel, EmailStr
 
 from admin_auth import AdminAuthError, AdminAuthManager
 from hybrid_scanner import HybridScanner
+
+# Single source of truth for deployed scanner/API version labels.
+SCANNER_ENGINE_VERSION = getattr(HybridScanner, "ENGINE_VERSION", "unknown")
+API_VERSION = (SCANNER_ENGINE_VERSION.removeprefix("v").split("-", 1)[0] if SCANNER_ENGINE_VERSION != "unknown" else "7.7.1")
 from network_security import NetworkTargetError, validate_public_http_url
 from scan_access import AccessDenied, AccessTicket, PLAN_CATALOG, ScanAccessManager
 from scorer import RevenueScorer
@@ -108,7 +112,7 @@ _PROTECTED_DOMAIN_ROOTS = tuple(
 app = FastAPI(
     title="Trilloka Architect Engine API",
     description="Evidence-weighted Revenue Readiness Diagnostic, local competitor benchmark & tiered report gateway",
-    version="7.5.3",
+    version=API_VERSION,
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -665,7 +669,7 @@ def _build_self_snapshot(
         "snapshot_source": "owner_controlled_v7_self_scan",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "target_domain": target_domain,
-        "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.2.2"),
+        "scanner_engine_version": scan_data.get("scanner_engine_version", SCANNER_ENGINE_VERSION),
         "overall_score": score,
         "score_rating": audit_results.get("score_rating", ""),
         "score_scope": audit_results.get("score_scope", "Observable website Revenue Readiness only."),
@@ -782,7 +786,7 @@ def handle_trilloka_guardrail(target_domain: str) -> Optional[Dict[str, Any]]:
 def health_check() -> Dict[str, Any]:
     return {
         "status": "online",
-        "system": "Trilloka Architect Engine v7.5.2",
+        "system": f"Trilloka Architect Engine {SCANNER_ENGINE_VERSION}",
         "google_api_configured": bool(os.environ.get("PAGESPEED_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
         "places_api_configured": bool(os.environ.get("GOOGLE_PLACES_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("PAGESPEED_API_KEY")),
         "report_engine": REPORT_ENGINE_AVAILABLE,
@@ -1628,7 +1632,7 @@ def _base_success_payload(
         "verification_coverage_note": (admin_master_report or {}).get("verification_coverage_note", ""),
         # Kept in protected server cache. Free responses strip this; paid responses expose all 50.
         "full_50_checkpoint_basis": audit_results.get("full_50_checkpoint_basis", []),
-        "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.2.2"),
+        "scanner_engine_version": scan_data.get("scanner_engine_version", SCANNER_ENGINE_VERSION),
         "evidence_receipts": audit_results.get("evidence_receipts", []),
         "high_impact_confirmation": audit_results.get("high_impact_confirmation", {}),
         "unconfirmed_high_impact_observations": audit_results.get("unconfirmed_high_impact_observations", []),
@@ -1948,7 +1952,7 @@ async def _execute_reserved_scan(
                 "status": "not_commercial_target",
                 "target_domain": payload.domain,
                 "commercial_eligibility": eligibility,
-                "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.5.3"),
+                "scanner_engine_version": scan_data.get("scanner_engine_version", SCANNER_ENGINE_VERSION),
                 "message": eligibility.get("reason") or "This site does not expose a sufficiently strong commercial/revenue journey for Trilloka Revenue Readiness scoring.",
             }
 
@@ -1968,7 +1972,7 @@ async def _execute_reserved_scan(
                 "business_type_label": profile.get("business_type_label", "General / Unresolved Business"),
                 "business_type_confidence": profile.get("business_type_confidence"),
                 "business_type_confirmation": confirmation,
-                "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.5.3"),
+                "scanner_engine_version": scan_data.get("scanner_engine_version", SCANNER_ENGINE_VERSION),
                 "message": "Trilloka could not resolve the business category confidently enough for the category deep dive. Choose the closest business type and run the scan again; no score was generated and this attempt was released rather than counted as a completed scan.",
             }
 

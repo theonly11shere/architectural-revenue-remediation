@@ -33,7 +33,7 @@ class ReportGenerator:
         self.vault_dir = os.environ.get("VAULT_DIR", "./vault_archives")
 
     def generate_admin_master_report(self, audit_data: Dict[str, Any], scan_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create the V7.5.3 evidence-first, outcome-guided, Architect-escalated master report.
+        """Create the evidence-first, outcome-guided, Architect-escalated master report.
 
         Verified leaks are never padded to a fixed count. Unknowns, strengths and optional future
         optimization ideas are stored in separate sections so a passing checkpoint cannot be
@@ -1404,8 +1404,11 @@ class ReportGenerator:
         return False
 
     def _build_email_html(self, report: Dict[str, Any]) -> str:
-        """Render the V7.5.3 plain-language report used in email and the HTML attachment."""
+        """Render the current-engine plain-language report used in email and the HTML attachment."""
         report = report or {}
+        engine_version = str(report.get("scanner_engine_version") or "unknown").strip()
+        engine_core = engine_version.removeprefix("v").removeprefix("V").split("-", 1)[0]
+        engine_label = f"V{engine_core}" if engine_core and engine_core.lower() != "unknown" else "VERSION UNKNOWN"
 
         def esc(value: Any) -> str:
             return html.escape(str(value if value is not None else ""))
@@ -1682,7 +1685,7 @@ class ReportGenerator:
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trilloka Revenue Readiness Audit — {domain}</title></head>
 <body style="margin:0;background:#F4F1EB;padding:0;">
 <main style="max-width:920px;margin:0 auto;background:#FCFBF8;padding:32px 24px 60px;">
-  <div style="font:700 11px Inter,sans-serif;color:#9A7A31;letter-spacing:1.5px;text-transform:uppercase;">TRILLOKA TELEMETRY & EXECUTIVE AUDIT — V7.5.3</div>
+  <div style="font:700 11px Inter,sans-serif;color:#9A7A31;letter-spacing:1.5px;text-transform:uppercase;">TRILLOKA TELEMETRY & EXECUTIVE AUDIT — {esc(engine_label)}</div>
   <h1 style="font:700 34px Georgia,serif;color:#111827;margin:8px 0 8px;">Revenue Readiness Audit</h1>
   <p style="font:13px Inter,sans-serif;color:#6B7280;margin:0 0 22px;">Target: <strong>{domain}</strong> &nbsp;•&nbsp; Vault ID: <strong>{vault_id}</strong></p>
 
