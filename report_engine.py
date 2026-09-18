@@ -91,7 +91,7 @@ class ReportGenerator:
         journey_model = str(business_profile.get("journey_model") or audit.get("journey_model") or "general")
 
         return {
-            "report_type": "ADMIN_LEAD_ALERT_V7_5_3",
+            "report_type": "ADMIN_LEAD_ALERT_V7_7_1_TCEA",
             "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "target_domain": audit.get("target_domain", scan.get("domain", "Unknown")),
             "business_type": business_type,
@@ -122,6 +122,18 @@ class ReportGenerator:
             "score_scope": audit.get("score_scope", ""),
             "evidence_confidence": audit.get("evidence_confidence") or {},
             "maturity_gate": audit.get("maturity_gate") or {},
+            "commercial_evidence_architecture": audit.get("commercial_evidence_architecture") or {},
+            "leak_taxonomy": self._build_leak_taxonomy(verified_findings),
+            "methodology_explanation": {
+                "name": "Trilloka Commercial Evidence Architecture (TCEA)",
+                "reasoning": ["Discover the live site", "Route by business context and observed capabilities", "Probe the most informative commercial surfaces", "Prove real customer paths", "Judge only applicable Commercial Minimums", "Improve from Architect-confirmed outcomes"],
+                "finding_gate": ["WHAT is wrong?", "WHERE is it?", "WHO is affected?", "AT WHICH decision point?", "WHY could it reduce conversion?", "WHAT site evidence proves the condition?", "WHAT external/research evidence supports commercial relevance?"],
+                "evidence_separation": {
+                    "site": "Proves what exists or fails on the current website.",
+                    "measurement": "Google/CrUX/Places or safe external telemetry corroborates measured behavior when available.",
+                    "research": "Explains why an already-observed condition may matter; it never proves the site condition."
+                },
+            },
             "vault_id": audit.get("vault_id", ""),
             "estimated_revenue_leak": revenue_display,
             "revenue_exposure": audit.get("revenue_leak") or {},
@@ -1286,6 +1298,31 @@ class ReportGenerator:
             "These are transparent public-verification limits, not hidden failures."
             + breakdown_text
         )
+
+    @staticmethod
+    def _build_leak_taxonomy(findings: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Public-safe distinction between commercial leak mechanisms."""
+        labels = {
+            "acquisition": "Acquisition Leak", "understanding": "Understanding Leak",
+            "evaluation": "Evaluation Leak", "trust": "Trust Leak", "friction": "Friction Leak",
+            "continuity": "Continuity Leak", "completion": "Completion Leak",
+            "expectation": "Expectation Leak", "reliability": "Reliability Leak",
+            "measurement": "Measurement Leak",
+        }
+        grouped = {}
+        for item in findings or []:
+            key = str(item.get("leak_class") or "reliability")
+            grouped.setdefault(key, []).append({
+                "finding": item.get("leak_name"), "decision_point": item.get("decision_point"),
+                "causal_mechanism": item.get("causal_mechanism"),
+                "priority_index": item.get("commercial_leak_priority_index"),
+                "confidence": item.get("confidence"),
+            })
+        return {
+            "classes_present": [{"key": k, "label": labels.get(k, k.replace("_", " ").title()), "count": len(v)} for k,v in grouped.items()],
+            "findings_by_class": grouped,
+            "policy": "Leak classes describe the mechanism by which verified website conditions may suppress commercial value; they are not claims of measured lost revenue.",
+        }
 
     def send_admin_alert_email(self, admin_report: Dict[str, Any]) -> bool:
         if not self.resend_api_key:

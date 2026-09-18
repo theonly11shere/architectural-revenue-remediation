@@ -116,6 +116,20 @@ def build_architect_review_queue(scan: Mapping[str, Any], audit: Mapping[str, An
             {"check": "Inspect the affected path manually before recommending expensive remediation. Confirm or dismiss each candidate and record the decision in the Vault."},
         ))
 
+    # 6b) TCEA Commercial Minimum coverage escalation. A REQUIRED minimum that the
+    # machine could not inspect is UNKNOWN, never FAIL; paid/admin work should ask the
+    # Architect to inspect it rather than silently guessing.
+    tcea = audit.get("commercial_evidence_architecture") if isinstance(audit.get("commercial_evidence_architecture"), Mapping) else {}
+    gap_map = tcea.get("commercial_minimum_gap_map") if isinstance(tcea, Mapping) else []
+    required_unknown = [x for x in (gap_map or []) if isinstance(x, Mapping) and str(x.get("tier")) == "REQUIRED" and str(x.get("gap_status")) == "UNKNOWN"]
+    if required_unknown and business_type != "general":
+        reviews.append(_item(
+            "IMPORTANT", "commercial_minimum_coverage", "Required commercial architecture needs Architect verification",
+            "The Commercial Minimum engine identified business/path requirements that are relevant enough to inspect, but automated public evidence did not cover the expected surfaces. Trilloka leaves them UNKNOWN instead of manufacturing a failure.",
+            {"business_type": business_type, "journey_model": journey, "unknown_required_minimums": [{"key": x.get("key"), "label": x.get("label"), "decision_point": x.get("decision_point"), "inspect_surfaces": x.get("inspect_surfaces")} for x in required_unknown[:6]]},
+            {"check": "Inspect these required commercial surfaces on the live site. Confirm a real gap only if the requirement is applicable and the expected surface is genuinely absent or unusable; otherwise dismiss it or keep it insufficient-evidence."},
+        ))
+
     # 7) Safe non-destructive scanners cannot prove final submissions.
     cps = [x for x in (audit.get("full_50_checkpoint_basis") or []) if isinstance(x, Mapping)]
     cp50 = next((x for x in cps if int(x.get("id") or 0) == 50), None)

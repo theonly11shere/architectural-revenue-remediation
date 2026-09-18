@@ -155,6 +155,10 @@ def _public_architecture_profile(profile: Dict[str, Any] | None) -> Dict[str, An
         "business_type_label": src.get("business_type_label") or "General / Unresolved Business",
         "business_type_confidence": src.get("business_type_confidence"),
         "business_type_source": src.get("business_type_source"),
+        "business_subtype": src.get("business_subtype"),
+        "business_subtype_label": src.get("business_subtype_label"),
+        "business_subtype_confidence": src.get("business_subtype_confidence"),
+        "business_subtype_role": "inspection_modifier",
         "journey_model": src.get("journey_model") or "general",
         "journey_label": src.get("journey_label") or "General / Unresolved Journey",
         "confidence": src.get("confidence"),
@@ -743,6 +747,7 @@ def handle_trilloka_guardrail(target_domain: str) -> Optional[Dict[str, Any]]:
             "seo_health_index": public_snapshot.get("seo_health_index") if has_snapshot else None,
             "ai_spectrum_pct": public_snapshot.get("ai_spectrum_pct") if has_snapshot else None,
             "online_presence_index": public_snapshot.get("online_presence_index") if has_snapshot else None,
+            "conversion_path_readiness": public_snapshot.get("conversion_path_readiness", public_snapshot.get("conversion_efficiency")) if has_snapshot else None,
             "conversion_efficiency": public_snapshot.get("conversion_efficiency") if has_snapshot else None,
             "common_foundation_index": public_snapshot.get("common_foundation_index") if has_snapshot else None,
             "adaptive_architecture_index": public_snapshot.get("adaptive_architecture_index") if has_snapshot else None,
@@ -1564,6 +1569,19 @@ def _base_success_payload(
         },
         "surface_metrics": audit_results.get("surface_metrics", {}),
         "competitor_benchmark": audit_results.get("competitor_benchmark", {}),
+        # Backward-compatible public diagnostic lane. This contains only surface/search/
+        # peer measurements and no proprietary commercial finding identities.
+        "public_free_diagnostics": {
+            "seo_health_index": (audit_results.get("surface_metrics") or {}).get("seo_health_index"),
+            "seo_health_available": (audit_results.get("surface_metrics") or {}).get("seo_health_available"),
+            "common_foundation_index": (audit_results.get("surface_metrics") or {}).get("common_foundation_index"),
+            "performance_index": (audit_results.get("surface_metrics") or {}).get("performance_index"),
+            "mobile_index": (audit_results.get("surface_metrics") or {}).get("mobile_index"),
+            "competitor_benchmark": audit_results.get("competitor_benchmark", {}),
+            "competitor_data_available": (audit_results.get("surface_metrics") or {}).get("competitor_data_available"),
+            "competitor_gap_score": (audit_results.get("surface_metrics") or {}).get("competitor_gap_score"),
+            "policy": "Public/free diagnostics show foundation, search and relevance-gated competitor context. Verified commercial leak identities, evidence receipts, causal scoring and remediation remain protected.",
+        },
         "key_friction_insight": audit_results.get("key_friction_insight", {}),
         "revenue_leak": audit_results.get("revenue_leak", {}),
         "cms_platform": audit_results.get("cms_platform", "Not confidently identified"),
@@ -1575,11 +1593,18 @@ def _base_success_payload(
         "business_type": audit_results.get("business_type", (audit_results.get("architecture_profile") or {}).get("business_type", "general")),
         "business_type_label": audit_results.get("business_type_label", (audit_results.get("architecture_profile") or {}).get("business_type_label", "General / Unresolved Business")),
         "business_type_confidence": audit_results.get("business_type_confidence", (audit_results.get("architecture_profile") or {}).get("business_type_confidence")),
+        "business_subtype": audit_results.get("business_subtype", (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("business_subtype")),
+        "business_subtype_label": audit_results.get("business_subtype_label", (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("business_subtype_label")),
+        "business_subtype_confidence": audit_results.get("business_subtype_confidence", (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("business_subtype_confidence")),
+        "business_subtype_role": "inspection_modifier",
         "journey_model": (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("journey_model", "general"),
         "journey_label": (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("journey_label", "General / Unresolved Journey"),
         "secondary_journeys": (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("secondary_journeys", []),
         "context_tags": (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("context_tags", []),
         "commercial_architecture_diagnostics": scan_data.get("commercial_architecture_diagnostics", {}),
+        # Keep full TCEA metadata available to paid/internal consumers. The free access
+        # branch removes it before returning the public response.
+        "commercial_evidence_architecture": audit_results.get("commercial_evidence_architecture", {}),
         "public_content_hygiene": scan_data.get("public_content_hygiene", {}),
         "commercial_eligibility": scan_data.get("commercial_eligibility", {}),
         "architect_review_queue": audit_results.get("architect_review_queue", []),
@@ -1704,6 +1729,41 @@ def _build_rescan_comparison(
     }
 
 
+def _public_leak_class(leak: Dict[str, Any]) -> str:
+    """Map a protected finding into a broad public class without exposing the finding identity."""
+    raw = " ".join(str(leak.get(k) or "") for k in ("leak_class", "category", "family", "rule_key")).lower()
+    if any(token in raw for token in ("trust", "proof", "review", "identity", "provider", "credib", "authority")):
+        return "TRUST"
+    if any(token in raw for token in ("delivery", "shipping", "return", "refund", "pricing", "expectation", "policy", "terms")):
+        return "EXPECTATION"
+    if any(token in raw for token in ("checkout", "cart", "conversion", "form", "booking", "reservation", "payment", "application", "completion", "primary_conversion", "continuity", "action")):
+        return "COMPLETION"
+    if any(token in raw for token in ("consistency", "contradict", "mismatch")):
+        return "CONSISTENCY"
+    if any(token in raw for token in ("measurement", "analytics", "tracking", "attribution")):
+        return "MEASUREMENT"
+    if any(token in raw for token in ("clarity", "message", "content", "heading", "h1")):
+        return "CLARITY"
+    if any(token in raw for token in ("speed", "performance", "mobile", "interaction")):
+        return "PERFORMANCE"
+    return "CUSTOMER PATH"
+
+
+def _public_commercial_diagnosis(leaks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    classes: List[str] = []
+    for leak in leaks:
+        cls = _public_leak_class(leak)
+        if cls not in classes:
+            classes.append(cls)
+        if len(classes) >= 4:
+            break
+    return {
+        "priority_gap_count": len(leaks),
+        "leak_classes": classes,
+        "detail_boundary": "exact_evidence_financial_mechanism_commercial_minimums_and_remediation_protected",
+    }
+
+
 def _preview_leak(leak: Dict[str, Any]) -> Dict[str, Any]:
     """Free preview may show the problem, not the paid patch plan."""
     allowed = {
@@ -1755,19 +1815,22 @@ def _apply_report_access(base_payload: Dict[str, Any], ticket: AccessTicket) -> 
         }
         return result
 
-    # Free keeps the public diagnostic surfaces (overall score, SEO/performance metrics,
-    # modeled competitor-gap proxy and revenue exposure), but not the identities of the
-    # verified revenue leaks or their remediation. Preserve existing response keys so the
-    # frontend layout does not need to change.
+    # Free keeps only public surface diagnostics + Google/local competitor context.
+    # Exact commercial findings, Commercial Minimum gaps, causal/financial mechanisms,
+    # detailed scoring evidence and remediation remain protected in the Vault/paid report.
+    result["public_commercial_diagnosis"] = _public_commercial_diagnosis(all_leaks)
+    result["verified_financial_leak_count"] = len(all_leaks)
     result["top_10_financial_leaks"] = []
     result["top_5_seo_leaks"] = []
-    result["key_friction_insight"] = {
-        "reason": "Detailed verified revenue findings unlock with a paid audit plan.",
-        "revenue_loss_pct": None,
-        "score_loss_points": None,
-        "rule_key": None,
-        "locked": True,
-    }
+    result.pop("key_friction_insight", None)
+    result.pop("revenue_leak", None)
+    result.pop("financial_exposure", None)
+    result.pop("dev_handoff_kit", None)
+    result.pop("commercial_architecture_diagnostics", None)
+    result.pop("commercial_evidence_architecture", None)
+    result.pop("architect_review_summary", None)
+    result.pop("rescan_comparison", None)
+    result.pop("learning_memory", None)
     result.pop("full_50_checkpoint_basis", None)
     result.pop("scoring_ledger", None)
     result.pop("overlap_adjustments", None)
@@ -1782,6 +1845,7 @@ def _apply_report_access(base_payload: Dict[str, Any], ticket: AccessTicket) -> 
         "full_50_checkpoint_data": False,
         "remediation_findings_unlocked": 0,
         "preview_findings_shown": 0,
+        "public_gap_count_shown": len(all_leaks),
         "locked_findings_count": len(all_leaks),
         "upgrade_required_for_patch_plan": True,
     }

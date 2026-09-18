@@ -260,7 +260,7 @@ class _StaticHTMLProbe(HTMLParser):
 
 
 class HybridScanner:
-    ENGINE_VERSION = "v7.6.1-real-world-sales-stable"
+    ENGINE_VERSION = "v7.7.1-tcea-commercial-evidence-stable"
     """Three-phase scanner with evidence confidence and business context."""
 
     def __init__(self, google_api_key: Optional[str] = None):

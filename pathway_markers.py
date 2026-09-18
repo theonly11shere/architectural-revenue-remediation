@@ -1,4 +1,4 @@
-"""Trilloka V7.5 hierarchical business/subtype + customer-path marker engine.
+"""Trilloka V7.7 evidence-scoped customer-path marker engine.
 
 Classification narrows what to inspect; it does not decide the journey. Journey resolution is
 proof/sequence based, with terminal/progression evidence outranking semantic language and priors.
@@ -46,13 +46,13 @@ BUSINESS_JOURNEY_CANDIDATES: Dict[str, Tuple[str,...]] = {
 # Journey grammar. Marker tiers: semantic(1), page/action(2-3), progression(4), terminal(5).
 JOURNEY_GRAMMAR: Dict[str, Dict[str, Tuple[str,...]]] = {
  "local_visit":{"action":("directions","visit_location"),"progression":("menu","hours","location"),"terminal":()},
- "direct_purchase":{"action":("order","buy","add_to_cart"),"progression":("add_to_cart","cart","product_selection"),"terminal":("checkout","payment","order_confirmation")},
- "reservation_event":{"action":("reserve","reservation","book_table","book_room","book_event"),"progression":("party_size","guests","date","time","availability"),"terminal":("booking_confirmation","reservation_confirmation","payment")},
+ "direct_purchase":{"action":("order","buy","add_to_cart"),"progression":("add_to_cart","cart","product_selection","checkout","payment"),"terminal":("order_confirmation",)},
+ "reservation_event":{"action":("reserve","reservation","book_table","book_room","book_event"),"progression":("party_size","guests","date","time","availability","payment"),"terminal":("booking_confirmation","reservation_confirmation")},
  "appointment_consultation":{"action":("book","schedule","consultation","appointment"),"progression":("service_selection","provider_selection","date","time","availability"),"terminal":("appointment_confirmation","booking_confirmation")},
  "lead_quote":{"action":("quote","contact","estimate","enquire"),"progression":("requirements","contact_fields","project_details","budget","upload"),"terminal":("form_submission","request_sent","quote_request")},
  "demo_sales":{"action":("demo","trial","contact_sales"),"progression":("company","team_size","work_email","schedule"),"terminal":("demo_confirmation","trial_activation","form_submission")},
- "membership_subscription":{"action":("subscribe","join","membership"),"progression":("plan_selection","account","billing"),"terminal":("payment","subscription_confirmation","account_activation")},
- "donation_support":{"action":("donate","support"),"progression":("amount","donor_details","frequency"),"terminal":("payment","donation_confirmation")},
+ "membership_subscription":{"action":("subscribe","join","membership"),"progression":("plan_selection","account","billing","payment"),"terminal":("subscription_confirmation","account_activation")},
+ "donation_support":{"action":("donate","support"),"progression":("amount","donor_details","frequency","payment"),"terminal":("donation_confirmation",)},
  "application_enrollment":{"action":("apply","register","enroll","enrol"),"progression":("eligibility","application_fields","documents","program_selection"),"terminal":("application_submission","registration_confirmation","enrollment_confirmation")},
 }
 
@@ -98,6 +98,10 @@ def _observed_markers(data:Mapping[str,Any])->Dict[str,List[Dict[str,Any]]]:
     bools={"add_to_cart_visible":"add_to_cart","checkout_context_detected":"checkout","order_online_present":"order","reservation_present":"reserve","booking_action_present":"book","directions_present":"directions"}
     for field,m in bools.items():
         if data.get(field) is True:add(m,4 if m in {"add_to_cart","checkout"} else 3,"verified_site_evidence",field)
+    # Verified form structure is progression evidence for lead/demo/application-style paths.
+    # It is not terminal evidence because Trilloka never submits customer forms during a scan.
+    if data.get("forms_present") is True and data.get("form_action_valid") is True:
+        add("contact_fields",4,"verified_form_structure","forms_present + valid action")
     text=_all_text(data)
     explicit_action_phrases = {
         "quote": ("request a quote", "get a quote", "free estimate", "request a proposal"),
@@ -114,9 +118,39 @@ def _observed_markers(data:Mapping[str,Any])->Dict[str,List[Dict[str,Any]]]:
     for marker, phrases in explicit_action_phrases.items():
         hits=[p for p in phrases if p in text]
         if hits:add(marker,3,"explicit_action_text",hits[0])
-    for marker,phrases in TEXT_MARKERS.items():
+    # Generic whole-site text may activate an ACTION hypothesis, but it must not impersonate
+    # progression or terminal proof. Those stages require a verified journey/evaluation page.
+    action_markers = set()
+    progression_markers = set()
+    terminal_markers = set()
+    for grammar in JOURNEY_GRAMMAR.values():
+        action_markers.update(grammar.get("action") or ())
+        progression_markers.update(grammar.get("progression") or ())
+        terminal_markers.update(grammar.get("terminal") or ())
+    for marker, phrases in TEXT_MARKERS.items():
+        if marker not in action_markers:
+            continue
         hits=[p for p in phrases if p in text]
-        if hits:add(marker,4 if marker not in {"payment","order_confirmation","booking_confirmation","reservation_confirmation","appointment_confirmation","demo_confirmation","trial_activation","subscription_confirmation","account_activation","donation_confirmation","application_submission","registration_confirmation","enrollment_confirmation"} else 5,"page_text",hits[0])
+        if hits:add(marker,3,"semantic_action_text",hits[0])
+
+    allowed_roles={"commerce_conversion","booking","contact_or_lead","evaluation","application","membership","donation","product","pricing"}
+    for page in data.get("journey_pages_scanned") or []:
+        if not isinstance(page,Mapping):
+            continue
+        role=str(page.get("page_role") or page.get("role") or "").strip().lower()
+        # A scanner-selected journey page is acceptable when role metadata is absent; it was
+        # already reached through the bounded commercial-path crawl. Explicit unrelated roles are ignored.
+        if role and role not in allowed_roles:
+            continue
+        ptext=str(page.get("page_text_sample") or page.get("visible_text") or "").lower()
+        if not ptext:
+            continue
+        for marker,phrases in TEXT_MARKERS.items():
+            if marker not in progression_markers and marker not in terminal_markers:
+                continue
+            hits=[phrase for phrase in phrases if phrase in ptext]
+            if hits:
+                add(marker,5 if marker in terminal_markers else 4,"verified_journey_page",hits[0])
     # A physical address alone is identity/location evidence, not proof of a customer path.
     # Resolve a visit action only when location is corroborated by another current-site
     # visit-planning signal such as hours, menu or directions.
