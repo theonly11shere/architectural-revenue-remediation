@@ -4,11 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="theme-color" content="#090B12">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>Trilloka | Architectural Revenue Remediator</title>
-<meta name="description" content="Trilloka is a website revenue remediator and conversion audit scanner that checks commercial paths, conversion friction, performance, trust and content sameness using research-calibrated evidence.">
+<meta name="description" content="Trilloka follows the public customer path, checks website and Google performance evidence, and shows why online footprint may not be converting into revenue.">
 <link rel="canonical" href="https://trilloka.com/">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1062,6 +1063,30 @@ footer {
 /* Revenue Remediator content sections */
 .hero-kicker{max-width:760px;margin:0 auto 1rem;font-size:clamp(.95rem,2vw,1.08rem);color:var(--mist)}
 .hero-action-row{display:flex;justify-content:center;gap:.75rem;flex-wrap:wrap;margin-top:1.25rem}
+
+.hero-flow-grid{display:grid;grid-template-columns:minmax(0,1.02fr) minmax(320px,.98fr);gap:1.35rem;align-items:center;max-width:1180px;margin:0 auto;text-align:left}
+.hero-copy-panel{max-width:620px}
+.hero-copy-panel .subtitle{margin-bottom:.75rem}
+.hero-copy-panel h1{max-width:none;margin:0 0 .9rem;font-size:clamp(2.2rem,5.2vw,4.6rem);line-height:1.02}
+.hero-copy-panel .hero-intro{max-width:none;margin:0 0 1.05rem;font-size:clamp(1rem,1.9vw,1.07rem);line-height:1.65;color:var(--mist)}
+.hero-slide-card{margin-top:1rem;padding:1.15rem 1.1rem;border-radius:16px;border:1px solid rgba(216,182,106,.22);background:linear-gradient(180deg,rgba(18,22,33,.82),rgba(10,13,20,.9));box-shadow:0 18px 45px rgba(0,0,0,.22)}
+.hero-slide-card .mini-label{color:var(--copper);font-size:.68rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;margin-bottom:.45rem}
+.hero-slide-quote{font-family:'Playfair Display',Georgia,serif;font-size:clamp(1.15rem,2.25vw,1.45rem);line-height:1.35;color:var(--white);margin-bottom:.75rem}
+.hero-slide-step{font-size:.95rem;font-weight:700;letter-spacing:.02em;color:var(--white);margin-bottom:.42rem}
+.hero-slide-why,.hero-slide-help{font-size:.84rem;line-height:1.6;color:var(--sand);margin:.3rem 0 0}
+.hero-slide-help{color:var(--mist)}
+.hero-demo-panel .journey-demo{margin:0;background:rgba(11,16,24,.78)}
+.hero-demo-panel .journey-demo-head{border-bottom:1px solid #252D3A}
+.hero-demo-panel .journey-demo-head h3{font-size:clamp(1.05rem,2vw,1.35rem)}
+.hero-demo-panel .journey-demo-head p{max-width:none}
+.hero-demo-panel .demo-explain{min-height:165px}
+.legal-note-section{padding:0 0 2.6rem}
+.legal-note-card{max-width:980px;margin:0 auto;background:#121621;border:1px solid #2A3040;border-radius:16px;padding:clamp(1.3rem,3vw,1.8rem)}
+.legal-note-card h3{margin:.2rem 0 .65rem;font-size:clamp(1.2rem,2.4vw,1.5rem)}
+.legal-note-card p{color:var(--mist);font-size:.87rem;line-height:1.65;margin:.45rem 0}
+.legal-note-card a{color:var(--copper);text-decoration:none}
+@media(max-width:980px){.hero-flow-grid{grid-template-columns:1fr;gap:1.1rem}.hero-copy-panel{text-align:center;max-width:none}.hero-copy-panel h1{max-width:920px;margin-left:auto;margin-right:auto}.hero-copy-panel .hero-intro,.hero-slide-why,.hero-slide-help{margin-left:auto;margin-right:auto;max-width:760px}.hero-demo-panel .journey-demo-head{text-align:left}}
+
 .research-section{padding:3.5rem 0}.research-shell{max-width:900px;margin:0 auto}
 .fact-rotator{position:relative;min-height:245px;background:radial-gradient(circle at 15% 20%,rgba(216,182,106,.08),transparent 35%),#121621;border:1px solid #2A3040;border-radius:16px;padding:clamp(1.4rem,4vw,2.4rem);overflow:hidden}
 .fact-topline{display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:1.25rem}.fact-badge{display:inline-flex;align-items:center;gap:.45rem;color:var(--copper);font-size:.72rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase}.fact-counter{font-size:.72rem;color:var(--sand);letter-spacing:.08em}
@@ -1168,6 +1193,11 @@ footer {
   }
 }
 
+
+
+.mnc-hero-title{display:flex;flex-direction:column;align-items:center;gap:.34rem}
+.mnc-hero-title span{display:block}
+.mnc-hero-title strong{display:block;font-family:Inter,sans-serif;font-size:clamp(.82rem,1.5vw,1rem);font-weight:800;letter-spacing:.26em;color:var(--copper);line-height:1.15;margin:.1rem 0;text-transform:uppercase}
 
 /* Hero hierarchy */
 .page-hero h1 {
@@ -1463,20 +1493,396 @@ footer {
   .protected-orb .sub{font-size:.47rem;}
 }
 
+
+/* V7.6.3 visual-first hero — existing palette/background retained */
+.visual-first-hero{padding-top:calc(6.2rem + env(safe-area-inset-top));padding-bottom:2.4rem;min-height:92vh}
+.visual-first-hero .container{max-width:1240px}
+.visual-first-head{text-align:center;max-width:1040px;margin:0 auto 1.1rem}
+.visual-first-head h1{max-width:1040px;margin:.15rem auto .55rem;font-size:clamp(1.9rem,4.35vw,3.65rem);line-height:1.04}
+.visual-first-head .micro-line{margin:0 auto;color:var(--copper);font-weight:700;letter-spacing:.04em;font-size:clamp(.82rem,1.5vw,.98rem)}
+.visual-demo-grid{display:grid;grid-template-columns:1fr;gap:1rem;align-items:stretch;max-width:940px;margin:0 auto}
+.visual-demo-main,.visual-scan-side{background:rgba(12,17,26,.84);border:1px solid #2A3040;border-radius:18px;box-shadow:0 22px 60px rgba(0,0,0,.28);backdrop-filter:blur(8px)}
+.visual-demo-main{padding:clamp(1rem,2vw,1.4rem);min-height:530px;display:grid;grid-template-rows:auto 1fr auto;gap:.9rem;overflow:hidden}
+.visual-demo-top{display:flex;justify-content:space-between;gap:1rem;align-items:center}
+.visual-demo-kicker{color:var(--copper);font-size:.66rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase}
+.visual-step-count{color:var(--sand);font-size:.68rem;letter-spacing:.1em}
+.visual-canvas{position:relative;min-height:350px;border:1px solid #283241;border-radius:15px;background:radial-gradient(circle at 16% 20%,rgba(108,166,193,.11),transparent 31%),radial-gradient(circle at 88% 76%,rgba(216,182,106,.08),transparent 32%),#080D14;overflow:hidden;display:grid;place-items:center}
+.demo-phone{position:relative;width:min(245px,36vw);height:330px;border:6px solid #202938;border-radius:30px;background:#0D131D;box-shadow:0 18px 55px rgba(0,0,0,.42);overflow:hidden;transition:.55s ease}
+.demo-phone:before{content:"";position:absolute;top:7px;left:50%;transform:translateX(-50%);width:66px;height:7px;border-radius:20px;background:#202938;z-index:5}
+.phone-page{position:absolute;inset:0;padding:28px 13px 14px;background:linear-gradient(180deg,#101722,#0D131C);transition:transform 3.4s cubic-bezier(.22,.61,.36,1)}
+.phone-sitebar{display:flex;align-items:center;justify-content:space-between;gap:.4rem;margin-bottom:9px;font-size:.5rem;font-weight:900;letter-spacing:.09em;text-transform:uppercase;color:#8FA7B3}.phone-live-dot{width:6px;height:6px;border-radius:50%;background:#5A9E7A;box-shadow:0 0 10px rgba(90,158,122,.55);display:inline-block;margin-right:4px}
+.phone-message{padding:11px 10px 9px;border:1px solid #344154;border-radius:11px;background:linear-gradient(135deg,rgba(108,166,193,.13),rgba(216,182,106,.08));margin-bottom:9px}.phone-message strong{display:block;font-family:'Playfair Display',Georgia,serif;color:#F2F0E8;font-size:.73rem;line-height:1.25}.phone-message span{display:block;color:#94A1B3;font-size:.53rem;line-height:1.35;margin-top:4px}
+.phone-action{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:9px}.phone-action .action-label{padding:.45rem .55rem;border-radius:7px;background:var(--copper);color:#090B12;font-size:.52rem;font-weight:900;letter-spacing:.05em}.phone-action small{color:#7E8A9A;font-size:.48rem;text-align:right}
+.phone-check-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:7px 0}.phone-check{min-height:45px;border-radius:9px;border:1px solid #2D3948;background:#131C28;padding:7px}.phone-check b{display:block;color:#DCE4EC;font-size:.5rem;letter-spacing:.05em}.phone-check em{display:block;color:#7F8D9D;font-size:.46rem;font-style:normal;margin-top:3px;line-height:1.25}.phone-check.active{border-color:rgba(108,166,193,.55);background:rgba(108,166,193,.08)}.phone-check.warn{border-color:rgba(200,90,90,.45);background:rgba(200,90,90,.06)}.phone-check.good{border-color:rgba(90,158,122,.4);background:rgba(90,158,122,.06)}
+.phone-status{margin-top:8px;padding:7px 8px;border-radius:8px;border:1px solid #303C4C;background:#0A1018;color:#AAB5C2;font-size:.48rem;line-height:1.3}.phone-status strong{color:#6CA6C1}.phone-status .status-arrow{color:var(--copper);padding:0 3px}
+.evidence-strip{max-width:1180px;margin:.8rem auto 0;padding:.7rem .8rem;border:1px solid rgba(108,166,193,.18);border-radius:12px;background:rgba(9,14,21,.62);display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;justify-content:center}.evidence-strip .evidence-label{color:#6CA6C1;font-size:.58rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase;margin-right:.15rem}.evidence-chip{font-size:.56rem;color:#C8D1DB;border:1px solid #334153;background:#111925;border-radius:999px;padding:.35rem .52rem;white-space:nowrap}.evidence-note{width:100%;text-align:center;color:#727E8D;font-size:.5rem;line-height:1.35}
+@media(max-width:620px){.evidence-strip{gap:.38rem}.evidence-chip{font-size:.5rem;padding:.3rem .42rem}.phone-message strong{font-size:.66rem}}
+.phone-nav{height:9px;width:58%;border-radius:7px;background:#3B4657;margin-bottom:16px}.phone-hero{height:62px;border-radius:11px;background:linear-gradient(135deg,rgba(108,166,193,.23),rgba(216,182,106,.16));border:1px solid #364457;margin-bottom:10px;position:relative}.phone-hero:before{content:"";position:absolute;left:12px;top:14px;width:58%;height:7px;border-radius:7px;background:#D7DCE4;box-shadow:0 15px 0 #495568,0 30px 0 #364153}.phone-cta{height:26px;width:44%;margin:0 0 11px auto;border-radius:7px;background:var(--copper)}
+.phone-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}.phone-card{height:58px;border-radius:9px;border:1px solid #2C3746;background:#141C28}.phone-lines{height:8px;border-radius:8px;background:#394658;margin:9px 0}.phone-lines.short{width:64%}.phone-lines.mid{width:82%}.phone-proof{height:72px;border-radius:10px;border:1px solid rgba(34,197,94,.26);background:rgba(34,197,94,.055);margin-top:9px}
+.visual-marker{position:absolute;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:.65rem;font-weight:900;opacity:0;transform:scale(.4);transition:.42s ease;z-index:9}.marker-one{top:24%;left:25%;background:#C85A5A;color:#fff}.marker-two{top:48%;right:23%;background:var(--copper);color:#090B12}.marker-three{bottom:20%;left:31%;background:#6CA6C1;color:#061019}
+.visual-bubbles{position:absolute;inset:0;pointer-events:none}.visual-bubble{position:absolute;padding:.46rem .68rem;border-radius:999px;border:1px solid #40546A;background:rgba(18,26,38,.94);color:#E8EDF2;font-size:.64rem;font-weight:800;letter-spacing:.05em;opacity:0;transform:translateY(8px);transition:.45s ease}.vb1{left:7%;top:17%}.vb2{right:7%;top:26%}.vb3{left:8%;bottom:22%}.vb4{right:8%;bottom:15%}
+.verify-receipt,.architect-card,.report-card{position:absolute;opacity:0;transform:translateY(14px) scale(.96);transition:.5s ease;background:rgba(15,22,32,.97);border-radius:14px;box-shadow:0 18px 44px rgba(0,0,0,.38)}
+.verify-receipt{right:5%;top:12%;width:210px;border:1px solid rgba(34,197,94,.34);padding:.8rem}.verify-receipt strong{display:block;color:#9ED8B7;font-size:.75rem}.verify-receipt span{display:block;color:var(--sand);font-size:.62rem;margin-top:.25rem}
+.architect-card{left:5%;bottom:9%;width:228px;border:1px solid rgba(216,182,106,.34);padding:.9rem}.architect-card strong{color:var(--copper);font-size:.76rem}.architect-card p{font-size:.66rem;line-height:1.45;margin:.3rem 0 0}
+.report-card{right:5%;bottom:8%;width:235px;border:1px solid rgba(108,166,193,.35);padding:.85rem}.report-card .rline{height:7px;background:#334255;border-radius:8px;margin:.4rem 0}.report-card .rline.hot{background:#C85A5A;width:82%}.report-card .rline.gold{background:var(--copper);width:66%}.report-card .rline.good{background:#5A9E7A;width:54%}.report-card strong{font-size:.75rem;color:#D8EAF2}
+.visual-step-copy{min-height:94px;padding:.2rem .1rem 0}.visual-quote{font-family:'Playfair Display',Georgia,serif;font-size:clamp(1.18rem,2.2vw,1.62rem);line-height:1.28;color:var(--white);font-weight:600}.visual-step-title{margin-top:.5rem;color:var(--copper);font-size:.78rem;font-weight:900;letter-spacing:.13em;text-transform:uppercase}.visual-step-line{margin:.28rem 0 0!important;max-width:none!important;color:var(--mist)!important;font-size:.82rem!important;line-height:1.5!important}
+.visual-scan-side{padding:1rem;display:flex;flex-direction:column;justify-content:center;min-height:530px}.visual-scan-side .side-label{color:#6CA6C1;font-size:.64rem;font-weight:900;letter-spacing:.13em;text-transform:uppercase;margin-bottom:.6rem}.visual-scan-side h3{font-size:1.15rem;margin-bottom:.4rem}.visual-url-box{margin:.7rem 0;background:#090E15;border:1px solid #40546A;border-radius:10px;padding:.78rem .72rem;color:#F2F0E8;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.visual-run-btn{border:0;border-radius:9px;background:var(--copper);color:#090B12;padding:.75rem .7rem;font-weight:900;font-size:.74rem;letter-spacing:.06em;text-align:center}.visual-side-progress{height:5px;background:#202938;border-radius:20px;overflow:hidden;margin:1rem 0 .55rem}.visual-side-progress i{display:block;height:100%;width:12%;background:linear-gradient(90deg,#6CA6C1,var(--copper));border-radius:20px;transition:width .55s ease}.visual-side-state{font-size:.72rem;color:var(--sand);line-height:1.45;min-height:44px}.visual-side-mini{margin-top:1rem;padding-top:.9rem;border-top:1px solid #2A3040;display:grid;gap:.55rem}.visual-mini-row{display:flex;justify-content:space-between;gap:.5rem;font-size:.66rem;color:#A9A7A0}.visual-mini-row strong{color:#E8EDF2;font-weight:700}.visual-demo-dots{display:flex;gap:.4rem;justify-content:center;margin-top:.1rem}.visual-demo-dots i{width:7px;height:7px;border-radius:50%;background:#354154;transition:.3s ease}.visual-demo-dots i.active{width:24px;border-radius:99px;background:var(--copper)}
+.hero-visual-wrap[data-step="1"] .phone-page{transform:translateY(-68px)}
+.hero-visual-wrap[data-step="2"] .visual-bubble{opacity:1;transform:translateY(0)}
+.hero-visual-wrap[data-step="3"] .visual-marker{opacity:1;transform:scale(1)}
+.hero-visual-wrap[data-step="3"] .verify-receipt{opacity:1;transform:translateY(0) scale(1)}
+.hero-visual-wrap[data-step="4"] .architect-card,.hero-visual-wrap[data-step="5"] .architect-card{opacity:1;transform:translateY(0) scale(1)}
+.hero-visual-wrap[data-step="5"] .report-card{opacity:1;transform:translateY(0) scale(1)}
+.hero-visual-wrap[data-step="5"] .demo-phone{transform:translateX(-52px) scale(.92)}
+.hero-visual-wrap[data-step="5"] .report-card{right:10%}
+@media(max-width:900px){.visual-demo-grid{grid-template-columns:1fr}.visual-scan-side{min-height:auto}.visual-demo-main{min-height:510px}.visual-scan-side{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;align-items:center}.visual-scan-side .side-label,.visual-scan-side h3,.visual-side-mini{grid-column:1/-1}.visual-url-box{margin:0}.visual-run-btn{height:100%;display:grid;place-items:center}.visual-side-progress,.visual-side-state{grid-column:1/-1}.visual-first-hero{min-height:auto}}
+@media(max-width:620px){.visual-first-hero{padding-top:calc(5.7rem + env(safe-area-inset-top));padding-bottom:1.7rem}.visual-first-head h1{font-size:clamp(1.72rem,8.6vw,2.52rem)}.visual-demo-main{min-height:465px;padding:.85rem}.visual-canvas{min-height:305px}.demo-phone{width:205px;height:285px}.verify-receipt,.architect-card,.report-card{width:170px}.verify-receipt{right:2%}.architect-card{left:2%}.report-card{right:2%}.visual-bubble{font-size:.57rem;padding:.38rem .5rem}.visual-step-copy{min-height:112px}.visual-scan-side{grid-template-columns:1fr}.visual-url-box,.visual-run-btn,.visual-side-progress,.visual-side-state{grid-column:1/-1}.visual-scan-side h3{font-size:1rem}}
+
+
+/* V7.7.1 public-result contract: safe surface diagnostics + protected commercial diagnosis */
+.result-methodology{max-width:760px;margin:1rem auto 1.2rem;padding:.9rem 1rem;border:1px solid rgba(216,182,106,.22);border-radius:12px;background:rgba(216,182,106,.045);text-align:center}
+.result-methodology .flow{font-size:.72rem;font-weight:800;letter-spacing:.12em;color:var(--copper);text-transform:uppercase;line-height:1.6}
+.result-methodology p{margin:.4rem auto 0;max-width:700px;font-size:.78rem;line-height:1.5;color:var(--sand)}
+.result-profile-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem;margin:1rem 0 1.5rem}
+.result-profile-item{background:#121621;border:1px solid #2A3040;border-radius:10px;padding:.9rem 1rem}
+.result-profile-item .label{font-size:.62rem;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--sand);margin-bottom:.3rem}
+.result-profile-item .value{font-family:'Playfair Display',Georgia,serif;font-size:1rem;line-height:1.35;color:var(--white)}
+.result-profile-item .note{margin-top:.28rem;font-size:.68rem;line-height:1.4;color:rgba(169,167,160,.75)}
+.commercial-diagnosis-card{margin:1.25rem 0 1.65rem;padding:1.25rem;background:linear-gradient(180deg,rgba(18,22,33,.98),rgba(12,16,24,.98));border:1px solid rgba(216,182,106,.24);border-radius:14px;text-align:center}
+.commercial-diagnosis-card .kicker{font-size:.65rem;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--copper)}
+.commercial-diagnosis-card .count{margin:.45rem 0 .55rem;font-family:'Playfair Display',Georgia,serif;font-size:clamp(1.2rem,3vw,1.55rem);color:var(--white)}
+.commercial-diagnosis-card .classes{margin:.5rem 0;font-size:.72rem;font-weight:800;letter-spacing:.09em;color:#8FA7B3;text-transform:uppercase;line-height:1.6}
+.commercial-diagnosis-card p{margin:.5rem auto 0;max-width:690px;font-size:.76rem;line-height:1.55;color:var(--sand)}
+@media(max-width:620px){.result-profile-grid{grid-template-columns:1fr}.result-methodology .flow{font-size:.64rem;letter-spacing:.08em}.commercial-diagnosis-card{padding:1.05rem}}
+
+
+
+/* V7.7.2 concise commercial-diagnostic hero */
+.index-value-strip{max-width:1120px;margin:1.15rem auto 0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.8rem}
+.index-value-card{padding:1rem 1.05rem;border:1px solid rgba(216,182,106,.2);border-radius:14px;background:linear-gradient(180deg,rgba(20,24,35,.84),rgba(10,13,20,.9));text-align:left}
+.index-value-card b{display:block;color:#F1E8D6;font-size:.82rem;letter-spacing:.03em;margin-bottom:.35rem}
+.index-value-card span{display:block;color:#A9A7A0;font-size:.72rem;line-height:1.55}
+.index-plain-truth{max-width:900px;margin:1.15rem auto 0;text-align:center;color:#C8D1DB;font-size:.83rem;line-height:1.65}
+.index-plain-truth strong{color:#D8B66A}
+.index-leak-chips{display:flex;flex-wrap:wrap;justify-content:center;gap:.42rem;max-width:900px;margin:.75rem auto 0}
+.index-leak-chips span{font-size:.58rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#B8C4CF;border:1px solid #303B4A;background:rgba(15,21,31,.8);border-radius:999px;padding:.36rem .58rem}
+.index-method-link{margin:.95rem auto 0;text-align:center}
+.index-method-link a{display:inline-flex;align-items:center;gap:.45rem;color:#D8B66A;font-size:.74rem;font-weight:800;letter-spacing:.035em;text-decoration:none;border-bottom:1px solid rgba(216,182,106,.42);padding:.2rem .05rem .28rem;transition:color .2s ease,border-color .2s ease,transform .2s ease}
+.index-method-link a:hover{color:#F1E8D6;border-color:#D8B66A;transform:translateY(-1px)}
+.index-method-link span{color:#A9A7A0;font-weight:500}
+@media(max-width:760px){.index-value-strip{grid-template-columns:1fr}.index-value-card{text-align:center}.index-method-link a{font-size:.7rem}}
+
 </style>
-<!-- V7.5.2 backend-compatible recovered journey-demo frontend -->
+<!-- V7.6.5 Adaptive Evidence Map frontend; scanner/modal backend contract preserved -->
+
+<style id="trilloka-mobile-first-v7722">
+
+/* ============================================================
+   V7.7.2.2 — MOBILE-FIRST EXPERIENCE LAYER
+   Phone-first spacing, touch targets, safe areas and readability.
+   Desktop rules below remain intact through min-width overrides.
+   ============================================================ */
+:root{--mobile-gutter:clamp(16px,4.6vw,22px);--mobile-radius:18px}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;scroll-padding-top:76px}
+body{min-width:320px;overflow-x:hidden}
+a,button,input,select{touch-action:manipulation;-webkit-tap-highlight-color:rgba(216,182,106,.16)}
+img,video,svg,canvas{max-width:100%}
+button,a,.btn{min-height:44px}
+
+@media (max-width: 767px){
+  .container{padding-left:var(--mobile-gutter)!important;padding-right:var(--mobile-gutter)!important}
+  nav{padding-top:env(safe-area-inset-top);background:rgba(8,10,16,.94);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px)}
+  .nav-inner{height:58px!important}
+  .logo{gap:.58rem}
+  .logo img{height:28px!important;max-width:42px;object-fit:contain}
+  .logo span{font-size:1.12rem!important}
+  .hamburger{min-width:46px!important;min-height:46px!important;padding:10px!important;border-radius:12px}
+  .mobile-menu{padding:calc(70px + env(safe-area-inset-top)) var(--mobile-gutter) calc(24px + env(safe-area-inset-bottom));gap:1.2rem!important}
+  .mobile-menu a{display:flex;align-items:center;justify-content:center;width:min(100%,320px);min-height:52px;font-size:1.45rem!important;border-bottom:1px solid rgba(216,182,106,.12)}
+  .mobile-menu .btn{border-bottom:0}
+
+  section{padding:3.1rem 0!important}
+  .page-hero{padding-top:calc(5.7rem + env(safe-area-inset-top))!important;padding-bottom:2.6rem!important;min-height:auto!important}
+  .page-hero .container{position:relative;z-index:2}
+  .page-hero h1{font-size:clamp(1.72rem,8.1vw,2.18rem)!important;line-height:1.06!important;letter-spacing:-.025em!important;text-wrap:balance}
+  .page-hero p{font-size:.96rem!important;line-height:1.62!important;text-wrap:pretty}
+  .subtitle{font-size:.68rem!important;letter-spacing:.17em!important;margin-bottom:.7rem!important}
+  h2{font-size:clamp(1.5rem,7vw,1.95rem)!important;line-height:1.12!important;text-wrap:balance}
+  h3{font-size:clamp(1.12rem,5.3vw,1.42rem)!important;line-height:1.18!important;text-wrap:balance}
+  p,li{font-size:.93rem;line-height:1.65}
+  .card,.solution-card,.legal-note-card{border-radius:var(--mobile-radius)!important}
+  .btn{width:100%;min-height:50px;padding:.9rem 1rem!important;border-radius:12px!important;font-size:.93rem!important}
+  input,select,textarea{font-size:16px!important;min-height:50px!important;border-radius:12px!important}
+  footer{padding-bottom:calc(2rem + env(safe-area-inset-bottom))}
+  .footer-grid{gap:1.55rem!important}
+  .footer-bottom{gap:.65rem!important}
+  .bg-image{opacity:.07!important;background-position:center top!important}
+}
+
+@media (max-width: 420px){
+  :root{--mobile-gutter:16px}
+  section{padding:2.8rem 0!important}
+  .page-hero{padding-top:calc(5.25rem + env(safe-area-inset-top))!important}
+  .page-hero h1{font-size:clamp(1.62rem,8.2vw,1.98rem)!important}
+}
+
+@media (min-width: 768px){
+  .btn{min-height:44px}
+}
+
+@media (max-width:767px){
+  #commercial-diagnostic{background:radial-gradient(circle at 50% 4%,rgba(216,182,106,.10),transparent 34%),linear-gradient(180deg,rgba(9,11,18,.28),rgba(9,11,18,.94))}
+  .visual-first-head{max-width:620px;margin:0 auto}
+  .mnc-hero-title{gap:.28rem!important}
+  .mnc-hero-title strong{font-size:.75rem!important;letter-spacing:.24em!important;margin:.12rem 0!important}
+  .micro-line{max-width:360px!important;margin:.85rem auto 0!important;font-size:.84rem!important;line-height:1.45!important;color:#D0C8B9!important}
+  .index-plain-truth{margin:1.05rem auto 0!important;font-size:.88rem!important;line-height:1.58!important}
+  .index-value-strip{display:flex!important;overflow-x:auto;gap:.75rem!important;margin:1rem calc(var(--mobile-gutter) * -1) 0!important;padding:0 var(--mobile-gutter) .4rem!important;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .index-value-strip::-webkit-scrollbar{display:none}
+  .index-value-card{min-width:min(82vw,330px);scroll-snap-align:center;padding:1rem!important;text-align:left!important;border-radius:16px!important;box-shadow:0 16px 38px rgba(0,0,0,.18)}
+  .index-value-card b{font-size:.86rem!important}
+  .index-value-card span{font-size:.76rem!important;line-height:1.58!important}
+  .index-leak-chips{justify-content:flex-start!important;overflow-x:auto;flex-wrap:nowrap!important;margin:.8rem calc(var(--mobile-gutter) * -1) 0!important;padding:0 var(--mobile-gutter) .3rem!important;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .index-leak-chips::-webkit-scrollbar{display:none}
+  .index-leak-chips span{flex:0 0 auto;font-size:.58rem!important;padding:.42rem .62rem!important}
+  .index-method-link{margin-top:.9rem!important}
+  .index-method-link a{display:block!important;padding:.82rem .9rem!important;border-radius:14px!important;line-height:1.5!important;background:rgba(216,182,106,.065)!important;border:1px solid rgba(216,182,106,.22)!important}
+  .evidence-strip{justify-content:flex-start!important;margin-top:1rem!important;padding:.82rem!important;border-radius:16px!important}
+  .evidence-strip .evidence-label{width:100%;font-size:.62rem!important}
+  .evidence-chip{font-size:.58rem!important;padding:.4rem .56rem!important}
+  .evidence-note{text-align:left!important;font-size:.55rem!important;line-height:1.45!important;margin-top:.15rem}
+
+  #scanner{padding:1.1rem 0 3.2rem!important}
+  #scanner .container{max-width:none!important}
+  #scanner .scanner-heading{text-align:left!important;margin-bottom:.8rem!important}
+  #scanner .scanner-heading h3{font-size:1.28rem!important}
+  #scanner .scanner-box{padding:1rem!important;border-radius:18px!important;box-shadow:0 20px 50px rgba(0,0,0,.28)}
+  .scan-input-wrap{display:grid!important;grid-template-columns:1fr!important;gap:.7rem!important}
+  .scan-input-wrap input,.scan-input-wrap select,.scan-input-wrap button{width:100%!important;min-width:0!important}
+  .scan-btn{min-height:54px!important;font-size:.9rem!important}
+  .analysis-panel{border-radius:14px!important}
+
+  .research-section{padding-top:3rem!important}
+  .fact-rotator{min-height:265px!important;padding:1.1rem!important;border-radius:18px!important}
+  .fact-topline{align-items:flex-start!important}
+  .fact-controls{gap:.6rem!important}
+  .fact-dots{max-width:75%;overflow:hidden!important}
+  .legal-note-card{padding:1.15rem!important}
+
+  .result-constellation{width:100%!important;height:430px!important;transform:scale(.88);transform-origin:top center;margin-bottom:-1.2rem!important}
+  .result-orbit.outer{width:420px!important;height:420px!important}.result-orbit.inner{width:286px!important;height:286px!important}
+  .metric-orb{width:132px!important;height:132px!important}.score-orb{width:166px!important;height:166px!important}
+  .score-orb .orb-value{font-size:3.25rem!important}.metric-orb .orb-value{font-size:1.72rem!important}
+}
+
+@media(max-width:420px){
+  .result-constellation{transform:scale(.78);margin-left:-5%;width:110%!important;margin-bottom:-2.6rem!important}
+}
+
+
+
+/* V7.7.2.3 — phone-first results modal and metric interaction */
+@media (max-width: 639px) {
+  #resultsModal.modal-overlay {
+    padding: 0;
+    align-items: stretch;
+    justify-content: stretch;
+    background: rgba(4,6,10,.94);
+  }
+  #resultsModal .modal {
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    max-height: 100dvh;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    animation: mobileResultIn .24s ease-out;
+  }
+  @keyframes mobileResultIn {
+    from { opacity: .6; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  #resultsModal .modal-inner { height: 100%; }
+  #resultsModal .modal-body {
+    padding: calc(4.2rem + env(safe-area-inset-top)) 1rem calc(2rem + env(safe-area-inset-bottom));
+    overscroll-behavior: contain;
+    scroll-padding-top: 5rem;
+  }
+  #resultsModal .modal-close {
+    position: fixed;
+    top: calc(.7rem + env(safe-area-inset-top));
+    right: .75rem;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    color: var(--white);
+    background: rgba(18,22,33,.94);
+    border: 1px solid rgba(216,182,106,.28);
+    box-shadow: 0 8px 26px rgba(0,0,0,.34);
+    backdrop-filter: blur(12px);
+    z-index: 2105;
+  }
+  .results-shell { width: 100%; max-width: none; }
+  .results-domain {
+    padding: 0 3.4rem 0 .15rem;
+    text-align: left;
+    font-size: clamp(1.25rem, 6vw, 1.65rem);
+    margin: 0 0 .85rem;
+  }
+  .tap-hint-modal {
+    justify-content: flex-start;
+    text-align: left;
+    margin: .75rem 0 .8rem;
+    padding: .65rem .75rem;
+    border: 1px solid rgba(216,182,106,.18);
+    border-radius: 10px;
+    background: rgba(216,182,106,.045);
+    opacity: .9;
+    font-size: .72rem;
+  }
+
+  /* On phones the constellation becomes a readable touch dashboard. */
+  .result-constellation {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0,1fr));
+    gap: .7rem;
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    margin: .75rem 0 1rem !important;
+    transform: none !important;
+  }
+  .result-orbit, .metric-hover-card { display: none !important; }
+  .score-orb,
+  .metric-orb,
+  .orb-ai,
+  .orb-presence,
+  .orb-gap,
+  .orb-funnel {
+    position: static !important;
+    inset: auto !important;
+    transform: none !important;
+  }
+  .score-orb {
+    grid-column: 1 / -1;
+    order: -2;
+    justify-self: stretch;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 132px;
+    border-radius: 18px;
+    padding: 1.05rem 1rem;
+    box-shadow: 0 0 0 1px rgba(216,182,106,.22),0 18px 40px rgba(0,0,0,.22);
+  }
+  .score-orb .orb-value { font-size: clamp(3rem, 15vw, 4rem) !important; }
+  .score-orb .orb-sub { font-size: .62rem !important; line-height: 1.45; }
+  .metric-orb {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 116px;
+    border-radius: 16px;
+    padding: .85rem .65rem;
+    box-shadow: 0 10px 26px rgba(0,0,0,.18), inset 0 0 0 1px rgba(255,255,255,.02);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .metric-orb:active { transform: scale(.975) !important; }
+  .metric-orb .orb-label {
+    font-size: .58rem !important;
+    line-height: 1.25;
+    letter-spacing: .07em;
+    margin-bottom: .35rem;
+  }
+  .metric-orb .orb-value { font-size: 1.65rem !important; }
+  .metric-orb .orb-sub {
+    max-width: none !important;
+    font-size: .58rem !important;
+    line-height: 1.25;
+    margin-top: .35rem;
+  }
+
+  /* Don't blur or move the dashboard under the phone detail sheet. */
+  .constellation-stage.focus-mode .metric-orb:not(.focus-active),
+  .constellation-stage.focus-mode .score-orb,
+  .constellation-stage.focus-mode .metric-orb.focus-active {
+    opacity: 1 !important;
+    filter: none !important;
+    pointer-events: auto !important;
+    transform: none !important;
+  }
+  .constellation-stage.focus-mode .metric-orb.focus-active {
+    box-shadow: 0 0 0 2px var(--copper),0 12px 30px rgba(0,0,0,.3) !important;
+  }
+
+  #resultsModal .focus-panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-height: min(72dvh, 650px);
+    overflow-y: auto;
+    padding: .8rem 1rem calc(1rem + env(safe-area-inset-bottom));
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -20px 60px rgba(0,0,0,.72);
+    z-index: 2200;
+    overscroll-behavior: contain;
+  }
+  #resultsModal .focus-handle { width: 46px; height: 5px; margin-bottom: 12px; }
+  #resultsModal .focus-header { margin-bottom: 10px; }
+  #resultsModal .focus-value { font-size: 30px; }
+  #resultsModal .focus-close { width: 44px; height: 44px; font-size: 22px; }
+  #resultsModal .focus-bars { margin: 12px 0; padding: 12px; gap: 12px; }
+  #resultsModal .focus-bar-row { display: grid; grid-template-columns: 74px minmax(0,1fr) 52px; gap: 8px; }
+  #resultsModal .focus-bar-lbl { width: auto; font-size: 10px; line-height: 1.2; }
+  #resultsModal .focus-bar-num { width: auto; font-size: 10px; }
+  #resultsModal .focus-insight { font-size: .78rem; line-height: 1.55; margin: 12px 0; }
+  #resultsModal .focus-cta {
+    width: 100%;
+    min-height: 46px;
+    justify-content: center;
+    border: 1px solid rgba(216,182,106,.3);
+    border-radius: 12px;
+    background: rgba(216,182,106,.07);
+    font-size: .78rem;
+  }
+
+  .result-methodology,
+  .commercial-diagnosis-card,
+  .result-exposure,
+  .friction-card,
+  .surface-insight,
+  .result-profile-item { border-radius: 14px; }
+  .result-methodology { margin: .9rem 0; text-align: left; }
+  .result-methodology .flow { font-size: .6rem; line-height: 1.55; overflow-wrap:anywhere; }
+  .result-methodology p { font-size: .74rem; }
+  .result-profile-grid { gap: .6rem; margin: .8rem 0 1.1rem; }
+  .result-profile-item { padding: .8rem .85rem; }
+  .result-profile-item .value { font-size: .96rem; }
+  .results-section-title { margin: 1.3rem 0 .65rem; font-size: 1.3rem; }
+  .surface-insights { gap: .65rem; margin: .7rem 0 1.1rem; }
+  .surface-insight { padding: .85rem .9rem; }
+  .surface-insight h4 { font-size: .9rem; }
+  .surface-insight p { font-size: .75rem; }
+  .commercial-diagnosis-card { padding: 1rem !important; }
+  .pricing-grid { gap: .8rem; }
+  .pricing-card { padding: 1rem !important; }
+  .pricing-card .btn { min-height: 48px; display:flex; align-items:center; justify-content:center; }
+}
+</style>
 </head>
 <body>
 
 <nav>
   <div class="container nav-inner">
     <a href="#" class="logo">
+      <img src="logo.png" alt="Trilloka">
       <span>TRILLOKA</span>
     </a>
     <ul class="nav-links">
       <li><a href="solutions.html">Solutions</a></li>
       <li><a href="why-us.html">Why Us</a></li>
-      <li><a href="/vlog">Chilloka</a></li>
+      <li><a href="vlog.html">Chilloka</a></li>
     </ul>
     <button class="btn btn-outline desktop-only" onclick="showPhonePopup()">Contact Architect</button>
     <button class="hamburger" id="hamburger" onclick="toggleMenu()" aria-label="Toggle Navigation">
@@ -1490,36 +1896,55 @@ footer {
 <div class="mobile-menu" id="mobileMenu">
   <a href="solutions.html" onclick="closeMenu()">Solutions</a>
   <a href="why-us.html" onclick="closeMenu()">Why Us</a>
-  <a href="/vlog" onclick="closeMenu()">Chilloka</a>
+  <a href="vlog.html" onclick="closeMenu()">Chilloka</a>
   <button class="btn btn-primary" onclick="closeMenu(); showPhonePopup();">Contact Architect</button>
 </div>
 
 <main>
-  <section class="page-hero">
-    <div class="container">
-      <div class="subtitle">Architectural Revenue Remediator</div>
-      <h1>Your business doesn't need just another 'AI built website',<br>But a structured weapon to win the 'Anyone can use AI' fight.</h1>
 
-      <div class="hero-kicker hero-kicker-stack">
-        <div>AI can make a site look polished fast.</div>
-        <div class="hero-but">BUT</div>
-        <div>Revenue still depends on what happens after the clicks: trust, speed, clarity, forms, checkout and the path to action.</div>
+  <section class="page-hero" id="commercial-diagnostic" aria-label="Trilloka commercial website diagnostic">
+    <div class="container">
+      <div class="visual-first-head">
+        <h1 class="mnc-hero-title"><span>AI can help your website look like an MNC.</span><strong>BUT</strong><span><b>TRILLOKA</b> is what you need to convert like one.</span></h1>
+        <p class="micro-line">Our Scanner’s unique methodology and humanoid approach is what makes it possible.</p>
       </div>
 
-      <div class="hero-action-row">
-        <a class="btn btn-primary" href="#scanner">Where You Might Be Losing Customers</a>
-        <a class="btn btn-outline" href="#journey-demo">See How Trilloka Works</a>
+      <p class="index-plain-truth"><strong>Most tools show what happened.</strong> Trilloka is built to trace the customer journey, verify the commercial gaps that may be causing friction, and show what to repair first — not just hand you another SEO score.</p>
+
+      <div class="index-value-strip" aria-label="What makes Trilloka different">
+        <div class="index-value-card"><b>Full journey, not isolated clicks</b><span>We follow how a visitor discovers, evaluates, trusts, commits and completes the action that creates value for your business.</span></div>
+        <div class="index-value-card"><b>Why the path may leak</b><span>Trust barriers, unclear expectations, cognitive friction, broken continuity, mobile/reliability issues and completion failures are tied back to evidence.</span></div>
+        <div class="index-value-card"><b>Fix, re-scan, compare</b><span>Use the first scan as a baseline, repair the highest-priority gaps, then scan again to verify what actually improved.</span></div>
+      </div>
+
+      <div class="index-leak-chips" aria-label="Commercial leak areas">
+        <span>Understanding</span><span>Trust</span><span>Friction</span><span>Expectation</span><span>Continuity</span><span>Completion</span><span>Reliability</span>
+      </div>
+
+      <div class="index-method-link">
+        <a href="solutions.html#how-we-do-this" aria-label="See Trilloka's six-step scanner walkthrough">Want to understand how the scanner works? <span>See the 6-step scan → repair → re-scan walkthrough</span> →</a>
+      </div>
+
+      <div class="evidence-strip" aria-label="Evidence sources used by Trilloka">
+        <span class="evidence-label">Evidence the engine can use</span>
+        <span class="evidence-chip">Public pages + metadata</span>
+        <span class="evidence-chip">Rendered mobile experience</span>
+        <span class="evidence-chip">Google PageSpeed API</span>
+        <span class="evidence-chip">Chrome UX Report*</span>
+        <span class="evidence-chip">Google Places*</span>
+        <span class="evidence-chip">Business/journey research</span>
+        <span class="evidence-chip">Architect review</span>
+        <div class="evidence-note">*Used only when data is available, eligible and relevant. Missing external data stays unknown; it is not turned into a failure.</div>
       </div>
     </div>
   </section>
 
+
   <section id="scanner" style="padding-top:0;">
     <div class="container" style="max-width:900px;">
       <div class="scanner-heading">
-        <h3>Instant Revenue Remediation</h3>
-        <p>One scan. Full website picture. Recheck every 3–6 months.<br><span style="font-size:0.76rem; color:var(--copper);">Architect-reviewed and proofed report delivered within 24–32 hours.</span></p>
+        <h3>Find Out Your Website’s Remediations</h3>
       </div>
-
       <div class="scanner-box">
         <div class="scan-input-wrap">
           <input type="text" id="domainInput" placeholder="example.com" autocomplete="off" spellcheck="false">
@@ -1543,81 +1968,26 @@ footer {
             <option value="education">Education / Training</option>
             <option value="automotive">Automotive / Dealer / Repair</option>
           </select>
-          <button type="button" class="btn btn-primary scan-btn" onclick="runScan()">Your Architectural Analysis</button>
+          <button type="button" class="btn btn-primary scan-btn" onclick="runScan()">Run Your Revenue Remediator</button>
         </div>
-
         <div class="analysis-panel" id="analysisPanel">
-          <div class="analysis-step" id="step-0"><div class="step-icon">1</div> Understanding the business and customer outcome...</div>
-          <div class="analysis-step" id="step-1"><div class="step-icon">2</div> Reconstructing the public customer journey...</div>
-          <div class="analysis-step" id="step-2"><div class="step-icon">3</div> Applying relevant category and research context...</div>
-          <div class="analysis-step" id="step-3"><div class="step-icon">4</div> Verifying evidence across pages and technical layers...</div>
-          <div class="analysis-step" id="step-4"><div class="step-icon">5</div> Checking decision points, trust, contradictions &amp; friction...</div>
-          <div class="analysis-step" id="step-5"><div class="step-icon">6</div> Routing human-judgment items to the Architect...</div>
-          <div class="analysis-step" id="step-6"><div class="step-icon">7</div> Prioritizing findings and building the remediation plan...</div>
+          <div class="analysis-step" id="step-0"><div class="step-icon">1</div> DISCOVER — collecting business-neutral facts...</div>
+          <div class="analysis-step" id="step-1"><div class="step-icon">2</div> ROUTE — context + capabilities + optional subtype hint...</div>
+          <div class="analysis-step" id="step-2"><div class="step-icon">3</div> PROBE — choosing the cheapest useful inspection next...</div>
+          <div class="analysis-step" id="step-3"><div class="step-icon">4</div> PROVE — building the evidence graph and resolving real paths...</div>
+          <div class="analysis-step" id="step-4"><div class="step-icon">5</div> JUDGE — applicability first, then the existing 50 checkpoints...</div>
+          <div class="analysis-step" id="step-5"><div class="step-icon">6</div> IMPROVE — prioritizing findings and 3-angle remediation...</div>
+          <div class="analysis-step" id="step-6"><div class="step-icon">7</div> Building the remediation plan...</div>
         </div>
-
-        <div style="margin-top:1.15rem; padding-top:1rem; border-top:1px solid #2A3040; text-align:center;">
-          <div style="font-size:0.74rem; font-weight:700; letter-spacing:0.11em; text-transform:uppercase; color:var(--copper); margin-bottom:0.35rem;">
-            WHY EVERY SCAN COUNTS:
-          </div>
-          <p style="font-size:0.82rem; line-height:1.5; color:var(--sand); max-width:760px; margin:0 auto;">
-            Every completed scan can contribute a compact real-world pattern to Trilloka’s knowledge memory. Candidate knowledge is validated before it can influence future recognition; the scoring logic does not rewrite itself from a single scan.
-          </p>
-          <p style="font-size:0.68rem; line-height:1.45; color:rgba(169,167,160,0.62); max-width:760px; margin:0.55rem auto 0;">
-            Only publicly visible website structure, page-content signals and technical metadata are analyzed. Learning stores bounded derived patterns with provenance; it does not require private, account-only or internal business data.
-          </p>
-        </div>
+        <p style="font-size:.69rem;line-height:1.45;color:rgba(169,167,160,.66);text-align:center;margin:.9rem auto 0;max-width:760px;">Public evidence only. UNKNOWN stays UNKNOWN. No live customer forms, orders or paid subscriptions are submitted.</p>
       </div>
     </div>
   </section>
 
-  <section id="journey-demo" class="journey-demo-section" aria-label="How Trilloka follows a customer through a website">
-    <div class="container">
-      <div class="journey-demo journey-demo-inline">
-        <div class="journey-demo-head">
-          <div>
-            <h3 id="journeyDemoTitle">A website scanner should understand the business before it judges the website.</h3>
-          </div>
-        </div>
-        <div class="journey-demo-body">
-          <div class="demo-browser">
-            <div class="demo-browser-bar"><span class="demo-browser-dot"></span><span class="demo-browser-dot"></span><span class="demo-browser-dot"></span><div class="demo-browser-url">sample-business.com</div></div>
-            <div class="demo-screen">
-              <div class="demo-site" id="demoSiteMock">
-                <div class="demo-site-title"></div>
-                <div class="demo-site-line w80"></div><div class="demo-site-line w60"></div><div class="demo-site-line w45"></div>
-                <div class="demo-site-cta" id="demoFakeCta">REQUEST A QUOTE</div>
-                <div class="demo-map" style="margin-top:1.1rem;">
-                  <div class="demo-step" data-demo-step="0"><div class="icon">◎</div><strong>Understand</strong><span>Business &amp; outcome</span></div>
-                  <div class="demo-step" data-demo-step="1"><div class="icon">🧭</div><strong>Follow</strong><span>Customer path</span></div>
-                  <div class="demo-step" data-demo-step="2"><div class="icon">▦</div><strong>Context</strong><span>Relevant expertise</span></div>
-                  <div class="demo-step" data-demo-step="3"><div class="icon">✓</div><strong>Verify</strong><span>Evidence first</span></div>
-                  <div class="demo-step" data-demo-step="4"><div class="icon">⚠</div><strong>Diagnose</strong><span>Commercial friction</span></div>
-                  <div class="demo-step" data-demo-step="5"><div class="icon">◉</div><strong>Architect</strong><span>Human judgment</span></div>
-                  <div class="demo-step" data-demo-step="6"><div class="icon">↗</div><strong>Improve</strong><span>Fix, verify, learn</span></div>
-                </div>
-              </div>
-              <div class="demo-explain">
-                <div class="step-label" id="demoStepLabel">1 / 7</div>
-                <h4 id="demoStepTitle">Understand the business</h4>
-                <p id="demoStepText">Trilloka first determines what kind of business it is looking at and what outcome the website appears designed to create.</p>
-              </div>
-            </div>
-          </div>
-          <div class="demo-controls">
-            <div class="demo-progress" id="demoProgress"><i class="active"></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="research-section" id="why-it-matters">
+<section class="research-section" id="research-signals">
     <div class="container research-shell">
-      <div class="section-header" style="margin-bottom:1.5rem;">
-        <div class="subtitle">THE POLISHED-WEBSITE PARADOX</div>
-        <h2>Your website may look like a MNC, BUT DOES IT CONVERT LIKE ONE?</h2>
-        <p>A quick peek under the hood of the Remediator.</p>
+      <div class="section-header" style="margin-bottom:1.2rem;">
+        <h2>Why We Score What We Score</h2>
       </div>
       <div class="fact-rotator" id="factRotator" aria-live="polite">
         <div class="fact-topline"><div class="fact-badge">⚠ RESEARCH SIGNAL</div><div class="fact-counter"><span id="factCurrent">1</span> / 24</div></div>
@@ -1628,8 +1998,16 @@ footer {
       <p class="quick-note">Research percentages describe study populations — they are never treated as your site's measured revenue loss. Your score changes only when the scanner finds relevant evidence on your site.</p>
     </div>
   </section>
-
-
+<section class="legal-note-section">
+    <div class="container">
+      <div class="legal-note-card">
+        <div class="mini-label" style="color:var(--copper);font-size:.7rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;">Important to know</div>
+        <h3>Evidence first. Applicability before scoring.</h3>
+        <p>Trilloka evaluates public website evidence and models website readiness — not actual accounting loss, product-market fit or offline performance. UNKNOWN is not FAILED.</p>
+        <p><a href="disclaimer.html">Read the full disclaimer, privacy and legal page.</a></p>
+      </div>
+    </div>
+  </section>
 </main>
 
 <footer>
@@ -1637,19 +2015,18 @@ footer {
     <div class="footer-grid">
       <div class="footer-col">
         <h4>Trilloka Revenue Remediator</h4>
-        <p style="font-size:0.85rem; color:var(--mist);">Research-calibrated revenue diagnostics, conversion auditing and commercial web architecture.</p>
+        <p style="font-size:0.85rem; color:var(--mist);">Adaptive evidence mapping for public customer paths, applicability and revenue remediation.</p>
       </div>
       <div class="footer-col">
         <h4>Navigation</h4>
         <a href="solutions.html">Solutions</a>
         <a href="why-us.html">Why Us</a>
-        <a href="/vlog">Chilloka</a>
-        <a href="disclaimer.html">Disclaimer & Legal</a>
+        <a href="vlog.html">Chilloka</a>
       </div>
       <div class="footer-col">
         <h4>Direct Line</h4>
         <a href="tel:+17787659232">+1 778-765-9232</a>
-        <a href="mailto:arpitt22@trilloka.com">arpitt22@trilloka.com</a>
+        <a href="mailto:onlyonearpit@gmail.com">onlyonearpit@gmail.com</a>
         <a href="https://www.instagram.com/trilloka2026?igsh=Zjd1YzJodGZrdjY=" target="_blank">@trilloka2026</a>
       </div>
     </div>
@@ -1679,8 +2056,8 @@ footer {
         </div>
         <div class="focus-bars" id="focusBars"></div>
         <p class="focus-insight" id="focusInsight"></p>
-        <a class="focus-cta" onclick="event.preventDefault(); alert('Opening full diagnostic...')">
-          View full diagnostic <span>&rarr;</span>
+        <a class="focus-cta" href="#" onclick="event.preventDefault(); closeFocusMode();">
+          Back to results <span>&uarr;</span>
         </a>
       </div>
     </div>
@@ -1699,9 +2076,9 @@ footer {
           <div class="label">Call</div>
           <div class="value">+1 778-765-9232</div>
         </a>
-        <a href="mailto:arpitt22@trilloka.com" class="contact-item">
+        <a href="mailto:onlyonearpit@gmail.com" class="contact-item">
           <div class="label">Email</div>
-          <div class="value">arpitt22@trilloka.com</div>
+          <div class="value">onlyonearpit@gmail.com</div>
         </a>
         <a href="https://www.instagram.com/trilloka2026?igsh=Zjd1YzJodGZrdjY=" target="_blank" class="contact-item">
           <div class="label">Instagram</div>
@@ -2177,7 +2554,7 @@ function displayProtectedSelfDiagnostic(data) {
   const storedScore = hasStoredSnapshot ? num(snapshot.overall_score) : null;
   const storedAI = hasStoredSnapshot ? num(snapshot.ai_spectrum_pct) : null;
   const storedPresence = hasStoredSnapshot ? num(snapshot.online_presence_index) : null;
-  const storedConversion = hasStoredSnapshot ? num(snapshot.conversion_efficiency) : null;
+  const storedConversion = hasStoredSnapshot ? (num(snapshot.conversion_path_readiness) ?? num(snapshot.conversion_efficiency)) : null;
   const storedPerformance = hasStoredSnapshot ? num(snapshot.mobile_performance_score) : null;
   const storedSEO = hasStoredSnapshot ? num(snapshot.seo_health_index) : null;
 
@@ -2224,7 +2601,7 @@ function displayProtectedSelfDiagnostic(data) {
         </div>
 
         <div class="protected-orb presence">
-          <div class="label">Online Presence</div>
+          <div class="label">Public Trust &amp; Presence</div>
           <div class="value">${metric(storedPresence,'')}</div>
           <div class="sub">${storedPresence === null ? 'Snapshot unavailable' : 'Stored readiness surface'}</div>
         </div>
@@ -2241,7 +2618,7 @@ function displayProtectedSelfDiagnostic(data) {
         </div>
 
         <div class="protected-orb funnel">
-          <div class="label">Conversion Readiness</div>
+          <div class="label">Conversion Path Readiness</div>
           <div class="value">${metric(storedConversion,'')}</div>
           <div class="sub">${storedConversion === null ? 'Snapshot unavailable' : 'Stored commercial surface'}</div>
         </div>
@@ -2328,14 +2705,19 @@ function displayResults(data) {
   const ai = firstNumber([metrics.ai_spectrum_pct,data.ai_spectrum_pct],null);
   const gap = firstNumber([metrics.competitor_gap_score,data.gap_score],null);
   const gapKind = metrics.competitor_gap_kind || data.competitor_gap_kind || '';
-  const conversion = firstNumber([metrics.conversion_efficiency,data.conversion_score],overall);
+  const conversion = firstNumber([metrics.conversion_path_readiness,data.conversion_path_readiness,metrics.conversion_efficiency,data.conversion_efficiency,data.conversion_score],overall);
   const presence = firstNumber([metrics.online_presence_index,data.online_presence_index],overall);
   const commonFoundation = firstNumber([metrics.common_foundation_index],null);
   const adaptiveArchitecture = firstNumber([metrics.adaptive_architecture_index],null);
   const architectureProfile = data.architecture_profile || data.business_profile || {};
   const businessTypeLabel = data.business_type_label || architectureProfile.business_type_label || '';
+  const businessSubtypeLabel = data.business_subtype_label || architectureProfile.business_subtype_label || data.business_subtype || architectureProfile.business_subtype || '';
   const journeyLabel = data.journey_label || architectureProfile.journey_label || '';
   const contextTags = Array.isArray(data.context_tags) ? data.context_tags : (Array.isArray(architectureProfile.context_tags) ? architectureProfile.context_tags : []);
+  const evidenceConfidence = (data.evidence_confidence && typeof data.evidence_confidence === 'object') ? data.evidence_confidence : {};
+  const evidenceConfidenceLevel = String(evidenceConfidence.level || data.evidence_confidence_level || 'UNKNOWN').toUpperCase();
+  const evidenceConfidenceScore = firstNumber([evidenceConfidence.score,data.evidence_confidence_score],null);
+  const evidenceConfidenceDisplay = evidenceConfidenceScore === null ? evidenceConfidenceLevel : evidenceConfidenceLevel+' · '+(Math.round(evidenceConfidenceScore*10)/10)+'/100';
 
   const cms = data.cms_platform || data.cms_detected || null;
   const targetDomain = data.target_domain || data.domain || '';
@@ -2345,32 +2727,15 @@ function displayResults(data) {
   const replayCompletedText = replayCompletedAt
     ? new Date(replayCompletedAt * 1000).toLocaleString()
     : '';
-  const devKit = data.dev_handoff_kit || data.dev_handoff || null;
-  const leaks = Array.isArray(data.top_10_financial_leaks) ? data.top_10_financial_leaks : (Array.isArray(data.leaks) ? data.leaks : []);
+  // Free public result consumes only the server-sanitized commercial summary.
+  // Exact findings, causal mechanisms, financial exposure and remediation never need to reach this UI.
+  const devKit = null;
+  const safeCommercialDiagnosis = (data.public_commercial_diagnosis && typeof data.public_commercial_diagnosis === 'object') ? data.public_commercial_diagnosis : {};
+  const safeClassesFromBackend = Array.isArray(safeCommercialDiagnosis.leak_classes) ? safeCommercialDiagnosis.leak_classes.map(function(x){return String(x||'').trim().toUpperCase();}).filter(Boolean) : [];
+  const commercialLeakClasses = Array.from(new Set(safeClassesFromBackend)).slice(0,4);
+  const commercialGapCount = Math.max(0, Math.round(firstNumber([safeCommercialDiagnosis.priority_gap_count,safeCommercialDiagnosis.count,data.verified_financial_leak_count],0)));
   const foundationSignal = (data.foundation_omission_signal && typeof data.foundation_omission_signal === 'object')
     ? data.foundation_omission_signal : {};
-  const foundationOmissionKeys = new Set(
-    Array.isArray(foundationSignal.omissions)
-      ? foundationSignal.omissions.map(function(item){ return item && item.rule_key ? String(item.rule_key) : ''; }).filter(Boolean)
-      : []
-  );
-  const publicLeaks = foundationSignal.public_modal_disclose_items === false
-    ? leaks.filter(function(leak){ return !foundationOmissionKeys.has(String((leak && leak.rule_key) || '')); })
-    : leaks;
-
-  const friction = (data.key_friction_insight && typeof data.key_friction_insight === 'object') ? data.key_friction_insight : {};
-  const frictionReason = friction.reason || '';
-  const frictionPoints = firstNumber([friction.score_loss_points,friction.revenue_loss_pct],null);
-
-  const exposure = (data.financial_exposure && typeof data.financial_exposure === 'object')
-    ? data.financial_exposure
-    : ((data.revenue_leak && typeof data.revenue_leak === 'object') ? data.revenue_leak : {});
-  const exposureRange = exposure.estimated_annual_range || '';
-  const exposureLevel = exposure.exposure_level || '';
-  const exposureDisplay = exposureRange
-    ? exposureRange + (exposureLevel ? ' — ' + String(exposureLevel).toUpperCase() + ' scenario exposure' : ' — scenario exposure')
-    : (exposure.est_annual_revenue_leak || '');
-  const exposureMethod = exposure.method_note || 'Scenario estimate based on an annual digital opportunity pool multiplied by the modeled impairment of verified customer-path issues; not measured accounting loss or guaranteed remediation uplift.';
 
   const aiClass = metrics.classification || (ai === null ? 'Pattern data unavailable' : (ai > 60 ? 'High Template Pattern' : (ai > 30 ? 'Mixed Pattern Stack' : 'Low Template Pattern')));
   const speedAvailable = speed !== null, seoAvailable = seo !== null, aiAvailable = ai !== null, gapAvailable = gap !== null;
@@ -2408,14 +2773,14 @@ function displayResults(data) {
   const localCommercialComparisonAvailable = localBenchmarkAvailable &&
     targetCommercial !== null && localAvgCommercial !== null && localTopCommercial !== null;
 
-  currentDevKit = devKit;
+  currentDevKit = null;
   currentFocusData = {
     ai:{title:'AI / TEMPLATE PATTERN',value:aiAvailable?Math.round(ai)+' / 100':'N/A',sub:aiClass,color:!aiAvailable?'copper':(ai<=12?'green':(ai<=25?'copper':'red')),bars:aiAvailable?[
       {label:'Your Site',val:Math.min(Math.max(ai,0),100),text:Math.round(ai)+' / 100',color:ai<=12?'green':(ai<=25?'copper':'red')},
       {label:'Penalty',val:50,text:'50+',color:'red'}
     ]:[],insight:aiAvailable?'A conservative content/template sameness heuristic. The scorer only treats a high measured pattern as a modest risk signal; it is not proof that AI authored the website.':'Template-pattern evidence was unavailable for this scan.'},
     presence: localRatingComparisonAvailable ? {
-      title:'ONLINE PRESENCE + LOCAL PROOF',
+      title:'PUBLIC TRUST & PRESENCE + LOCAL PROOF',
       value:Math.round(presence)+' / 100',
       sub:localSample+' comparable nearby businesses',
       color:presence>=60?'green':(presence>=50?'copper':'red'),
@@ -2424,15 +2789,15 @@ function displayResults(data) {
         {label:'Local Avg',val:Math.min(Math.max(localAvgRating*20,0),100),text:Number(localAvgRating).toFixed(1)+' / 5',color:'copper'},
         {label:'Local Leader',val:Math.min(Math.max(localTopRating*20,0),100),text:Number(localTopRating).toFixed(1)+' / 5',color:'green'}
       ],
-      insight:'Your Presence score remains Trilloka’s own readiness surface. The comparison bars use real Google Places ratings from the local benchmark.'+
+      insight:'Your Public Trust & Presence score remains Trilloka’s own readiness surface. The comparison bars use real Google Places ratings from the local benchmark.'+
         (targetReviews!==null&&localAvgReviews!==null?' Reviews: '+Math.round(targetReviews)+' vs local average '+Math.round(localAvgReviews)+'.':'')+
         (localTopReviews!==null?' Local review leader: '+Math.round(localTopReviews)+'.':'')
     } : {
-      title:'ONLINE PRESENCE',
+      title:'PUBLIC TRUST & PRESENCE',
       value:Math.round(presence)+' / 100',
-      sub:'Readiness Surface',
+      sub:'Presence Readiness',
       color:presence>=60?'green':(presence>=50?'copper':'red'),
-      bars:[{label:'Presence',val:Math.min(Math.max(presence,0),100),text:Math.round(presence)+' / 100',color:presence>=60?'green':(presence>=50?'copper':'red')}],
+      bars:[{label:'Presence Readiness',val:Math.min(Math.max(presence,0),100),text:Math.round(presence)+' / 100',color:presence>=60?'green':(presence>=50?'copper':'red')}],
       insight:'A public presence/readiness surface interpreted alongside the verified commercial evidence. Local Google comparison was unavailable for this scan.'
     },
     gap: localBenchmarkAvailable && localTarget !== null && localAvg !== null && localTop !== null ? {
@@ -2461,7 +2826,7 @@ function displayResults(data) {
         : 'A local competitor benchmark could not be verified for this scan, so no measured competitor-gap claim is made.'
     },
     funnel: localCommercialComparisonAvailable ? {
-      title:'CONVERSION READINESS + LOCAL STRUCTURE',
+      title:'CONVERSION PATH READINESS + LOCAL STRUCTURE',
       value:Math.round(conversion)+' / 100',
       sub:localSample+' comparable nearby businesses',
       color:conversion>=60?'green':(conversion>=50?'copper':'red'),
@@ -2470,11 +2835,11 @@ function displayResults(data) {
         {label:'Local Avg',val:Math.min(Math.max(localAvgCommercial,0),100),text:Math.round(localAvgCommercial)+' / 100',color:'copper'},
         {label:'Local Leader',val:Math.min(Math.max(localTopCommercial,0),100),text:Math.round(localTopCommercial)+' / 100',color:'green'}
       ],
-      insight:'Your Funnel Score remains the full Trilloka conversion-readiness measure. The comparison bars use the lighter passive commercial-structure probe applied consistently to local competitor homepages; this is not a full Revenue Readiness scan of each competitor.'
+      insight:'Your Conversion Path Readiness remains the full Trilloka customer-path readiness measure. The comparison bars use the lighter passive commercial-structure probe applied consistently to local competitor homepages; this is not a full Revenue Readiness scan of each competitor.'
     } : {
-      title:'CONVERSION READINESS',
+      title:'CONVERSION PATH READINESS',
       value:Math.round(conversion)+' / 100',
-      sub:'Commercial Path Readiness',
+      sub:'Verified Customer-Path Readiness',
       color:conversion>=60?'green':(conversion>=50?'copper':'red'),
       bars:[{label:'Your Site',val:Math.min(Math.max(conversion,0),100),text:Math.round(conversion)+' / 100',color:conversion>=60?'green':(conversion>=50?'copper':'red')}],
       insight:'Shows how verified commercial-path architecture contributes to the overall Revenue Readiness result. Local commercial-structure comparison was unavailable for this scan.'
@@ -2489,8 +2854,8 @@ function displayResults(data) {
       `+(isSavedScanReview?`<div style="margin:0 auto 1rem;max-width:720px;padding:1rem 1.1rem;border:1px solid rgba(90,158,122,.35);background:rgba(90,158,122,.08);border-radius:12px;text-align:center;"><div style="font-size:.68rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--green-fix);margin-bottom:.35rem;">Previous Scan Review — No New Scan Was Run</div><p style="font-size:.82rem;line-height:1.55;color:var(--sand);margin:0;">This is the saved result from your previously completed scan`+(replayCompletedText?` on `+escapeHtml(replayCompletedText):``)+`. Re-entering this same URL during the 24-hour review window opens this result again and does not use another scan allowance.</p></div>`:``)+`
       `+(targetDomain?`<div class="results-domain">`+escapeHtml(targetDomain)+`</div>`:``)+`
       `+(cms?`<div style="text-align:center;margin:.8rem 0 0;"><span class="cms-badge">Detected Tech Stack: `+escapeHtml(cms)+`</span></div>`:``)+`
-      `+(localBenchmarkAvailable?`<div style="text-align:center;margin:.55rem 0 0;color:var(--sand);font-size:.72rem;">Local benchmark active: `+localSample+` comparable businesses`+(radiusKm?` · ~`+radiusKm+` km radius`:``)+` · hover Presence, Local Gap or Funnel Score for comparison</div>`:``)+`
-      <div class="tap-hint-modal" id="tapHintModal">☝ Tap a metric for full details · Hover to compare with nearby competitors</div>
+      `+(localBenchmarkAvailable?`<div style="text-align:center;margin:.55rem 0 0;color:var(--sand);font-size:.72rem;">Local benchmark active: `+localSample+` comparable businesses`+(radiusKm?` · ~`+radiusKm+` km radius`:``)+` · tap a metric to compare</div>`:``)+`
+      <div class="tap-hint-modal" id="tapHintModal">`+(localBenchmarkAvailable?`☝ Tap a metric for full details · Hover to compare with nearby competitors`:`☝ Tap a metric for full details`)+`</div>
 
       <div class="constellation-stage result-constellation" id="constellationStage">
         <div class="result-orbit outer"></div><div class="result-orbit inner"></div>
@@ -2498,7 +2863,7 @@ function displayResults(data) {
           <span class="orb-label">AI / Template</span><span class="orb-value">`+(aiAvailable?Math.round(ai):'—')+(aiAvailable?`<small style="font-size:.48em;">%</small>`:``)+`</span><span class="orb-sub">`+escapeHtml(aiAvailable?aiClass:'Unavailable')+`</span>
         </button>
         <button class="metric-orb orb-presence" id="orb-presence" type="button" style="--orb-color:`+presenceColor+`;" onclick="openFocusMode('presence')" onmouseenter="showMetricHover('presence')" onmouseleave="hideMetricHover()">
-          <span class="orb-label">Presence</span><span class="orb-value">`+Math.round(presence)+`<small style="font-size:.48em;">%</small></span><span class="orb-sub">Authority Surface</span>
+          <span class="orb-label">Public Trust<br>&amp; Presence</span><span class="orb-value">`+Math.round(presence)+`<small style="font-size:.48em;">%</small></span><span class="orb-sub">Presence Readiness</span>
         </button>
         <div class="score-orb">
           <span class="orb-value">`+overallDisplay+`</span><span class="orb-sub">Revenue<br>Readiness<br><small style="font-size:.72em;letter-spacing:.04em;">Max `+Math.round(publicReadinessMax)+`</small></span>
@@ -2507,7 +2872,7 @@ function displayResults(data) {
           <span class="orb-label">`+(localBenchmarkAvailable?'Local Gap':'Readiness Gap')+`</span><span class="orb-value">`+(gapAvailable?Math.round(gap):'—')+`</span><span class="orb-sub">`+(localBenchmarkAvailable?'to Local Leader':'Modeled Points')+`</span>
         </button>
         <button class="metric-orb orb-funnel" id="orb-funnel" type="button" style="--orb-color:`+funnelColor+`;" onclick="openFocusMode('funnel')" onmouseenter="showMetricHover('funnel')" onmouseleave="hideMetricHover()">
-          <span class="orb-label">Funnel Score</span><span class="orb-value">`+Math.round(conversion)+`</span><span class="orb-sub">Conversion Readiness</span>
+          <span class="orb-label">Conversion Path</span><span class="orb-value">`+Math.round(conversion)+`</span><span class="orb-sub">Readiness</span>
         </button>
       
         <div class="metric-hover-card" id="metricHoverCard" aria-hidden="true">
@@ -2516,6 +2881,16 @@ function displayResults(data) {
           <div id="metricHoverBars"></div>
           <div class="metric-hover-note" id="metricHoverNote"></div>
         </div>
+      </div>
+      <div class="result-methodology">
+        <div class="flow">DISCOVER → ROUTE → PROBE → PROVE → JUDGE → IMPROVE</div>
+        <p>Trilloka compares what this type of business commercially needs with what customers can actually experience, then verifies where that path may be leaking revenue.</p>
+      </div>
+      <div class="result-profile-grid">
+        <div class="result-profile-item"><div class="label">Business Type</div><div class="value">`+escapeHtml(businessTypeLabel||'Not confidently resolved')+`</div></div>
+        <div class="result-profile-item"><div class="label">Subtype</div><div class="value">`+escapeHtml(businessSubtypeLabel||'Not confidently resolved')+`</div><div class="note">Inspection modifier only — not proof of the customer path.</div></div>
+        <div class="result-profile-item"><div class="label">Primary Customer Path</div><div class="value">`+escapeHtml(journeyLabel||'Not confidently resolved')+`</div></div>
+        <div class="result-profile-item"><div class="label">Evidence Confidence</div><div class="value">`+escapeHtml(evidenceConfidenceDisplay)+`</div></div>
       </div>`;
 
   if(scoreRating || scoreScope){
@@ -2534,39 +2909,22 @@ function displayResults(data) {
       +`</p></div>`;
   }
 
-  if(exposureDisplay){
-    htmlContent+=`<div class="result-exposure"><div class="eyebrow">Modeled Commercial Exposure</div><div class="amount">`+escapeHtml(exposureDisplay)+`</div><div class="method">`+escapeHtml(exposureMethod)+`</div></div>`;
-  }
-  if(frictionReason||frictionPoints!==null){
-    htmlContent+=`<div class="friction-card"><div class="eyebrow">Key Friction Point</div>`+(frictionReason?`<div class="reason">`+escapeHtml(frictionReason)+`</div>`:``)+(frictionPoints!==null?`<div class="loss-points">−`+Math.abs(frictionPoints).toFixed(1)+` Revenue Readiness points</div>`:``)+`<div class="locked-note">Detailed remediation strategy is reserved for the full report.</div></div>`;
-  }
 
-  htmlContent+=`<h3 class="results-section-title">Top Surface Insights</h3><div class="surface-insights">
-    <div class="surface-insight"><h4>Mobile Performance — `+(speedAvailable?Math.round(speed)+`/100`:`N/A`)+`</h4><p>`+(speedAvailable?`Measured mobile performance from available Google telemetry.`:`Google performance telemetry was unavailable, so the Remediator did not substitute a fake zero.`)+`</p></div>
-    <div class="surface-insight"><h4>SEO Health Index — `+(seoAvailable?Math.round(seo)+`/100`:`N/A`)+`</h4><p>`+(seoAvailable?`Search visibility and technical SEO signals analyzed as a supporting surface.`:`SEO telemetry was unavailable for this scan.`)+`</p></div>
-    <div class="surface-insight"><h4>AI / Template Pattern — `+(aiAvailable?Math.round(ai)+`/100 · `+escapeHtml(aiClass):`N/A`)+`</h4><p>Content/template sameness signals evaluated. This is a pattern index, not proof of AI authorship.</p></div>
-    <div class="surface-insight"><h4>Conversion Readiness — `+Math.round(conversion)+`/100</h4><p>Commercial-path readiness based on verified conversion architecture and supporting evidence.</p></div>
-    <div class="surface-insight"><h4>`+(localBenchmarkAvailable?`Local Competitor Gap — `+Math.round(gap)+` pts`:(gapKind==='MODELED_READINESS_HEADROOM_PROXY'?`Modeled Readiness Headroom — `:`Readiness Gap — `)+(gapAvailable?Math.round(gap)+` pts`:`N/A`))+`</h4><p>`+(localBenchmarkAvailable?`Measured against `+localSample+` nearby comparable businesses. Local average `+Math.round(localAvg)+`/100; strongest observed local peer `+Math.round(localTop)+`/100.`:(gapKind==='MODELED_READINESS_HEADROOM_PROXY'?`Local competitor evidence was unavailable; this is modeled headroom to the public Revenue Readiness ceiling, not a measured competitor gap.`:`Local competitor evidence was unavailable, so no measured competitor-gap claim is made.`))+`</p></div>
-    <div class="surface-insight"><h4>Online Presence — `+Math.round(presence)+`/100</h4><p>Public presence/readiness surface retained alongside the commercial diagnosis.</p></div>
-    `+(businessTypeLabel?`<div class="surface-insight"><h4>Detected Business Type — `+escapeHtml(businessTypeLabel)+`</h4><p>This changes the importance of relevant checks without forcing the customer journey or creating failures by itself.</p></div>`:``)+`
-    `+(journeyLabel?`<div class="surface-insight"><h4>Detected Customer Journey — `+escapeHtml(journeyLabel)+`</h4><p>`+(contextTags.length?`Context applied: `+escapeHtml(contextTags.map(function(t){return String(t).replaceAll('_',' ');}).join(', '))+`.`:`No special context tag was required from the verified public evidence.`)+`</p></div>`:``)+`
-    `+(commonFoundation!==null?`<div class="surface-insight"><h4>Common Foundation — `+Math.round(commonFoundation)+`/100</h4><p>Universal HTTPS, SEO/search structure, performance, mobile and accessibility checks. This is a foundation surface, not a claim that the website is perfect, and it intentionally carries lower Revenue Readiness weight.</p></div>`:``)+`
-    `+(adaptiveArchitecture!==null?`<div class="surface-insight"><h4>Adaptive Architecture — `+Math.round(adaptiveArchitecture)+`/100</h4><p>Higher-value conversion, trust, policy, proof and completion architecture weighted by business type, observed customer journey and context. This is the primary commercial-analysis layer.</p></div>`:``)+`
+  htmlContent+=`<h3 class="results-section-title">Surface Insights</h3><div class="surface-insights">
+    <div class="surface-insight"><h4>Mobile Performance — `+(speedAvailable?Math.round(speed)+`/100`:`N/A`)+`</h4><p>`+(speedAvailable?`Measured from available Google performance telemetry.`:`Google performance telemetry was unavailable, so no fake zero was substituted.`)+`</p></div>
+    <div class="surface-insight"><h4>SEO / Search Health — `+(seoAvailable?Math.round(seo)+`/100`:`N/A`)+`</h4><p>`+(seoAvailable?`Technical search and discoverability signals from the public website and available telemetry.`:`SEO telemetry was unavailable for this scan.`)+`</p></div>
+    <div class="surface-insight"><h4>Google / Local Proof — `+(localRatingComparisonAvailable?Number(targetRating).toFixed(1)+`/5 · `+Math.round(targetReviews||0)+` reviews`:`N/A`)+`</h4><p>`+(localRatingComparisonAvailable?`Verified Google Places context was available for the target and local comparison set.`:`Verified Google/local proof was unavailable or not applicable for this scan.`)+`</p></div>
+    <div class="surface-insight"><h4>Competitor Context — `+(localBenchmarkAvailable?localSample+` comparable businesses`:`N/A`)+`</h4><p>`+(localBenchmarkAvailable?`Local average `+Math.round(localAvg)+`/100 · local leader `+Math.round(localTop)+`/100 (`+escapeHtml(localLeader)+`).`:`No measured local competitor comparison is shown when a comparable local set cannot be verified.`)+`</p></div>
+    <div class="surface-insight"><h4>Common Foundation — `+(commonFoundation!==null?Math.round(commonFoundation)+`/100`:`N/A`)+`</h4><p>HTTPS, search structure, performance, mobile and accessibility foundation evidence.</p></div>
+    <div class="surface-insight"><h4>Commercial Architecture — `+(adaptiveArchitecture!==null?Math.round(adaptiveArchitecture)+`/100`:`N/A`)+`</h4><p>Business-specific customer-path, trust, proof and completion architecture. Exact Commercial Minimum gaps remain protected.</p></div>
   </div>`;
 
-  if(publicLeaks.length>0){
-    htmlContent+=`<h3 class="results-section-title">Verified Findings Preview</h3><div class="preview-findings">`;
-    publicLeaks.forEach(function(leak){
-      const title=leak.leak_name||leak.title||leak.rule_key||'Verified finding';
-      const description=leak.impact_summary||leak.description||'';
-      htmlContent+=`<div class="leak-item"><h4>`+escapeHtml(title)+`</h4>`+(description?`<p>`+escapeHtml(description)+`</p>`:``)+`</div>`;
-    });
-    htmlContent+=`</div>`;
-  }
-
-  if(devKit){
-    htmlContent+=`<div class="dev-handoff"><p><strong>Developer Handoff Brief Generated:</strong> Copy and paste this brief directly to your engineering team.</p><button class="btn btn-primary copy-btn" onclick="copyDevKit(this,currentDevKit)">Copy Developer Handoff Email</button></div>`;
-  }
+  htmlContent+=`<div class="commercial-diagnosis-card">
+    <div class="kicker">Trilloka Commercial Diagnosis</div>
+    <div class="count">`+(commercialGapCount>0?commercialGapCount+` priority commercial gap`+(commercialGapCount===1?``:`s`)+` detected`:`Commercial diagnosis completed`)+`</div>
+    `+(commercialLeakClasses.length?`<div class="classes">Leak areas observed: `+commercialLeakClasses.map(escapeHtml).join(' • ')+`</div>`:``)+`
+    <p>Exact evidence, financial mechanism, Commercial Minimum gaps and 3-angle remediation are contained in the full Revenue Audit.</p>
+  </div>`;
 
   htmlContent+=`
     <h3 class="results-section-title">Unlock Revenue Repair Roadmap</h3>
@@ -2695,46 +3053,7 @@ function closeFocusMode() {
 }
 
 
-/* Public-safe customer-journey demo */
-let journeyDemoStep = 0;
-let journeyDemoTimer = null;
-const journeyDemoCopy = [
-  {label:'1 / 7',title:'Understand the business',text:'The same website issue does not mean the same thing for every business. Trilloka first identifies the commercial context and intended outcome.'},
-  {label:'2 / 7',title:'Follow the real customer path',text:'It reconstructs what customers can actually do: buy, book, call, enquire, request a quote, start a trial or take another measurable step.'},
-  {label:'3 / 7',title:'Use the right expertise',text:'Relevant business-category, journey and research knowledge sharpens what deserves investigation without turning research into an automatic failure.'},
-  {label:'4 / 7',title:'Verify before judging',text:'Evidence is checked across pages and technical layers. If something cannot be verified, Trilloka does not silently call it a failure.'},
-  {label:'5 / 7',title:'Find commercial friction',text:'It looks for missing, misplaced, contradictory or broken evidence around real customer decisions, then prioritizes verified impact.'},
-  {label:'6 / 7',title:'Send uncertain judgment to the Architect',text:'Visual hierarchy, complex interactions and other high-impact questions automation cannot safely settle are separated for human review.'},
-  {label:'7 / 7',title:'Turn findings into an improvement plan',text:'Technical, UX/CRO and Systems actions are tied to the finding, then re-scans and validated outcomes can expand Trilloka’s knowledge over time.'}
-];
-function setJourneyDemoStep(step){
-  journeyDemoStep=Math.max(0,Math.min(6,Number(step)||0));
-  document.querySelectorAll('[data-demo-step]').forEach(function(el,i){el.classList.toggle('active',i===journeyDemoStep);el.classList.toggle('done',i<journeyDemoStep);});
-  const dots=document.querySelectorAll('#demoProgress i');dots.forEach(function(el,i){el.classList.toggle('active',i<=journeyDemoStep);});
-  const copy=journeyDemoCopy[journeyDemoStep]||journeyDemoCopy[0];
-  const label=document.getElementById('demoStepLabel'),title=document.getElementById('demoStepTitle'),text=document.getElementById('demoStepText');
-  if(label)label.textContent=copy.label;if(title)title.textContent=copy.title;if(text)text.textContent=copy.text;
-  const cta=document.getElementById('demoFakeCta');
-  if(cta){cta.textContent=journeyDemoStep>=6?'PLAN READY':(journeyDemoStep>=5?'ARCHITECT REVIEW':'REQUEST A QUOTE');cta.style.background=journeyDemoStep>=6?'#22C973':'var(--copper)';}
-}
-function startJourneyLoop(){
-  clearInterval(journeyDemoTimer);
-  setJourneyDemoStep(0);
-  journeyDemoTimer=setInterval(function(){
-    setJourneyDemoStep((journeyDemoStep+1)%7);
-  },6400);
-}
-(function(){
-  const demo=document.getElementById('journey-demo');
-  if(!demo)return;
-  let played=false;
-  const observer=new IntersectionObserver(function(entries){
-    entries.forEach(function(entry){
-      if(entry.isIntersecting && !played){played=true;startJourneyLoop();}
-    });
-  },{threshold:0.35});
-  observer.observe(demo);
-})();
+/* Visual-first 45-second Revenue Remediator walkthrough */
 
 /* Research Fact Rotator */
 (function(){
@@ -2768,7 +3087,6 @@ document.addEventListener('keydown', function(e) {
     closeFocusMode();
     closeResultsModal();
     closePhoneModal();
-    closeJourneyDemo();
   }
 });
 
