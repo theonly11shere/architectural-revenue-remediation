@@ -51,8 +51,9 @@
   },
   "release_sha256": {
     "BUSINESS_COVERAGE.md": "14e0a97b22130941f819895e356e60b4dfb563cde4d8e8d9fdf06650277e563f",
-    "START_HERE.md": "beb2c4230684d1d74038d50ec8353ea4b51b407cba849f0854b894b5fa075dfe",
-    "VALIDATION_RESULTS.txt": "f34919f6fc5dbcf12daf19e61d093b3f7b503edbf389d7e09d4db2f527391038",
+    "MERGE_NOTES.md": "a4416eaa4213bd311852366982fb0a29f650010804492d323e9b1af13401c3a0",
+    "START_HERE.md": "d53e1a47d55e2be3b54bb467ee0729bf1331dad204ecc105c027853d0e303c0b",
+    "VALIDATION_RESULTS.txt": "7f1a5ea7c276ab262a0150e6fd1c0774df4944733dfe810b3a1e451b18b33c4d",
     "architect_review.py": "e0a86191d22cda3ba323f323b51eef52bfac059e6b6010c09233289ce1ffbc5e",
     "architecture_model.py": "603347c27afd80d735dfb8c6089946c150a9243a64dcb3dae9328e7ee954a3dc",
     "commercial_contracts.py": "7e8aebdb58dc0038b511d0ca024042aa9b403bace05043f9b0a0dff5963e5bf3",
@@ -76,8 +77,8 @@
     "test_v752_pathway_routing.py": "b01c3280009211c7fa412e8da658ed43caa4a1b516527944490f1b4937aabc42",
     "test_v770_tcea.py": "521df9153f0b4bdc56e19e21f7325e5ef9d202e3c206ce0ba895ed9f04cf31ab",
     "test_v780_universal_paths.py": "6afaef20b3ea42399a685dbb2e7e98a9236c05d8b3935f53e613b3fb2f6d92c6",
-    "test_v781_refinements.py": "f62a5a780f08f4ede4a8e6b2f73aa487ad911c802c6d6c4b99c9e591170d16dc",
-    "verify_v781.py": "ecdf678a23108ba8e2b419182414fefd84763af580e81e417317bb94c9e06798"
+    "test_v781_refinements.py": "f8effd7ea0941c4a2f704fb7d7f9a9d74d5217cb71a91c130f6935322994b12c",
+    "verify_v781.py": "32c3530ce75448b4c2cdf20590605ea53b689a2922401f2c90c7dfc22d2a8c28"
   },
   "required_backend_files": [
     "admin_auth.py",
@@ -102,5 +103,15 @@
     "scan_execution_protocol.py",
     "scorer.py"
   ],
-  "distribution": "v7.8.1-compatibility-repair"
+  "distribution": "v7.8.1-reviewed-merge-resolution",
+  "hash_normalization": "CRLF to LF for release text files",
+  "merge_resolution": {
+    "incoming_commit": "6520589cc22c5c194602472727c979e25f2f7bf4",
+    "resolved_files": [
+      "hybrid_scanner.py",
+      "main.py",
+      "pathway_markers.py",
+      "report_engine.py"
+    ]
+  }
 }

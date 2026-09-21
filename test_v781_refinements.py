@@ -79,3 +79,45 @@ def test_malformed_url_does_not_crash_resolver():
 def test_string_action_type_is_not_split_into_characters():
     d={'journey_action_evidence':[{'source_url':'https://business.example/','destination_url':'https://provider.example/start','action_types':'order'}]}
     assert resolve_journeys(d,'ecommerce')['path_completeness']=='2/3'
+
+
+@pytest.mark.parametrize('tamper', [False, True], ids=['windows-crlf', 'reject-code-change'])
+def test_release_verifier_handles_windows_checkout(tmp_path, monkeypatch, tamper):
+    import pathlib
+    import runpy
+    import subprocess
+
+    root = pathlib.Path(__file__).resolve().parent
+    manifest = json.loads((root / 'RELEASE_MANIFEST.json').read_text(encoding='utf-8'))
+    names = set(manifest['release_sha256']) | set(manifest['required_backend_files'])
+    names.add('RELEASE_MANIFEST.json')
+    for name in names:
+        data = (root / name).read_bytes().replace(b'\r\n', b'\n')
+        (tmp_path / name).write_bytes(data.replace(b'\n', b'\r\n'))
+
+    # The same Windows checkout must reject a genuine code change before
+    # importing or running it. Do not rewrite the expected release hashes.
+    if tamper:
+        changed = tmp_path / 'hybrid_scanner.py'
+        data = changed.read_bytes()
+        assert b'v7.8.1-universal-path-refinement' in data
+        changed.write_bytes(data.replace(b'v7.8.1-universal-path-refinement',
+                                        b'v7.7.1-stale-engine'))
+
+    calls = []
+    def record_test_run(command, cwd):
+        calls.append((command, cwd))
+        return 0
+
+    # Exercise the real verifier preflight, without recursively starting pytest.
+    monkeypatch.setattr(subprocess, 'call', record_test_run)
+    with pytest.raises(SystemExit) as result:
+        runpy.run_path(str(tmp_path / 'verify_v781.py'), run_name='__main__')
+    if tamper:
+        assert 'hybrid_scanner.py' in str(result.value)
+        assert not calls
+    else:
+        assert result.value.code == 0
+        assert len(calls) == 1
+        assert calls[0][0][1:4] == ['-m', 'pytest', '-q']
+        assert calls[0][1] == tmp_path

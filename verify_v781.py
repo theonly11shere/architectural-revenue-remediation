@@ -6,7 +6,7 @@ import subprocess
 import sys
 
 root = pathlib.Path(__file__).resolve().parent
-manifest = json.loads((root / 'RELEASE_MANIFEST.json').read_text())
+manifest = json.loads((root / 'RELEASE_MANIFEST.json').read_text(encoding='utf-8'))
 missing = [name for name in manifest['required_backend_files'] if not (root / name).is_file()]
 if missing:
     raise SystemExit('Required backend files are missing:\n' + '\n'.join(missing))
@@ -14,7 +14,9 @@ if missing:
 mismatches = []
 for name, expected in manifest['release_sha256'].items():
     path = root / name
-    if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+    # Release entries are text files, hashed with LF line endings. Git may
+    # check them out as CRLF on Windows; normalize only that difference.
+    if not path.is_file() or hashlib.sha256(path.read_bytes().replace(b'\r\n', b'\n')).hexdigest() != expected:
         mismatches.append(name)
 if mismatches:
     raise SystemExit('Release files are missing or changed:\n' + '\n'.join(mismatches))

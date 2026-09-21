@@ -1,22 +1,23 @@
-Trilloka V7.8.1 Compatibility Repair
+Trilloka V7.8.1 Reviewed Merge Resolution
 
-Verification: python verify_v781.py
-Result: 648 offline regression tests passed in the compatibility validation environment.
-Original release: 646 tests; compatibility repair adds 2 integration tests.
+Verification command: python verify_v781.py
+Expected result: 650 offline regression tests.
+Validation status: pending final execution.
 
-The two new tests check every existing business category:
-- Workflow output includes the matching commercial contract and coverage map.
-- Scored audits retain commercial context, causal metadata and bounded priorities.
+The four resolved production files match the validated V7.8.1 compatibility
+release after CRLF-to-LF normalization. The cleanly merged architect_review.py
+also matches that release and is not replaced by this overlay.
 
-All seven V7.8.1 production modules are byte-for-byte identical to the original
-V7.8.1 release. The three restored prerequisite modules are byte-for-byte
-identical to the validated V7.7.1 baseline used by that release.
+The original release had 646 tests. The compatibility repair added two tests
+covering commercial workflow and scoring integration for all 19 business
+categories. This overlay adds two release-verifier regression cases:
+- A complete simulated Windows CRLF checkout must pass release preflight.
+- A genuine source edit in that checkout must be rejected before pytest runs.
 
-The manifest now checks all ten supplied production files, the test suite,
-verifier and documentation. A preflight also lists missing modules from the
-21-file backend dependency set and checks workflow output for all 19 types.
+Verification now canonicalizes CRLF line endings only. It does not accept
+changed source code, changed whitespace other than CRLF, or missing files.
 
-Offline checks do not establish live-site or deployment correctness. Validation
-was run in a Linux environment, not on the user's Windows computer. The Windows
-loopback fixture fix is retained from the previously checked TCP-socketpair fix.
-No live scan, email delivery, account login or repository push was performed.
+Validation uses an assembled backend with the reviewed source files in Linux.
+It does not reproduce the user's Windows installation or production lockfile.
+The frontend files and complete user repository were not supplied. No live
+scan, account login, email delivery, repository push or deployment was run.
