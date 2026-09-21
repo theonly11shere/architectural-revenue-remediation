@@ -1,0 +1,51 @@
+TRILLOKA V7.4.1 — RELIABILITY PATCH PRODUCTION DEPLOYMENT
+
+PURPOSE
+V7.4.1 is a reliability/calibration patch to V7.4.0. It does not add a new scoring philosophy or expand the checklist. It fixes cross-page evidence propagation, UNKNOWN handling, provisional-journey guardrails, commercial-scope mistakes and remediation/report presentation issues found during real-site validation.
+
+BACKEND / RENDER
+1. Replace the existing backend Python files with the V7.4.1 production files from this package.
+2. Keep requirements.txt and your existing working Render build/start configuration.
+3. Preserve every existing PageSpeed, access-control, payment, email and security environment variable.
+4. Existing email settings remain:
+   TRILLOKA_OWNER_EMAIL=onlyonearpit@gmail.com
+   RESEND_API_KEY=<your Resend key>
+   FROM_EMAIL=alerts@trilloka.com
+5. Learning can remain enabled on Render Free, but local learning/Vault state is not durable across restarts/redeploys.
+
+OPTIONAL PERSISTENT STORAGE — NOT REQUIRED TO RUN THE SCANNER
+If/when you move to a Render plan that supports a persistent disk, mount it at /var/data and then set:
+   TRILLOKA_LEARNING_DB_PATH=/var/data/trilloka_learning.db
+   VAULT_DIR=/var/data/vault_archives
+   TRILLOKA_SELF_SNAPSHOT_FILE=/var/data/trilloka_self_snapshot.json
+   TRILLOKA_LEARNING_HASH_SALT=<long random production secret>
+Recommended learning defaults:
+   TRILLOKA_LEARNING_ENABLED=true
+   TRILLOKA_LEARNING_AUTO_ACTIVATE_CLASSIFICATION=true
+   TRILLOKA_LEARNING_AUTO_ACTIVATE_MIN_DOMAINS=12
+   TRILLOKA_LEARNING_MAX_CONFLICT_RATE=0.10
+   TRILLOKA_LEARNING_MAX_INFERENCE_BOOST=4.0
+If no persistent disk is attached, do NOT point these paths at /var/data. Let normal defaults operate and treat learned local state as temporary.
+
+VALIDATE BEFORE PUSH
+   python -m pytest -q
+   python run_all_tests.py
+
+FRONTEND / CLOUDFLARE
+1. The V7.4.1 reliability patch does not require a visual redesign. index_v7_4_1.html preserves the V7.4 frontend, background/assets, page links, backend base URL and scan-job endpoints.
+2. Rename index_v7_4_1.html to index.html when replacing the current Cloudflare/static-assets index.
+3. Leave satirwaytojoy.jpg, solutions.html, why-us.html, disclaimer.html and /vlog routing in their existing locations.
+4. Preserve the existing Cloudflare → Render API routing.
+
+AFTER DEPLOYMENT
+1. Verify https://architectural-revenue-remediation.onrender.com/health
+2. Re-run the exact Valmont URL as a real-world acceptance test.
+3. Confirm that observed Order Online / purchase evidence can resolve the journey ahead of restaurant priors, deeper location/contact evidence reaches context inference, UNKNOWN policy evidence does not become FAIL, missing sticky CTA is not a scored leak, and financial exposure is deferred whenever the journey remains provisional.
+4. Review Architect Review items before delivering paid reports.
+
+IMPORTANT
+- No new automatic failure rules were added in V7.4.1.
+- UNKNOWN still causes no failure deduction.
+- Deeper-page evidence can inform site-level journey/context without pretending it was visible on the homepage or sticky on mobile.
+- Direct Purchase does not automatically mean ecommerce goods; restaurant/service transactions are not forced into retail return/shipping expectations.
+- Paid customer reports remain gated by Architect review/final proof.

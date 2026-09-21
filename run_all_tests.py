@@ -105,8 +105,8 @@ def test_research_routing_stress() -> None:
 
 def test_main_runtime_import() -> None:
     import main as gateway
-    assert gateway.app.version == "7.5.0"
-    assert gateway.scanner.ENGINE_VERSION == "v7.5.0"
+    assert gateway.app.version == "7.7.1"
+    assert gateway.scanner.ENGINE_VERSION == "v7.7.1-tcea-commercial-evidence-stable"
     assert gateway.PLAN_CATALOG["essential_350"]["remediation_limit"] == 4
     assert gateway.PLAN_CATALOG["advanced_550"]["remediation_limit"] == 8
 
@@ -700,7 +700,7 @@ def test_customer_methodology_boundary() -> None:
 
 def main() -> int:
     print("=" * 70)
-    print(" TRILLOKA V7.5.0 OUTCOME-INTELLIGENCE + PROPRIETARY-BOUNDARY SUITE ")
+    print(" TRILLOKA V7.7.1 TCEA COMMERCIAL-EVIDENCE + PROPRIETARY-BOUNDARY SUITE ")
     print("=" * 70)
     checks = (
         ("Core Python compile + warnings-as-errors", test_compile),

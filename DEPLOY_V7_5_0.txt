@@ -1,0 +1,30 @@
+TRILLOKA V7.5.0 — HIERARCHICAL PATH MARKERS
+
+BACKEND
+1. Replace the current V7.4.1 backend Python files with the V7.5.0 backend package.
+2. IMPORTANT: pathway_markers.py is a NEW required backend file and must be included.
+3. Keep your existing requirements.txt/Render build-start configuration and all environment variables.
+4. No frontend visual change is required.
+
+LOCAL VALIDATION
+python -m pytest -q
+python run_all_tests.py
+python stress_v741_reliability.py
+python stress_v740_adaptive.py
+
+Validated in this package:
+- pytest: 306 passed
+- run_all_tests.py: 39/39 passed
+- V7.4.1 reliability stress: 10,000/10,000 passed
+- V7.4 adaptive learning/commercial eligibility stress: 10,000/10,000 passed
+
+ACCEPTANCE TEST
+Re-scan https://valmontcafe.com/ and inspect:
+- business_type and business_subtype
+- differentiation_plan
+- journey_marker_resolution
+- weighted_journey_candidate (diagnostic only)
+- final journey_model
+- provisional / journey_resolved
+
+Expected policy: restaurant language is identity evidence only. Order/Cart/Checkout evidence must outrank reservation priors. If only an Order action is verified but progression/terminal proof is not observed, Direct Purchase may be the leading path but financial modeling remains provisional until stronger path evidence is collected.
