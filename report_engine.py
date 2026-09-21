@@ -25,6 +25,8 @@ from architecture_model import BUSINESS_TYPE_LABELS, JOURNEY_LABELS, CONTEXT_LAB
 from remediation_intelligence import build_outcome_remediation, contextualize_finding, remediation_knowledge_stats
 
 
+from journey_presentation import build_journey_summary, render_journey_card, customer_action
+
 class ReportGenerator:
     def __init__(self):
         self.resend_api_key = os.environ.get("RESEND_API_KEY", "")
@@ -33,7 +35,7 @@ class ReportGenerator:
         self.vault_dir = os.environ.get("VAULT_DIR", "./vault_archives")
 
     def generate_admin_master_report(self, audit_data: Dict[str, Any], scan_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create the V7.5.3 evidence-first, outcome-guided, Architect-escalated master report.
+        """Create the evidence-first, outcome-guided, Architect-escalated master report.
 
         Verified leaks are never padded to a fixed count. Unknowns, strengths and optional future
         optimization ideas are stored in separate sections so a passing checkpoint cannot be
@@ -91,7 +93,7 @@ class ReportGenerator:
         journey_model = str(business_profile.get("journey_model") or audit.get("journey_model") or "general")
 
         return {
-            "report_type": "ADMIN_LEAD_ALERT_V7_5_3",
+            "report_type": "ADMIN_LEAD_ALERT_V7_8_1",
             "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "target_domain": audit.get("target_domain", scan.get("domain", "Unknown")),
             "business_type": business_type,
@@ -101,6 +103,9 @@ class ReportGenerator:
             "business_subtype_label": business_profile.get("business_subtype_label"),
             "business_subtype_confidence": business_profile.get("business_subtype_confidence"),
             "journey_marker_resolution": business_profile.get("journey_marker_resolution") or {},
+            "journey_summary": build_journey_summary(business_profile),
+            "weighted_journey_candidate": business_profile.get("weighted_journey_candidate"),
+            "weighted_journey_candidate_confidence": business_profile.get("weighted_journey_candidate_confidence"),
             "business_profile": business_profile,
             "architecture_profile": business_profile,
             "journey_model": journey_model,
@@ -109,7 +114,7 @@ class ReportGenerator:
             "public_journey_map": {
                 "entry": "Visitor arrives from search, ads, social, referral or direct navigation.",
                 "path": str(business_profile.get("journey_label") or JOURNEY_LABELS.get(journey_model, "Customer journey")),
-                "primary_action": str(business_profile.get("primary_conversion") or "Primary customer action"),
+                "primary_action": customer_action(business_profile.get("primary_conversion")),
                 "decision_points": ["clarity", "trust", "proof", "friction", "technical reliability"],
                 "outcome": "The business outcome the public website is trying to create.",
                 "note": "Public-safe journey explanation only; proprietary inference signals and exact weighting remain private.",
@@ -122,6 +127,18 @@ class ReportGenerator:
             "score_scope": audit.get("score_scope", ""),
             "evidence_confidence": audit.get("evidence_confidence") or {},
             "maturity_gate": audit.get("maturity_gate") or {},
+            "commercial_evidence_architecture": audit.get("commercial_evidence_architecture") or {},
+            "leak_taxonomy": self._build_leak_taxonomy(verified_findings),
+            "methodology_explanation": {
+                "name": "Trilloka Commercial Evidence Architecture (TCEA)",
+                "reasoning": ["Discover the live site", "Route by business context and observed capabilities", "Probe the most informative commercial surfaces", "Prove real customer paths", "Judge only applicable Commercial Minimums", "Improve from Architect-confirmed outcomes"],
+                "finding_gate": ["WHAT is wrong?", "WHERE is it?", "WHO is affected?", "AT WHICH decision point?", "WHY could it reduce conversion?", "WHAT site evidence proves the condition?", "WHAT external/research evidence supports commercial relevance?"],
+                "evidence_separation": {
+                    "site": "Proves what exists or fails on the current website.",
+                    "measurement": "Google/CrUX/Places or safe external telemetry corroborates measured behavior when available.",
+                    "research": "Explains why an already-observed condition may matter; it never proves the site condition."
+                },
+            },
             "vault_id": audit.get("vault_id", ""),
             "estimated_revenue_leak": revenue_display,
             "revenue_exposure": audit.get("revenue_leak") or {},
@@ -1287,6 +1304,31 @@ class ReportGenerator:
             + breakdown_text
         )
 
+    @staticmethod
+    def _build_leak_taxonomy(findings: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Public-safe distinction between commercial leak mechanisms."""
+        labels = {
+            "acquisition": "Acquisition Leak", "understanding": "Understanding Leak",
+            "evaluation": "Evaluation Leak", "trust": "Trust Leak", "friction": "Friction Leak",
+            "continuity": "Continuity Leak", "completion": "Completion Leak",
+            "expectation": "Expectation Leak", "reliability": "Reliability Leak",
+            "measurement": "Measurement Leak",
+        }
+        grouped = {}
+        for item in findings or []:
+            key = str(item.get("leak_class") or "reliability")
+            grouped.setdefault(key, []).append({
+                "finding": item.get("leak_name"), "decision_point": item.get("decision_point"),
+                "causal_mechanism": item.get("causal_mechanism"),
+                "priority_index": item.get("commercial_leak_priority_index"),
+                "confidence": item.get("confidence"),
+            })
+        return {
+            "classes_present": [{"key": k, "label": labels.get(k, k.replace("_", " ").title()), "count": len(v)} for k,v in grouped.items()],
+            "findings_by_class": grouped,
+            "policy": "Leak classes describe the mechanism by which verified website conditions may suppress commercial value; they are not claims of measured lost revenue.",
+        }
+
     def send_admin_alert_email(self, admin_report: Dict[str, Any]) -> bool:
         if not self.resend_api_key:
             print("[Email] RESEND_API_KEY not configured — skipping email")
@@ -1367,8 +1409,11 @@ class ReportGenerator:
         return False
 
     def _build_email_html(self, report: Dict[str, Any]) -> str:
-        """Render the V7.5.3 plain-language report used in email and the HTML attachment."""
+        """Render the current-engine plain-language report used in email and the HTML attachment."""
         report = report or {}
+        engine_version = str(report.get("scanner_engine_version") or "unknown").strip()
+        engine_core = engine_version.removeprefix("v").removeprefix("V").split("-", 1)[0]
+        engine_label = f"V{engine_core}" if engine_core and engine_core.lower() != "unknown" else "VERSION UNKNOWN"
 
         def esc(value: Any) -> str:
             return html.escape(str(value if value is not None else ""))
@@ -1491,27 +1536,7 @@ class ReportGenerator:
                 '</p></div>'
             )
 
-        public_map = report.get("public_journey_map") if isinstance(report.get("public_journey_map"), dict) else {}
-        if public_map:
-            journey_map_html = (
-                '<div style="background:#111827;border-radius:14px;padding:18px;margin:18px 0;color:#F8FAFC;">'
-                '<div style="font:700 10px Inter,sans-serif;color:#D8B66A;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:10px;">HOW TRILLOKA READ THIS WEBSITE</div>'
-                '<div style="font:700 20px Georgia,serif;margin-bottom:12px;">Public customer-journey map</div>'
-                '<div style="font:12px/1.7 Inter,sans-serif;color:#D1D5DB;">'
-                f'<strong style="color:#fff;">1. Entry:</strong> {esc(public_map.get("entry"))}<br>'
-                f'<strong style="color:#fff;">2. Journey:</strong> {esc(public_map.get("path"))}<br>'
-                f'<strong style="color:#fff;">3. Primary action:</strong> {esc(public_map.get("primary_action"))}<br>'
-                '<strong style="color:#fff;">4. Decision points:</strong> clarity, trust, proof, friction and technical reliability<br>'
-                f'<strong style="color:#fff;">5. Outcome:</strong> {esc(public_map.get("outcome"))}<br>'
-                f'<strong style="color:#fff;">Subtype:</strong> {esc(report.get("business_subtype_label") or report.get("business_subtype") or "Not confidently resolved")}<br>'
-                f'<strong style="color:#fff;">Customer-path authority:</strong> {esc((report.get("journey_marker_resolution") or {}).get("status") or "UNVERIFIED")} '
-                f'({esc((report.get("journey_marker_resolution") or {}).get("path_completeness") or "0/3")})'
-                '</div>'
-                '<p style="font:11px/1.55 Inter,sans-serif;color:#9CA3AF;margin:12px 0 0;">This shows the public logic used to explain the audit. Exact inference signals, weights and calibration rules remain proprietary.</p>'
-                '</div>'
-            )
-        else:
-            journey_map_html = ''
+        journey_map_html = render_journey_card(report.get("architecture_profile") or report.get("business_profile") or report)
 
         finding_cards = []
         for idx, item in enumerate(report.get("verified_revenue_findings") or [], 1):
@@ -1645,7 +1670,7 @@ class ReportGenerator:
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trilloka Revenue Readiness Audit — {domain}</title></head>
 <body style="margin:0;background:#F4F1EB;padding:0;">
 <main style="max-width:920px;margin:0 auto;background:#FCFBF8;padding:32px 24px 60px;">
-  <div style="font:700 11px Inter,sans-serif;color:#9A7A31;letter-spacing:1.5px;text-transform:uppercase;">TRILLOKA TELEMETRY & EXECUTIVE AUDIT — V7.5.3</div>
+  <div style="font:700 11px Inter,sans-serif;color:#9A7A31;letter-spacing:1.5px;text-transform:uppercase;">TRILLOKA TELEMETRY & EXECUTIVE AUDIT — {esc(engine_label)}</div>
   <h1 style="font:700 34px Georgia,serif;color:#111827;margin:8px 0 8px;">Revenue Readiness Audit</h1>
   <p style="font:13px Inter,sans-serif;color:#6B7280;margin:0 0 22px;">Target: <strong>{domain}</strong> &nbsp;•&nbsp; Vault ID: <strong>{vault_id}</strong></p>
 

@@ -1,4 +1,4 @@
-"""Trilloka V7.5 hierarchical business/subtype + customer-path marker engine.
+"""Trilloka V7.7 evidence-scoped customer-path marker engine.
 
 Classification narrows what to inspect; it does not decide the journey. Journey resolution is
 proof/sequence based, with terminal/progression evidence outranking semantic language and priors.
@@ -46,13 +46,13 @@ BUSINESS_JOURNEY_CANDIDATES: Dict[str, Tuple[str,...]] = {
 # Journey grammar. Marker tiers: semantic(1), page/action(2-3), progression(4), terminal(5).
 JOURNEY_GRAMMAR: Dict[str, Dict[str, Tuple[str,...]]] = {
  "local_visit":{"action":("directions","visit_location"),"progression":("menu","hours","location"),"terminal":()},
- "direct_purchase":{"action":("order","buy","add_to_cart"),"progression":("add_to_cart","cart","product_selection"),"terminal":("checkout","payment","order_confirmation")},
- "reservation_event":{"action":("reserve","reservation","book_table","book_room","book_event"),"progression":("party_size","guests","date","time","availability"),"terminal":("booking_confirmation","reservation_confirmation","payment")},
+ "direct_purchase":{"action":("order","buy","add_to_cart"),"progression":("add_to_cart","cart","product_selection","checkout","payment"),"terminal":("order_confirmation",)},
+ "reservation_event":{"action":("reserve","reservation","book_table","book_room","book_event"),"progression":("party_size","guests","date","time","availability","payment"),"terminal":("booking_confirmation","reservation_confirmation")},
  "appointment_consultation":{"action":("book","schedule","consultation","appointment"),"progression":("service_selection","provider_selection","date","time","availability"),"terminal":("appointment_confirmation","booking_confirmation")},
  "lead_quote":{"action":("quote","contact","estimate","enquire"),"progression":("requirements","contact_fields","project_details","budget","upload"),"terminal":("form_submission","request_sent","quote_request")},
  "demo_sales":{"action":("demo","trial","contact_sales"),"progression":("company","team_size","work_email","schedule"),"terminal":("demo_confirmation","trial_activation","form_submission")},
- "membership_subscription":{"action":("subscribe","join","membership"),"progression":("plan_selection","account","billing"),"terminal":("payment","subscription_confirmation","account_activation")},
- "donation_support":{"action":("donate","support"),"progression":("amount","donor_details","frequency"),"terminal":("payment","donation_confirmation")},
+ "membership_subscription":{"action":("subscribe","join","membership"),"progression":("plan_selection","account","billing","payment"),"terminal":("subscription_confirmation","account_activation")},
+ "donation_support":{"action":("donate","support"),"progression":("amount","donor_details","frequency","payment"),"terminal":("donation_confirmation",)},
  "application_enrollment":{"action":("apply","register","enroll","enrol"),"progression":("eligibility","application_fields","documents","program_selection"),"terminal":("application_submission","registration_confirmation","enrollment_confirmation")},
 }
 
@@ -89,62 +89,139 @@ def infer_subtype(data: Mapping[str,Any], business_type:str)->Dict[str,Any]:
     return {"subtype":subtype if n else "unresolved","subtype_label":(subtype if n else "unresolved").replace("_"," ").title(),"confidence":round(conf,2),"signals":hits[:8],"candidates":{s:c for c,s,_ in ranked[:5]}}
 
 def _observed_markers(data:Mapping[str,Any])->Dict[str,List[Dict[str,Any]]]:
-    out:Dict[str,List[Dict[str,Any]]]={}
-    def add(key,authority,source,detail=""):
-        out.setdefault(key,[]).append({"authority":authority,"source":source,"detail":detail or key})
-    actions=set(str(x).lower() for x in (data.get("mobile_cta_types") or []))|set(str(x).lower() for x in (data.get("journey_action_types") or []))
-    for a in actions:
-        if a in ACTION_ALIASES:add(ACTION_ALIASES[a],3,"observed_action",a)
-    bools={"add_to_cart_visible":"add_to_cart","checkout_context_detected":"checkout","order_online_present":"order","reservation_present":"reserve","booking_action_present":"book","directions_present":"directions"}
-    for field,m in bools.items():
-        if data.get(field) is True:add(m,4 if m in {"add_to_cart","checkout"} else 3,"verified_site_evidence",field)
-    text=_all_text(data)
-    explicit_action_phrases = {
-        "quote": ("request a quote", "get a quote", "free estimate", "request a proposal"),
-        "contact": ("contact us", "contact our", "get in touch"),
-        "book": ("book a consultation", "book consultation", "book appointment", "schedule appointment", "schedule a showing"),
-        "reserve": ("reserve a table", "book a table", "make a reservation"),
-        "order": ("order online", "order now", "order today"),
-        "buy": ("buy now", "purchase now"), "demo": ("request a demo", "book a demo"),
-        "trial": ("start free trial", "start a trial"), "subscribe": ("subscribe now", "start subscription"),
-        "join": ("join now", "become a member"), "donate": ("donate now", "make a donation"),
-        "apply": ("apply now", "start application"), "register": ("register now", "registration"),
-        "enroll": ("enroll now", "enrol now"),
-    }
-    for marker, phrases in explicit_action_phrases.items():
-        hits=[p for p in phrases if p in text]
-        if hits:add(marker,3,"explicit_action_text",hits[0])
-    for marker,phrases in TEXT_MARKERS.items():
-        hits=[p for p in phrases if p in text]
-        if hits:add(marker,4 if marker not in {"payment","order_confirmation","booking_confirmation","reservation_confirmation","appointment_confirmation","demo_confirmation","trial_activation","subscription_confirmation","account_activation","donation_confirmation","application_submission","registration_confirmation","enrollment_confirmation"} else 5,"page_text",hits[0])
-    # A physical address alone is identity/location evidence, not proof of a customer path.
-    # Resolve a visit action only when location is corroborated by another current-site
-    # visit-planning signal such as hours, menu or directions.
+    """Bridge crawler receipts without manufacturing successful customer outcomes."""
+    from urllib.parse import urlparse, urljoin, urlunparse
+    out = {}
+    def parse_url(value):
+        try:
+            return urlparse(str(value or ""))
+        except ValueError:
+            return urlparse("")
+    def safe_url(value):
+        p = parse_url(value)
+        # Receipts retain the location, never URL credentials, query tokens or fragments.
+        return urlunparse((p.scheme, p.netloc.rsplit("@", 1)[-1], p.path, "", "", ""))
+    def verified_page(page):
+        if not isinstance(page, Mapping) or page.get("verified") is not True:
+            return False
+        status = page.get("status_code")
+        if status is None:
+            return True  # Older verified receipts omitted the HTTP code.
+        try:
+            return 200 <= int(status) < 400
+        except (TypeError, ValueError, OverflowError):
+            return False
+    def add(key, authority, source, detail="", source_url="", destination_url="", journey=None):
+        receipt = {"authority": authority, "source": source, "detail": detail or key,
+                   "source_url": safe_url(source_url), "destination_url": safe_url(destination_url)}
+        if journey: receipt["journey_model"] = journey
+        if receipt not in out.setdefault(key, []): out[key].append(receipt)
+    base = str(data.get("final_url") or data.get("url") or data.get("domain") or "")
+    for a in list(data.get("mobile_cta_types") or []) + list(data.get("journey_action_types") or []):
+        if str(a).lower() in ACTION_ALIASES:
+            add(ACTION_ALIASES[str(a).lower()], 3, "observed_action", str(a), base)
+    bools = {"add_to_cart_visible":"add_to_cart", "checkout_context_detected":"checkout",
+             "order_online_present":"order", "reservation_present":"reserve",
+             "booking_action_present":"book", "directions_present":"directions"}
+    for field, marker in bools.items():
+        if data.get(field) is True: add(marker, 3, "verified_site_evidence", field, base)
+    pages = [p for p in data.get("journey_pages_scanned") or [] if verified_page(p)]
+    receipts = list(data.get("static_cta_evidence") or []) + list(data.get("journey_action_evidence") or []) + list(data.get("mobile_cta_evidence") or [])
+    for page in pages:
+        for receipt in page.get("static_cta_evidence") or []:
+            if isinstance(receipt, Mapping): receipts.append({**receipt, "source_url": page.get("url")})
+        for a in page.get("cta_types") or []:
+            if a in ACTION_ALIASES: add(ACTION_ALIASES[a], 3, "observed_action", a, page.get("url"))
+        for field, marker in bools.items():
+            if page.get(field) is True: add(marker, 3, "verified_site_evidence", field, page.get("url"))
+    for provider in data.get("booking_provider_links") or []:
+        if isinstance(provider, Mapping):
+            receipts.append({"source_url": provider.get("source_url") or base,
+                             "href": provider.get("url"), "type": provider.get("action_type"),
+                             "text": provider.get("label")})
+    for receipt in receipts:
+        if not isinstance(receipt, Mapping) or receipt.get("verified") is False: continue
+        source_url = str(receipt.get("source_url") or receipt.get("url") or base)
+        raw_dest = str(receipt.get("destination_url") or receipt.get("href") or "")
+        try:
+            dest = urljoin(source_url, raw_dest)
+        except ValueError:
+            dest = ""
+        actions = receipt.get("action_types") or [receipt.get("type") or receipt.get("action_type")]
+        if isinstance(actions, str): actions = [actions]
+        for action in actions:
+            marker = ACTION_ALIASES.get(str(action or "").lower())
+            if not marker: continue
+            add(marker, 3, "observed_action", str(receipt.get("text") or marker), source_url, dest)
+            sp, dp = parse_url(source_url), parse_url(dest)
+            # An observed outbound conversion CTA proves a handoff exists, not that it works.
+            # Internal links require destination-page evidence; anchors/empty links never advance a path.
+            if raw_dest and dp.scheme in {"http", "https"} and sp.hostname and dp.hostname and sp.hostname != dp.hostname:
+                for journey, grammar in JOURNEY_GRAMMAR.items():
+                    if marker in grammar["action"]:
+                        add("external_handoff", 4, "observed_conversion_handoff", "External action destination observed; completion not tested", source_url, dest, journey)
+    allowed = {"commerce_conversion","booking","contact_or_lead","evaluation","application","membership","donation","product","pricing","location"}
+    progression = {m for g in JOURNEY_GRAMMAR.values() for m in g["progression"]}
+    for page in pages:
+        role = str(page.get("page_role") or page.get("role") or "")
+        if role not in allowed: continue
+        text = str(page.get("page_text_sample") or page.get("visible_text") or "").lower()
+        # Outcome text alone is never a terminal receipt: FAQs and templates mention confirmations.
+        for marker in progression:
+            hits = [phrase for phrase in TEXT_MARKERS.get(marker, ()) if re.search(r"(?<!\w)"+re.escape(phrase)+r"(?!\w)", text)]
+            if hits:
+                role_paths = {"commerce_conversion":("direct_purchase",), "product":("direct_purchase",),
+                    "booking":("reservation_event","appointment_consultation"),
+                    "contact_or_lead":("lead_quote","demo_sales"), "application":("application_enrollment",),
+                    "membership":("membership_subscription",), "donation":("donation_support",),
+                    "pricing":("membership_subscription","direct_purchase","demo_sales"),
+                    "location":("local_visit",), "evaluation":("local_visit",)}
+                for journey in role_paths.get(role, ()):
+                    if marker in JOURNEY_GRAMMAR[journey]["progression"]:
+                        add(marker, 4, "verified_journey_page", hits[0], page.get("url"), journey=journey)
+    if data.get("forms_present") is True and data.get("form_action_valid") is True:
+        add("contact_fields", 4, "verified_form_structure", "Contact form structure observed", base, journey="lead_quote")
     if data.get("address_location_visible") is True and any(k in out for k in ("hours","menu","directions")):
-        add("visit_location",3,"composite_site_evidence","verified location + visit-planning evidence")
+        add("visit_location", 3, "composite_site_evidence", "Location and visit-planning evidence observed", base)
+    # Trusted internal receipts only; scanner does not create these by submitting live forms/orders.
+    for receipt in data.get("verified_outcome_receipts") or []:
+        if not isinstance(receipt, Mapping): continue
+        journey, marker = receipt.get("journey_model"), receipt.get("marker")
+        if (journey in JOURNEY_GRAMMAR and marker in JOURNEY_GRAMMAR[journey]["terminal"]
+            and receipt.get("verified") is True and receipt.get("outcome_observed") is True
+            and receipt.get("source_url") and receipt.get("collection_method") in {"authorized_outcome_verification", "architect_verified_outcome"}):
+            add(marker, 5, "verified_outcome_receipt", "Outcome independently verified", receipt["source_url"], journey=journey)
     return out
 
 def resolve_journeys(data:Mapping[str,Any],business_type:str)->Dict[str,Any]:
-    obs=_observed_markers(data); candidates=BUSINESS_JOURNEY_CANDIDATES.get(business_type,BUSINESS_JOURNEY_CANDIDATES["general"])
+    obs=_observed_markers(data)
+    candidates=list(BUSINESS_JOURNEY_CANDIDATES.get(business_type,BUSINESS_JOURNEY_CANDIDATES["general"]))
+    # Classification prioritizes discovery; observed actions can establish paths outside its priors.
+    for j, grammar in JOURNEY_GRAMMAR.items():
+        if j not in candidates and any(m in obs for m in grammar["action"]): candidates.append(j)
     results=[]
     for j in candidates:
-        g=JOURNEY_GRAMMAR[j]; found={stage:[m for m in g[stage] if m in obs] for stage in ("action","progression","terminal")}
+        g=JOURNEY_GRAMMAR[j]; found={stage:[m for m in g[stage] if any(e.get("journey_model",j)==j for e in obs.get(m,[]))] for stage in ("action","progression","terminal")}
+        if any(e.get("journey_model")==j for e in obs.get("external_handoff",[])):
+            found["progression"].append("external_handoff")
         terminal=bool(found["terminal"]); progression=bool(found["progression"]); action=bool(found["action"])
         # Authority dominates quantity. Semantic/business priors are deliberately absent here.
-        authority=5 if terminal else 4 if progression and action else 3 if action else 2 if progression else 0
+        authority=5 if terminal and progression and action else 4 if progression and action else 3 if action else 2 if progression else 0
         completeness=(1 if action else 0)+(1 if progression else 0)+(1 if terminal else 0)
         observed_action_bonus = 0
         for marker in found["action"]:
             if any(e.get("source") == "observed_action" for e in obs.get(marker, [])):
                 observed_action_bonus += 35
         strength=authority*100+completeness*20+min(15,5*sum(len(v) for v in found.values()))+observed_action_bonus
-        status="VERIFIED" if terminal else "STRONGLY_SUPPORTED" if authority==4 else "SUPPORTED" if authority==3 else "HYPOTHESIS"
+        status="VERIFIED" if terminal and progression and action else "STRONGLY_SUPPORTED" if authority==4 else "SUPPORTED" if authority==3 else "HYPOTHESIS"
         results.append({"journey_model":j,"authority":authority,"status":status,"completeness":f"{completeness}/3","strength":strength,"markers":found})
-    results.sort(key=lambda x:(-x["strength"],x["journey_model"]))
+    results.sort(key=lambda x:(-x["authority"],-int(x["completeness"].split("/")[0]),-x["strength"],x["journey_model"]))
     top=results[0] if results else {"journey_model":"general","authority":0,"strength":0,"status":"HYPOTHESIS","completeness":"0/3","markers":{}}
     # No explicit action/progression proof => unresolved. Business type only tells crawler what to seek.
-    resolved=top["authority"]>=3
-    return {"journey_model":top["journey_model"] if resolved else "general","resolved":resolved,"authority":top["authority"],"status":top["status"] if resolved else "UNVERIFIED","path_completeness":top["completeness"],"proof":top["markers"],"ranked_paths":results,"observed_markers":obs,"candidate_journeys":list(candidates)}
+    supported=[r for r in results if r["authority"]>=4 and r["markers"]["action"] and r["markers"]["progression"]]
+    ambiguous = len(supported)>1 and (supported[0]["authority"], supported[0]["completeness"]) == (supported[1]["authority"], supported[1]["completeness"])
+    resolved=bool(top["authority"]>=3 and not ambiguous)
+    return {"journey_model":top["journey_model"] if resolved else "general","resolved":resolved,"authority":top["authority"],"status":top["status"] if top["authority"] else "UNVERIFIED","path_completeness":top["completeness"],"proof":top["markers"],"ranked_paths":results,"observed_markers":obs,"candidate_journeys":list(candidates),"primary_ordering_ambiguous":ambiguous,"architect_review_required":not resolved or top["authority"]<4,"best_supported_journey":top["journey_model"] if top["authority"] else "general"}
 
 def build_differentiation_plan(data:Mapping[str,Any],business_type:str)->Dict[str,Any]:
     subtype=infer_subtype(data,business_type); paths=resolve_journeys(data,business_type)

@@ -155,8 +155,8 @@ def test_research_stats_are_exposed_in_combined_knowledge_stats():
     assert combined["research_business_categories"] == 18
 
 
-def test_v735_engine_version():
-    assert HybridScanner.ENGINE_VERSION == "v7.5.0"
+def test_v771_engine_version():
+    assert HybridScanner.ENGINE_VERSION == "v7.8.1-universal-path-refinement"
 
 
 def test_rule_level_attribution_is_precise_not_all_pack_sources():

@@ -148,8 +148,8 @@ def test_business_concept_observation_is_non_scoring_and_type_specific(business_
     assert "not a scored failure" in result["policy"].lower()
 
 
-def test_engine_version_is_v735():
-    assert HybridScanner.ENGINE_VERSION == "v7.5.0"
+def test_engine_version_is_v771():
+    assert HybridScanner.ENGINE_VERSION == "v7.8.1-universal-path-refinement"
 
 
 def test_randomized_business_phrase_resilience_across_all_types():

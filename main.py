@@ -42,6 +42,10 @@ from pydantic import BaseModel, EmailStr
 
 from admin_auth import AdminAuthError, AdminAuthManager
 from hybrid_scanner import HybridScanner
+
+# Single source of truth for deployed scanner/API version labels.
+SCANNER_ENGINE_VERSION = getattr(HybridScanner, "ENGINE_VERSION", "unknown")
+API_VERSION = (SCANNER_ENGINE_VERSION.removeprefix("v").split("-", 1)[0] if SCANNER_ENGINE_VERSION != "unknown" else "7.8.1")
 from network_security import NetworkTargetError, validate_public_http_url
 from scan_access import AccessDenied, AccessTicket, PLAN_CATALOG, ScanAccessManager
 from scorer import RevenueScorer
@@ -108,7 +112,7 @@ _PROTECTED_DOMAIN_ROOTS = tuple(
 app = FastAPI(
     title="Trilloka Architect Engine API",
     description="Evidence-weighted Revenue Readiness Diagnostic, local competitor benchmark & tiered report gateway",
-    version="7.5.3",
+    version=API_VERSION,
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -137,6 +141,8 @@ admin_auth = AdminAuthManager()
 # signals or tie-break logic.  Admin/Vault data remains complete for debugging,
 # reproducibility and Architect review.  Public API keys stay backward-compatible.
 
+from journey_presentation import build_journey_summary, customer_action
+
 def _public_architecture_profile(profile: Dict[str, Any] | None) -> Dict[str, Any]:
     src = profile if isinstance(profile, dict) else {}
     safe_secondary = []
@@ -151,16 +157,21 @@ def _public_architecture_profile(profile: Dict[str, Any] | None) -> Dict[str, An
             safe_secondary.append(item)
     return {
         "model_basis": "business_type_journey_context",
+        "journey_summary": build_journey_summary(src),
         "business_type": src.get("business_type") or src.get("vertical") or "general",
         "business_type_label": src.get("business_type_label") or "General / Unresolved Business",
         "business_type_confidence": src.get("business_type_confidence"),
         "business_type_source": src.get("business_type_source"),
+        "business_subtype": src.get("business_subtype"),
+        "business_subtype_label": src.get("business_subtype_label"),
+        "business_subtype_confidence": src.get("business_subtype_confidence"),
+        "business_subtype_role": "inspection_modifier",
         "journey_model": src.get("journey_model") or "general",
         "journey_label": src.get("journey_label") or "General / Unresolved Journey",
         "confidence": src.get("confidence"),
         "provisional": bool(src.get("provisional")),
         "journey_resolved": bool(src.get("journey_resolved")) if src.get("journey_resolved") is not None else not bool(src.get("provisional")),
-        "primary_conversion": src.get("primary_conversion"),
+        "primary_conversion": customer_action(src.get("primary_conversion")),
         "secondary_conversions": list(src.get("secondary_conversions") or []),
         "secondary_journeys": safe_secondary,
         "context_tags": list(src.get("context_tags") or []),
@@ -284,6 +295,7 @@ def _protect_methodology_for_customer(payload: Dict[str, Any]) -> Dict[str, Any]
     result = copy.deepcopy(payload)
     profile = result.get("architecture_profile") or result.get("business_profile") or {}
     safe_profile = _public_architecture_profile(profile)
+    result["journey_summary"] = build_journey_summary(profile)
     result["architecture_profile"] = safe_profile
     result["business_profile"] = copy.deepcopy(safe_profile)
     if "score_formula" in result:
@@ -661,7 +673,7 @@ def _build_self_snapshot(
         "snapshot_source": "owner_controlled_v7_self_scan",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "target_domain": target_domain,
-        "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.2.2"),
+        "scanner_engine_version": scan_data.get("scanner_engine_version", SCANNER_ENGINE_VERSION),
         "overall_score": score,
         "score_rating": audit_results.get("score_rating", ""),
         "score_scope": audit_results.get("score_scope", "Observable website Revenue Readiness only."),
@@ -743,6 +755,7 @@ def handle_trilloka_guardrail(target_domain: str) -> Optional[Dict[str, Any]]:
             "seo_health_index": public_snapshot.get("seo_health_index") if has_snapshot else None,
             "ai_spectrum_pct": public_snapshot.get("ai_spectrum_pct") if has_snapshot else None,
             "online_presence_index": public_snapshot.get("online_presence_index") if has_snapshot else None,
+            "conversion_path_readiness": public_snapshot.get("conversion_path_readiness", public_snapshot.get("conversion_efficiency")) if has_snapshot else None,
             "conversion_efficiency": public_snapshot.get("conversion_efficiency") if has_snapshot else None,
             "common_foundation_index": public_snapshot.get("common_foundation_index") if has_snapshot else None,
             "adaptive_architecture_index": public_snapshot.get("adaptive_architecture_index") if has_snapshot else None,
@@ -777,7 +790,7 @@ def handle_trilloka_guardrail(target_domain: str) -> Optional[Dict[str, Any]]:
 def health_check() -> Dict[str, Any]:
     return {
         "status": "online",
-        "system": "Trilloka Architect Engine v7.5.2",
+        "system": f"Trilloka Architect Engine {SCANNER_ENGINE_VERSION}",
         "google_api_configured": bool(os.environ.get("PAGESPEED_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
         "places_api_configured": bool(os.environ.get("GOOGLE_PLACES_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("PAGESPEED_API_KEY")),
         "report_engine": REPORT_ENGINE_AVAILABLE,
@@ -1564,6 +1577,19 @@ def _base_success_payload(
         },
         "surface_metrics": audit_results.get("surface_metrics", {}),
         "competitor_benchmark": audit_results.get("competitor_benchmark", {}),
+        # Backward-compatible public diagnostic lane. This contains only surface/search/
+        # peer measurements and no proprietary commercial finding identities.
+        "public_free_diagnostics": {
+            "seo_health_index": (audit_results.get("surface_metrics") or {}).get("seo_health_index"),
+            "seo_health_available": (audit_results.get("surface_metrics") or {}).get("seo_health_available"),
+            "common_foundation_index": (audit_results.get("surface_metrics") or {}).get("common_foundation_index"),
+            "performance_index": (audit_results.get("surface_metrics") or {}).get("performance_index"),
+            "mobile_index": (audit_results.get("surface_metrics") or {}).get("mobile_index"),
+            "competitor_benchmark": audit_results.get("competitor_benchmark", {}),
+            "competitor_data_available": (audit_results.get("surface_metrics") or {}).get("competitor_data_available"),
+            "competitor_gap_score": (audit_results.get("surface_metrics") or {}).get("competitor_gap_score"),
+            "policy": "Public/free diagnostics show foundation, search and relevance-gated competitor context. Verified commercial leak identities, evidence receipts, causal scoring and remediation remain protected.",
+        },
         "key_friction_insight": audit_results.get("key_friction_insight", {}),
         "revenue_leak": audit_results.get("revenue_leak", {}),
         "cms_platform": audit_results.get("cms_platform", "Not confidently identified"),
@@ -1575,11 +1601,18 @@ def _base_success_payload(
         "business_type": audit_results.get("business_type", (audit_results.get("architecture_profile") or {}).get("business_type", "general")),
         "business_type_label": audit_results.get("business_type_label", (audit_results.get("architecture_profile") or {}).get("business_type_label", "General / Unresolved Business")),
         "business_type_confidence": audit_results.get("business_type_confidence", (audit_results.get("architecture_profile") or {}).get("business_type_confidence")),
+        "business_subtype": audit_results.get("business_subtype", (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("business_subtype")),
+        "business_subtype_label": audit_results.get("business_subtype_label", (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("business_subtype_label")),
+        "business_subtype_confidence": audit_results.get("business_subtype_confidence", (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("business_subtype_confidence")),
+        "business_subtype_role": "inspection_modifier",
         "journey_model": (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("journey_model", "general"),
         "journey_label": (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("journey_label", "General / Unresolved Journey"),
         "secondary_journeys": (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("secondary_journeys", []),
         "context_tags": (audit_results.get("architecture_profile") or audit_results.get("business_profile") or {}).get("context_tags", []),
         "commercial_architecture_diagnostics": scan_data.get("commercial_architecture_diagnostics", {}),
+        # Keep full TCEA metadata available to paid/internal consumers. The free access
+        # branch removes it before returning the public response.
+        "commercial_evidence_architecture": audit_results.get("commercial_evidence_architecture", {}),
         "public_content_hygiene": scan_data.get("public_content_hygiene", {}),
         "commercial_eligibility": scan_data.get("commercial_eligibility", {}),
         "architect_review_queue": audit_results.get("architect_review_queue", []),
@@ -1603,7 +1636,7 @@ def _base_success_payload(
         "verification_coverage_note": (admin_master_report or {}).get("verification_coverage_note", ""),
         # Kept in protected server cache. Free responses strip this; paid responses expose all 50.
         "full_50_checkpoint_basis": audit_results.get("full_50_checkpoint_basis", []),
-        "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.2.2"),
+        "scanner_engine_version": scan_data.get("scanner_engine_version", SCANNER_ENGINE_VERSION),
         "evidence_receipts": audit_results.get("evidence_receipts", []),
         "high_impact_confirmation": audit_results.get("high_impact_confirmation", {}),
         "unconfirmed_high_impact_observations": audit_results.get("unconfirmed_high_impact_observations", []),
@@ -1704,6 +1737,41 @@ def _build_rescan_comparison(
     }
 
 
+def _public_leak_class(leak: Dict[str, Any]) -> str:
+    """Map a protected finding into a broad public class without exposing the finding identity."""
+    raw = " ".join(str(leak.get(k) or "") for k in ("leak_class", "category", "family", "rule_key")).lower()
+    if any(token in raw for token in ("trust", "proof", "review", "identity", "provider", "credib", "authority")):
+        return "TRUST"
+    if any(token in raw for token in ("delivery", "shipping", "return", "refund", "pricing", "expectation", "policy", "terms")):
+        return "EXPECTATION"
+    if any(token in raw for token in ("checkout", "cart", "conversion", "form", "booking", "reservation", "payment", "application", "completion", "primary_conversion", "continuity", "action")):
+        return "COMPLETION"
+    if any(token in raw for token in ("consistency", "contradict", "mismatch")):
+        return "CONSISTENCY"
+    if any(token in raw for token in ("measurement", "analytics", "tracking", "attribution")):
+        return "MEASUREMENT"
+    if any(token in raw for token in ("clarity", "message", "content", "heading", "h1")):
+        return "CLARITY"
+    if any(token in raw for token in ("speed", "performance", "mobile", "interaction")):
+        return "PERFORMANCE"
+    return "CUSTOMER PATH"
+
+
+def _public_commercial_diagnosis(leaks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    classes: List[str] = []
+    for leak in leaks:
+        cls = _public_leak_class(leak)
+        if cls not in classes:
+            classes.append(cls)
+        if len(classes) >= 4:
+            break
+    return {
+        "priority_gap_count": len(leaks),
+        "leak_classes": classes,
+        "detail_boundary": "exact_evidence_financial_mechanism_commercial_minimums_and_remediation_protected",
+    }
+
+
 def _preview_leak(leak: Dict[str, Any]) -> Dict[str, Any]:
     """Free preview may show the problem, not the paid patch plan."""
     allowed = {
@@ -1755,19 +1823,22 @@ def _apply_report_access(base_payload: Dict[str, Any], ticket: AccessTicket) -> 
         }
         return result
 
-    # Free keeps the public diagnostic surfaces (overall score, SEO/performance metrics,
-    # modeled competitor-gap proxy and revenue exposure), but not the identities of the
-    # verified revenue leaks or their remediation. Preserve existing response keys so the
-    # frontend layout does not need to change.
+    # Free keeps only public surface diagnostics + Google/local competitor context.
+    # Exact commercial findings, Commercial Minimum gaps, causal/financial mechanisms,
+    # detailed scoring evidence and remediation remain protected in the Vault/paid report.
+    result["public_commercial_diagnosis"] = _public_commercial_diagnosis(all_leaks)
+    result["verified_financial_leak_count"] = len(all_leaks)
     result["top_10_financial_leaks"] = []
     result["top_5_seo_leaks"] = []
-    result["key_friction_insight"] = {
-        "reason": "Detailed verified revenue findings unlock with a paid audit plan.",
-        "revenue_loss_pct": None,
-        "score_loss_points": None,
-        "rule_key": None,
-        "locked": True,
-    }
+    result.pop("key_friction_insight", None)
+    result.pop("revenue_leak", None)
+    result.pop("financial_exposure", None)
+    result.pop("dev_handoff_kit", None)
+    result.pop("commercial_architecture_diagnostics", None)
+    result.pop("commercial_evidence_architecture", None)
+    result.pop("architect_review_summary", None)
+    result.pop("rescan_comparison", None)
+    result.pop("learning_memory", None)
     result.pop("full_50_checkpoint_basis", None)
     result.pop("scoring_ledger", None)
     result.pop("overlap_adjustments", None)
@@ -1782,6 +1853,7 @@ def _apply_report_access(base_payload: Dict[str, Any], ticket: AccessTicket) -> 
         "full_50_checkpoint_data": False,
         "remediation_findings_unlocked": 0,
         "preview_findings_shown": 0,
+        "public_gap_count_shown": len(all_leaks),
         "locked_findings_count": len(all_leaks),
         "upgrade_required_for_patch_plan": True,
     }
@@ -1884,7 +1956,7 @@ async def _execute_reserved_scan(
                 "status": "not_commercial_target",
                 "target_domain": payload.domain,
                 "commercial_eligibility": eligibility,
-                "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.5.3"),
+                "scanner_engine_version": scan_data.get("scanner_engine_version", SCANNER_ENGINE_VERSION),
                 "message": eligibility.get("reason") or "This site does not expose a sufficiently strong commercial/revenue journey for Trilloka Revenue Readiness scoring.",
             }
 
@@ -1904,7 +1976,7 @@ async def _execute_reserved_scan(
                 "business_type_label": profile.get("business_type_label", "General / Unresolved Business"),
                 "business_type_confidence": profile.get("business_type_confidence"),
                 "business_type_confirmation": confirmation,
-                "scanner_engine_version": scan_data.get("scanner_engine_version", "v7.5.3"),
+                "scanner_engine_version": scan_data.get("scanner_engine_version", SCANNER_ENGINE_VERSION),
                 "message": "Trilloka could not resolve the business category confidently enough for the category deep dive. Choose the closest business type and run the scan again; no score was generated and this attempt was released rather than counted as a completed scan.",
             }
 

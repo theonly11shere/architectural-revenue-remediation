@@ -14,7 +14,9 @@ def test_valmont_style_restaurant_is_resolved_from_commercial_evidence():
     }, "auto")
     assert profile["business_type"] == "restaurant"
     assert profile["business_type_confidence"] >= 0.80
-    assert profile["journey_model"] == "direct_purchase"
+    assert profile["journey_model"] == "general"
+    assert profile["weighted_journey_candidate"] in {"direct_purchase", "reservation_event"}
+    assert profile["journey_resolved"] is False
     assert "local_location_dependent" in profile["context_tags"]
 
 
@@ -25,7 +27,9 @@ def test_ecommerce_keeps_existing_direct_purchase_logic_with_more_vocabulary():
         "page_text": "Shop online. Add to bag. Secure checkout. Delivery in 4-5 working days. Returns. Customer reviews. Buy now.",
     }, "auto")
     assert profile["business_type"] == "ecommerce"
-    assert profile["journey_model"] == "direct_purchase"
+    assert profile["journey_model"] == "general"
+    assert profile["weighted_journey_candidate"] == "direct_purchase"
+    assert profile["journey_resolved"] is False
     assert "commerce_payment" in profile["context_tags"]
 
 

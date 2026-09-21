@@ -1,4 +1,4 @@
-"""Trilloka V7.6.1 scan execution protocol.
+"""Trilloka V7.7 scan execution protocol.
 
 Purpose
 -------
@@ -29,8 +29,14 @@ try:
 except Exception:  # Allows standalone validation/import.
     get_research_guidance = None
 
+try:
+    from commercial_contracts import build_commercial_contract, commercial_minimum_gap_map
+except Exception:
+    build_commercial_contract = None
+    commercial_minimum_gap_map = None
 
-PROTOCOL_VERSION = "v7.6.1-production-flow-v2"
+
+PROTOCOL_VERSION = "v7.7-tcea-production-flow-v1"
 
 BUSINESS_TYPES = (
     "ecommerce", "marketplace", "local_service", "professional_service",
@@ -313,6 +319,8 @@ class WorkflowPlan:
     research_page_guesses: List[str]
     research_concepts: Dict[str, List[str]]
     research_customer_focus: List[str]
+    commercial_contract: Dict[str, Any]
+    commercial_minimum_gap_map: List[Dict[str, Any]]
     inspection_instructions: List[str]
     common_completion_steps: List[str]
     guardrails: List[str]
@@ -462,6 +470,16 @@ def build_production_workflow(scan_or_profile: Mapping[str, Any]) -> Dict[str, A
         if isinstance(v, (list, tuple, set))
     }
 
+    commercial_contract: Dict[str, Any] = {}
+    commercial_gap_map: List[Dict[str, Any]] = []
+    if callable(build_commercial_contract):
+        try:
+            commercial_contract = build_commercial_contract(btype, subtype, subtype_focus)
+            if callable(commercial_minimum_gap_map):
+                commercial_gap_map = commercial_minimum_gap_map(commercial_contract, effective_surfaces)
+        except Exception:
+            commercial_contract, commercial_gap_map = {}, []
+
     type_decided = btype != "general" and bconf >= 0.60
     subtype_decided = bool(subtype) and subtype.lower() != "unresolved" and sconf >= 0.50
 
@@ -475,11 +493,14 @@ def build_production_workflow(scan_or_profile: Mapping[str, Any]) -> Dict[str, A
         phase = "TYPE_SPECIFIC_VERIFICATION_AND_SCORING"
 
     instructions = [
-        "Use the confirmed business type to narrow inspection priority; do not change the 50-checkpoint structure.",
-        "When a supported subtype is confidently identified, activate its subtype-specific surfaces/priorities before the broader type priorities; never manufacture a subtype or evidence.",
+        "Use the confirmed business type to establish commercial context and a Commercial Contract; do not change the 50-checkpoint structure.",
+        "Treat subtype as an inspection modifier, never as a routing gate or proof of a customer path.",
+        "Use Commercial Minimums to decide what should reasonably be inspected for this economic model; absence is eligible for a gap only after the expected surfaces have sufficient coverage.",
         "Prioritize direct observed customer-path markers over semantic/business priors when resolving the journey.",
         "Use the type's decision surfaces before generic low-value pages when the crawl budget is bounded.",
         "Use research page terms/page guesses/concepts as routing and observation instructions, not as proof that a feature exists or is missing.",
+        "Separate site evidence (what exists), external measurement evidence (how it behaves), and commercial research evidence (why an observed condition may matter).",
+        "Organize verified problems by revenue decision point and causal leak class rather than treating SEO/technical findings as automatically commercially important.",
         "Verify the actual site's dominant path before applying journey-specific negative conclusions.",
         "Keep secondary journeys as secondary unless their current-site marker authority exceeds the primary candidate.",
         "After the relevant pages/path are inspected, pass the accumulated evidence to the existing checkpoint and scoring engines unchanged.",
@@ -492,6 +513,9 @@ def build_production_workflow(scan_or_profile: Mapping[str, Any]) -> Dict[str, A
         "No research-only FAIL.",
         "No learned-memory-only finding or score change.",
         "No business-type prior may override stronger current-site path evidence.",
+        "Generic semantics may guide discovery but may not create a scored finding.",
+        "Research may support commercial relevance but may not prove a site-specific condition.",
+        "Commercial Minimum absence requires verified applicability plus sufficient inspection coverage.",
         "UNKNOWN remains UNKNOWN when evidence is insufficient.",
         "All business-specific branches rejoin the same report/display/delivery pipeline after scoring.",
     ]
@@ -514,6 +538,8 @@ def build_production_workflow(scan_or_profile: Mapping[str, Any]) -> Dict[str, A
         research_page_guesses=research_guesses,
         research_concepts=concepts,
         research_customer_focus=customer_focus,
+        commercial_contract=commercial_contract,
+        commercial_minimum_gap_map=commercial_gap_map,
         inspection_instructions=instructions,
         common_completion_steps=list(COMMON_COMPLETION_STEPS),
         guardrails=guardrails,

@@ -132,7 +132,11 @@ def test_report_solution_includes_success_check_and_category_outcome():
     r = gen._build_3_angle_solutions('primary_conversion_path', {'rule_key':'primary_conversion_path','leak_name':'Path'}, {}, profile)
     assert r['success_check']
     assert 'reservation' in (r['journey_goal'] + ' ' + r['outcome_measure']).lower()
-    assert r['remediation_engine'].startswith('v7.5')
+    # Remediation intelligence is an independently versioned subsystem; do not
+    # make the production scanner test depend on its historical component label.
+    assert r['remediation_engine']
+    from hybrid_scanner import HybridScanner
+    assert HybridScanner.ENGINE_VERSION == "v7.8.1-universal-path-refinement"
 
 def test_guided_selection_pages_are_treated_as_evaluation_evidence():
     from hybrid_scanner import HybridScanner

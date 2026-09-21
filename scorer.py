@@ -37,6 +37,7 @@ from checkpoint_engine import FAIL, PASS, UNKNOWN, NA, build_50_checkpoints, che
 from architecture_model import BUSINESS_TYPE_LABELS, COMMON_FOUNDATION_IDS, ARCHITECTURAL_CHECKPOINT_IDS, context_has, infer_architecture_profile
 from category_intelligence import business_rule_multiplier_expansion
 from research_knowledge import research_rule_multiplier, research_basis_for_rule, research_stats as research_knowledge_stats
+from commercial_contracts import build_commercial_contract, commercial_minimum_gap_map, commercial_priority_metadata, TCEA_VERSION
 
 
 # -------------------------------
@@ -621,6 +622,14 @@ class RevenueScorer:
         profile, biz_type = self._resolve_business_profile(scan_data, business_type)
         business_type_key = str(profile.get("business_type") or "general")
         public_business_type = self._public_business_type(scan_data, business_type, profile, biz_type)
+        workflow_trace = scan_data.get("production_workflow") if isinstance(scan_data.get("production_workflow"), dict) else {}
+        subtype = profile.get("business_subtype") or profile.get("business_subtype_label") or "unresolved"
+        commercial_contract = build_commercial_contract(business_type_key, subtype)
+        inspected_surfaces = list(workflow_trace.get("type_surfaces") or [])
+        for page in scan_data.get("journey_pages_scanned") or []:
+            if isinstance(page, dict):
+                inspected_surfaces.extend([page.get("page_role"), page.get("url")])
+        commercial_gap_map = commercial_minimum_gap_map(commercial_contract, inspected_surfaces)
         scan_quality_raw = scan_data.get("scan_quality")
         scan_quality = scan_quality_raw if isinstance(scan_quality_raw, dict) else {}
         coverage_raw = scan_data.get("evidence_coverage")
@@ -669,6 +678,20 @@ class RevenueScorer:
         leaks, layer_penalty_adjustments = self._apply_layer_penalty_caps(leaks)
         overlap_adjustments.extend(layer_penalty_adjustments)
         self._attach_evidence_receipts(leaks, scan_data)
+        # TCEA causal/commercial metadata is attached only to already verified/scored findings.
+        # It improves prioritisation/explanation without manufacturing new failures.
+        for leak in leaks:
+            meta = commercial_priority_metadata(leak, commercial_contract, biz_type)
+            leak.update(meta)
+            matching = [m for m in commercial_contract.get("commercial_minimums", []) if m.get("leak_class") == meta.get("leak_class")]
+            if matching:
+                leak["causal_mechanism"] = matching[0].get("causal_mechanism")
+                leak["commercial_minimum_key"] = matching[0].get("key")
+            leak["evidence_roles"] = {
+                "site_evidence": "proves the observed website condition",
+                "external_measurement_evidence": "corroborates measured behavior when available (for example Google/CrUX/Places)",
+                "commercial_research_evidence": "supports why an already-observed condition may matter; never proves the condition",
+            }
 
         # Three unequal point banks: Foundation 22, Revenue/User Architecture 60, Elite 18.
         # The existing strength ledger is retained for diagnostics/maturity evidence, but the
@@ -874,6 +897,24 @@ class RevenueScorer:
             "secondary_journeys": list(profile.get("secondary_journeys") or []),
             "business_profile": profile,
             "architecture_profile": profile,
+            "commercial_evidence_architecture": {
+                "version": TCEA_VERSION,
+                "commercial_contract": commercial_contract,
+                "commercial_minimum_gap_map": commercial_gap_map,
+                "methodology": ["DISCOVER", "ROUTE", "PROBE", "PROVE", "JUDGE", "IMPROVE"],
+                "laws": [
+                    "Semantics guide discovery; they do not prove problems.",
+                    "Classification establishes context; behavior proves customer paths.",
+                    "UNKNOWN is not failure.",
+                    "Commercial relevance is mandatory for commercial priority.",
+                    "Verified business models have evidence-backed Commercial Minimums.",
+                    "Absence requires sufficient inspection coverage.",
+                    "Research explains impact; current-site evidence proves the condition.",
+                    "Stronger evidence outranks weaker evidence.",
+                    "No fabricated financial causality or measured-revenue claim.",
+                    "Subtype modifies inspection priority; it never acts as a hard routing gate.",
+                ],
+            },
             "overall_health_score": overall,
             "overall_score": overall,
             "score_status": "available",
@@ -977,7 +1018,7 @@ class RevenueScorer:
             "elite_strength_ledger": elite_ledger,
             "overlap_adjustments": overlap_adjustments,
             "score_semantics": "Revenue Readiness index for observable website architecture; not a literal visitor conversion percentage, sales forecast or business-quality score.",
-            "score_method_version": "v7.3_business_type_journey_context_blueprint90",
+            "score_method_version": "v7.7_tcea_business_path_commercial_minimum_blueprint90",
             "score_scope_exclusions": ["product-market fit", "market demand", "traffic quality", "pricing", "sales-team execution", "offline operations", "actual revenue"],
             "score_ceiling": MAX_REVENUE_READINESS_SCORE,
             "score_ceiling_note": "The public Revenue Readiness Index is calibrated to a 0–90 blueprint. 90/90 is theoretically available only from perfect canonical 22/60/18 strength; the score is not a visitor conversion percentage.",
@@ -992,7 +1033,7 @@ class RevenueScorer:
                 "guardrail": "Research changes investigation focus and relative priority only after the scanner verifies a site-specific condition. It never creates FAIL evidence; UNKNOWN remains neutral.",
             },
             "score_formula": {
-                "method": "business_type_journey_context_three_layer_v4_blueprint90",
+                "method": "tcea_commercial_evidence_three_layer_v5_blueprint90",
                 "scoring_business_type": business_type_key,
                 "scoring_business_type_label": str(profile.get("business_type_label") or BUSINESS_TYPE_LABELS.get(business_type_key, business_type_key.replace("_", " ").title())),
                 "journey_model": biz_type,
@@ -2616,7 +2657,8 @@ class RevenueScorer:
         # The evidence-weighted score loss is the primary ranking signal.
         # Commercial family priority is a tie-breaker, not an override that can
         # place a tiny cosmetic issue above a much larger verified revenue risk.
-        return (priority, loss, severity)
+        tcea = float(leak.get("commercial_leak_priority_index") or 0.0)
+        return (priority, tcea, loss, severity)
 
     def _consolidate_report_families(self, leaks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Collapse related scoring signals into one customer-facing commercial finding.
@@ -2801,6 +2843,19 @@ class RevenueScorer:
             "supporting_findings": leak.get("supporting_findings") or [],
             "evidence_receipt": leak.get("evidence_receipt") or {},
             "confirmation": leak.get("confirmation") or {},
+            # V7.7.1 TCEA: preserve commercial-causality metadata through the
+            # tier/report boundary so Architect and customer reports can explain WHY.
+            "leak_class": leak.get("leak_class"),
+            "decision_point": leak.get("decision_point"),
+            "evidence_strength": leak.get("evidence_strength"),
+            "path_importance": leak.get("path_importance"),
+            "decision_proximity": leak.get("decision_proximity"),
+            "failure_severity": leak.get("failure_severity"),
+            "commercial_relevance": leak.get("commercial_relevance"),
+            "commercial_leak_priority_index": leak.get("commercial_leak_priority_index"),
+            "commercial_minimum_key": leak.get("commercial_minimum_key"),
+            "causal_mechanism": leak.get("causal_mechanism"),
+            "evidence_roles": leak.get("evidence_roles") or {},
         }
 
     @staticmethod
@@ -2832,6 +2887,17 @@ class RevenueScorer:
             "source",
             "confirmation",
             "evidence_receipt",
+            "leak_class",
+            "decision_point",
+            "evidence_strength",
+            "path_importance",
+            "decision_proximity",
+            "failure_severity",
+            "commercial_relevance",
+            "commercial_leak_priority_index",
+            "commercial_minimum_key",
+            "causal_mechanism",
+            "evidence_roles",
         )
         return {key: leak.get(key) for key in keys}
 

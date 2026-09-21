@@ -1549,6 +1549,7 @@ def test_v731_customer_report_keeps_actionability_without_private_calibration():
         "click_to_call_status": "verified",
         "journey_evidence_status": "verified",
         "journey_pages_verified": 3,
+        "has_ssl": False,
     })
     audit = RevenueScorer().audit_and_score(scan, business_type="auto")
     reporter = ReportGenerator()
@@ -1559,7 +1560,7 @@ def test_v731_customer_report_keeps_actionability_without_private_calibration():
     html = reporter._build_email_html(customer)
     assert "Where You Might Be Losing Customers" in html
     assert "3-Angle Remediation Plan" in html
-    assert "Public customer-journey map" in html
+    assert "HOW TRILLOKA READ THIS WEBSITE" in html
     assert "exact rule weights" in html.lower()
     assert "public_score_blueprint_anchors" not in html
     assert "piecewise_linear_blueprint90" not in html

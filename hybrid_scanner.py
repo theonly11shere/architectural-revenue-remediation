@@ -260,7 +260,7 @@ class _StaticHTMLProbe(HTMLParser):
 
 
 class HybridScanner:
-    ENGINE_VERSION = "v7.6.1-real-world-sales-stable"
+    ENGINE_VERSION = "v7.8.1-universal-path-refinement"
     """Three-phase scanner with evidence confidence and business context."""
 
     def __init__(self, google_api_key: Optional[str] = None):
@@ -1921,7 +1921,7 @@ class HybridScanner:
                 "mobile_cta_types": action_types,
                 "mobile_cta_type": action_types[0] if action_types else "unknown",
                 "static_cta_evidence": static_cta_evidence[:40],
-                "add_to_cart_visible": any(t in action_types for t in ("add_to_cart", "buy")),
+                "add_to_cart_visible": "add_to_cart" in action_types,
                 "order_online_present": "order" in action_types,
                 "reservation_present": "reserve" in action_types,
                 "booking_action_present": "book" in action_types,
@@ -1994,6 +1994,13 @@ class HybridScanner:
             return "buy"
         if re.search(r"\b(?:order\s+(?:online|now|pickup|delivery)|start\s+(?:an?\s+)?order|place\s+(?:an?\s+)?order)\b", label) or re.search(r"(?:^|\s)(?:order-online|online-order)(?:\s|$)", path.replace("/", " ")):
             return "order"
+        if label in {"order", "shop", "shop now", "buy", "purchase"}:
+            return "order" if label == "order" else "buy"
+        if re.search(r"\b(?:donate|make a donation)\b", label): return "donate"
+        if re.search(r"\b(?:apply now|start application|apply)\b", label): return "apply"
+        if re.search(r"\b(?:enroll|enrol|register)\b", label): return "enroll"
+        if re.search(r"\b(?:join now|become a member|start membership)\b", label): return "join"
+        if re.search(r"\b(?:visit us|find us)\b", label): return "visit"
         # Hospitality booking language is distinct from appointment booking.
         if re.search(r"\b(?:reserve(?:\s+(?:now|a\s+table|a\s+room|a\s+spot))?|make\s+(?:a\s+)?reservation|book\s+(?:a\s+)?(?:table|room|venue|tour|charter|cruise))\b", label) or re.search(r"(?:^|\s)reservations?(?:\s|$)", href_tokens):
             return "reserve"
@@ -2091,11 +2098,20 @@ class HybridScanner:
         tokens = [token for token in re.split(r"[/_.-]+", path) if token]
         token_set = set(tokens)
         joined = " ".join(tokens)
+        if token_set & {"privacy", "terms", "policy", "cookies", "cookie"}: return "policy"
+        if token_set & {"apply", "application", "admissions", "enroll", "enrol", "register", "registration"}: return "application"
+        if token_set & {"donate", "donation", "giving"}: return "donation"
+        if token_set & {"membership", "subscribe", "subscription", "join", "signup"}: return "membership"
+        if token_set & {"menu", "menus", "hours", "location", "locations", "directions", "visit"}: return "location"
+        if token_set & {"quiz", "quizzes", "assessment", "assessments", "finder", "selector", "recommendations"}: return "evaluation"
+        if token_set & {"product", "products", "shop", "store"}: return "product"
+        if token_set & {"pricing", "plans"}: return "pricing"
+        if token_set & {"demo", "trial"}: return "contact_or_lead"
         if token_set & {"contact", "enquiry", "inquiry", "quote", "estimate"} or re.search(r"\brequest (?:a )?(?:quote|estimate)\b", joined):
             return "contact_or_lead"
         if token_set & {"book", "booking", "appointment", "appointments", "consultation", "reservation", "reservations", "reserve"}:
             return "booking"
-        if token_set & {"cart", "checkout"} or "order online" in joined or "online order" in joined or "place order" in joined:
+        if token_set & {"cart", "checkout", "order"} or "order online" in joined or "online order" in joined or "place order" in joined:
             return "commerce_conversion"
         if token_set & {"pricing", "plans", "packages", "demo", "trial", "signup", "assessment", "assessments", "quiz", "quizzes", "recommendation", "recommendations", "results", "finder", "selector", "match"} or "sign up" in joined or "find your" in joined or "personalized recommendation" in joined or "personalised recommendation" in joined:
             return "evaluation"
@@ -2147,7 +2163,7 @@ class HybridScanner:
             if any(term in low for term in PROOF_TERMS):
                 score += 4.0
             role = self._journey_role(url)
-            if role in {"contact_or_lead", "booking", "commerce_conversion", "evaluation"}:
+            if role in {"contact_or_lead", "booking", "commerce_conversion", "evaluation", "application", "membership", "donation", "product", "pricing", "location"}:
                 score += 7.5
             elif role == "proof":
                 score += 3.0
@@ -2202,7 +2218,7 @@ class HybridScanner:
 
         # Then preserve universal breadth: conversion/evaluation, proof and policy.
         role_groups = (
-            {"contact_or_lead", "booking", "commerce_conversion", "evaluation"},
+            {"contact_or_lead", "booking", "commerce_conversion", "evaluation", "application", "membership", "donation", "product", "pricing", "location"},
             {"proof"},
             {"policy"},
         )
@@ -2271,7 +2287,7 @@ class HybridScanner:
                 if not (200 <= status < 400):
                     role = self._journey_role(url)
                     pages.append({"url": url, "status_code": status, "role": role, "verified": False})
-                    if (status in {404, 410} or status >= 500) and role in {"contact_or_lead", "booking", "commerce_conversion", "evaluation"}:
+                    if (status in {404, 410} or status >= 500) and role in {"contact_or_lead", "booking", "commerce_conversion", "evaluation", "application", "membership", "donation", "product", "pricing", "location"}:
                         errors.append({
                             "key": "conversion_destination_http_error",
                             "url": str(url),
@@ -2305,6 +2321,7 @@ class HybridScanner:
                             "destination_url": str(receipt.get("href") or ""),
                             "href": str(receipt.get("href") or ""),
                             "role": role,
+                            "text": str(receipt.get("text") or "")[:180],
                             "action_types": list(receipt.get("action_types") or ([receipt.get("type")] if receipt.get("type") else []))[:20],
                             "collection_method": "verified_static_journey_page",
                         })
@@ -2340,6 +2357,7 @@ class HybridScanner:
                     "forms_present": bool(evidence.get("forms_present")),
                     "form_max_field_count": evidence.get("form_max_field_count"),
                     "cta_types": evidence.get("mobile_cta_types") or [],
+                    "static_cta_evidence": list(evidence.get("static_cta_evidence") or [])[:40],
                     "add_to_cart_visible": bool(evidence.get("add_to_cart_visible")),
                     "order_online_present": bool(evidence.get("order_online_present")),
                     "reservation_present": bool(evidence.get("reservation_present")),
@@ -2372,7 +2390,7 @@ class HybridScanner:
 
         verified_count = sum(1 for page in pages if page.get("verified"))
         # The extra Chromium page is the highest-ranked verified conversion/evaluation page.
-        browser_candidate = next((page.get("url") for page in pages if page.get("verified") and page.get("role") in {"contact_or_lead", "booking", "commerce_conversion", "evaluation"}), None)
+        browser_candidate = next((page.get("url") for page in pages if page.get("verified") and page.get("role") in {"contact_or_lead", "booking", "commerce_conversion", "evaluation", "application", "membership", "donation", "product", "pricing", "location"}), None)
         return {
             "journey_evidence_status": "verified" if verified_count else "unavailable",
             "journey_pages_scanned": pages,
@@ -2401,6 +2419,11 @@ class HybridScanner:
                 continue
             marker = str(page.get("url") or "").rstrip("/")
             if marker and marker in seen_pages:
+                # A later verified response replaces an earlier failed receipt for the same URL.
+                for index, previous in enumerate(merged_pages):
+                    if str(previous.get("url") or "").rstrip("/") == marker and page.get("verified") and not previous.get("verified"):
+                        merged_pages[index] = page
+                        break
                 continue
             if marker:
                 seen_pages.add(marker)
@@ -2433,7 +2456,7 @@ class HybridScanner:
         for item in existing_action_evidence + incoming_action_evidence:
             if not isinstance(item, dict):
                 continue
-            marker = (str(item.get("url") or ""), tuple(sorted(str(x) for x in (item.get("action_types") or []))))
+            marker = (str(item.get("source_url") or item.get("url") or ""), str(item.get("destination_url") or item.get("href") or ""), tuple(sorted(str(x) for x in (item.get("action_types") or []))))
             if marker in action_seen:
                 continue
             action_seen.add(marker)
@@ -2523,6 +2546,7 @@ class HybridScanner:
             label = str(item.get("text") or "").strip()[:160]
             found.append({
                 "provider": provider,
+                "source_url": base_url,
                 "url": absolute,
                 "display_url": cls._safe_evidence_url(absolute),
                 "label": label,
@@ -2620,6 +2644,14 @@ class HybridScanner:
             "evidence_screenshot_b64": browser_probe.get("evidence_screenshot_b64") or "",
             "evidence_screenshot_sha256": browser_probe.get("evidence_screenshot_sha256") or "",
         }
+        if browser_probe.get("browser_loaded") and not browser_probe.get("bot_challenge_suspected"):
+            rendered_page = {"url": str(url or ""), "verified": True,
+                "status_code": browser_probe.get("browser_status_code") or 200,
+                "role": HybridScanner._journey_role(str(url or "")),
+                "page_text_sample": str(browser_probe.get("page_text") or "")[:7000],
+                "cta_types": list(browser_probe.get("mobile_cta_types") or []),
+                "static_cta_evidence": [{**x, "source_url": str(url or "")} for x in browser_probe.get("mobile_cta_evidence") or [] if isinstance(x, dict)]}
+            target.setdefault("journey_pages_scanned", []).append(rendered_page)
         target["browser_journey_probe"] = summary
         target["browser_journey_rendered"] = bool(browser_probe.get("browser_loaded"))
         target["browser_journey_url"] = str(url or "")
@@ -3061,7 +3093,7 @@ class HybridScanner:
     @classmethod
     def _build_commercial_architecture_diagnostics(cls, scan: Dict[str, Any], public_hygiene: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         pages = [p for p in (scan.get("journey_pages_scanned") or []) if isinstance(p, dict) and p.get("verified")]
-        decision_roles = {"contact_or_lead", "booking", "commerce_conversion", "evaluation"}
+        decision_roles = {"contact_or_lead", "booking", "commerce_conversion", "evaluation", "application", "membership", "donation", "product", "pricing", "location"}
         decision_pages = [p for p in pages if str(p.get("role") or "") in decision_roles]
         proof_sitewide = bool(scan.get("reviews_visible") or scan.get("social_proof_present") or scan.get("case_studies_portfolio_present") or scan.get("credential_signals_present") or scan.get("trust_badges_present"))
         proof_at_decision = any(cls._page_has_proof(p) for p in decision_pages)
@@ -4421,7 +4453,7 @@ class HybridScanner:
                 results["mobile_cta_types"] = cta_types
                 results["mobile_cta_type"] = cta_types[0] if cta_types else "unknown"
                 results["mobile_cta_evidence"] = all_actions[:20]
-                results["add_to_cart_visible"] = any(t in cta_types for t in ("add_to_cart", "buy"))
+                results["add_to_cart_visible"] = "add_to_cart" in cta_types
                 results["order_online_present"] = "order" in cta_types
                 results["reservation_present"] = "reserve" in cta_types
                 results["booking_action_present"] = "book" in cta_types
@@ -4549,29 +4581,8 @@ class HybridScanner:
         return any(marker in haystack for marker in markers)
 
     async def _collect_action_candidates(self, page: Any) -> List[Dict[str, Any]]:
-        return await page.evaluate(
+        candidates = await page.evaluate(
             r"""() => {
-                const classify = (text, href) => {
-                    const label = String(text || '').toLowerCase().replace(/\s+/g, ' ').trim();
-                    const rawHref = String(href || '').toLowerCase();
-                    let path = rawHref;
-                    try { path = decodeURIComponent(new URL(rawHref, location.href).pathname || '').toLowerCase(); } catch (e) {}
-                    const hrefTokens = path.split(/[\/_?&=#.\-]+/).filter(Boolean).join(' ');
-                    if (rawHref.startsWith('tel:') || /\bcall(?:\s+(?:now|us|today|restaurant))?\b/.test(label)) return 'call';
-                    if (/\b(?:directions?|get directions)\b/.test(label) || rawHref.includes('maps.google') || rawHref.includes('google.com/maps')) return 'directions';
-                    if (/\badd\s+to\s+(?:cart|bag)\b/.test(`${label} ${hrefTokens}`)) return 'add_to_cart';
-                    if (/\b(?:checkout|buy\s+now|purchase\s+now|complete\s+purchase)\b/.test(label) || /(?:^|\s)checkout(?:\s|$)/.test(hrefTokens)) return 'buy';
-                    if (/\b(?:order\s+(?:online|now|pickup|delivery)|start\s+(?:an?\s+)?order|place\s+(?:an?\s+)?order)\b/.test(label) || /(?:^|\s)(?:order online|online order)(?:\s|$)/.test(hrefTokens)) return 'order';
-                    if (/\b(?:reserve(?:\s+(?:now|a\s+table|a\s+room|a\s+spot))?|make\s+(?:a\s+)?reservation|book\s+(?:a\s+)?(?:table|room|venue|tour|charter|cruise))\b/.test(label) || /(?:^|\s)reservations?(?:\s|$)/.test(hrefTokens)) return 'reserve';
-                    if (/\b(?:book\s+(?:a\s+)?demo|request\s+(?:a\s+)?demo|schedule\s+(?:a\s+)?demo)\b/.test(label)) return 'demo';
-                    if (/\b(?:book(?:\s+(?:now|online|appointment|consultation|a\s+consultation))?|schedule\s+(?:an?\s+)?(?:appointment|consultation))\b/.test(label) || /(?:^|\s)(?:book|booking|appointment|appointments)(?:\s|$)/.test(hrefTokens)) return 'book';
-                    if (/\b(?:get|request|receive)\s+(?:a\s+)?(?:free\s+)?quote\b|\b(?:free\s+)?estimate\b/.test(label) || /(?:^|\s)(?:quote|estimate)(?:\s|$)/.test(hrefTokens)) return 'quote';
-                    if (/\b(?:start\s+(?:a\s+)?(?:free\s+)?trial|free\s+trial|try\s+free)\b/.test(label)) return 'trial';
-                    if (/\b(?:subscribe|join\s+(?:the\s+)?(?:list|newsletter|community)|sign\s+up\s+for\s+(?:the\s+)?newsletter)\b/.test(label)) return 'subscribe';
-                    if (/\b(?:contact(?:\s+us)?|get\s+in\s+touch|send\s+(?:us\s+)?a\s+message)\b/.test(label) || /(?:^|\s)contact(?:\s|$)/.test(hrefTokens)) return 'contact';
-                    if (/\b(?:live\s+chat|chat\s+(?:now|with\s+us)|whatsapp)\b/.test(label) || rawHref.includes('wa.me') || rawHref.includes('whatsapp.com')) return 'chat';
-                    return 'other';
-                };
                 const elements = Array.from(document.querySelectorAll('a, button, [role="button"]'));
                 return elements.map(el => {
                     const style = getComputedStyle(el);
@@ -4586,13 +4597,18 @@ class HybridScanner:
                         rect.right >= 0 && rect.left <= window.innerWidth;
                     return {
                         text, href, visible: visible && inViewport, sticky,
-                        type: classify(text, href),
+                        type: "other",
                         x: Math.round(rect.x), y: Math.round(rect.y),
                         width: Math.round(rect.width), height: Math.round(rect.height)
                     };
-                }).filter(x => x.visible && (x.type !== 'other' || x.sticky));
+                }).filter(x => x.visible);
             }"""
         )
+
+        for item in candidates:
+            item["type"] = self._classify_action_text(item.get("text"), item.get("href"))
+            item["source_url"] = page.url
+        return [item for item in candidates if item["type"] != "other" or item.get("sticky")]
 
     @staticmethod
     def _dedupe_action_candidates(items: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
