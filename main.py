@@ -45,7 +45,7 @@ from hybrid_scanner import HybridScanner
 
 # Single source of truth for deployed scanner/API version labels.
 SCANNER_ENGINE_VERSION = getattr(HybridScanner, "ENGINE_VERSION", "unknown")
-API_VERSION = (SCANNER_ENGINE_VERSION.removeprefix("v").split("-", 1)[0] if SCANNER_ENGINE_VERSION != "unknown" else "7.7.1")
+API_VERSION = (SCANNER_ENGINE_VERSION.removeprefix("v").split("-", 1)[0] if SCANNER_ENGINE_VERSION != "unknown" else "7.8.1")
 from network_security import NetworkTargetError, validate_public_http_url
 from scan_access import AccessDenied, AccessTicket, PLAN_CATALOG, ScanAccessManager
 from scorer import RevenueScorer
@@ -141,6 +141,8 @@ admin_auth = AdminAuthManager()
 # signals or tie-break logic.  Admin/Vault data remains complete for debugging,
 # reproducibility and Architect review.  Public API keys stay backward-compatible.
 
+from journey_presentation import build_journey_summary, customer_action
+
 def _public_architecture_profile(profile: Dict[str, Any] | None) -> Dict[str, Any]:
     src = profile if isinstance(profile, dict) else {}
     safe_secondary = []
@@ -155,6 +157,7 @@ def _public_architecture_profile(profile: Dict[str, Any] | None) -> Dict[str, An
             safe_secondary.append(item)
     return {
         "model_basis": "business_type_journey_context",
+        "journey_summary": build_journey_summary(src),
         "business_type": src.get("business_type") or src.get("vertical") or "general",
         "business_type_label": src.get("business_type_label") or "General / Unresolved Business",
         "business_type_confidence": src.get("business_type_confidence"),
@@ -168,7 +171,7 @@ def _public_architecture_profile(profile: Dict[str, Any] | None) -> Dict[str, An
         "confidence": src.get("confidence"),
         "provisional": bool(src.get("provisional")),
         "journey_resolved": bool(src.get("journey_resolved")) if src.get("journey_resolved") is not None else not bool(src.get("provisional")),
-        "primary_conversion": src.get("primary_conversion"),
+        "primary_conversion": customer_action(src.get("primary_conversion")),
         "secondary_conversions": list(src.get("secondary_conversions") or []),
         "secondary_journeys": safe_secondary,
         "context_tags": list(src.get("context_tags") or []),
@@ -292,6 +295,7 @@ def _protect_methodology_for_customer(payload: Dict[str, Any]) -> Dict[str, Any]
     result = copy.deepcopy(payload)
     profile = result.get("architecture_profile") or result.get("business_profile") or {}
     safe_profile = _public_architecture_profile(profile)
+    result["journey_summary"] = build_journey_summary(profile)
     result["architecture_profile"] = safe_profile
     result["business_profile"] = copy.deepcopy(safe_profile)
     if "score_formula" in result:

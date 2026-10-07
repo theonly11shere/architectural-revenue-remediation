@@ -149,7 +149,7 @@ def test_business_concept_observation_is_non_scoring_and_type_specific(business_
 
 
 def test_engine_version_is_v771():
-    assert HybridScanner.ENGINE_VERSION == "v7.7.1-tcea-commercial-evidence-stable"
+    assert HybridScanner.ENGINE_VERSION == "v7.8.1-universal-path-refinement"
 
 
 def test_randomized_business_phrase_resilience_across_all_types():

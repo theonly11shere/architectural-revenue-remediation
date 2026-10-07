@@ -31,14 +31,16 @@ def build_architect_review_queue(scan: Mapping[str, Any], audit: Mapping[str, An
 
     # 0) A specialized but provisional journey should be explicitly confirmed by the Architect
     # before journey-dependent recommendations or financial interpretation are treated as mature.
-    if bool(profile.get("provisional")) and journey != "general":
+    if bool(profile.get("provisional")) or (profile.get("journey_marker_resolution") or {}).get("architect_review_required"):
         reviews.append(_item(
             "IMPORTANT", "journey_resolution", "Primary customer journey requires Architect confirmation",
-            "Automation found a likely customer journey but confidence remains below the resolution threshold. Journey-dependent failures and financial scenario modeling stay guarded until this is confirmed.",
+            "The primary customer path or primary/secondary ordering is not yet confirmed by sufficient evidence. Journey-dependent failures and financial scenario modeling stay guarded until this is confirmed.",
             {
                 "business_type": business_type,
                 "journey_model": journey,
                 "journey_confidence": profile.get("confidence"),
+                "weighted_journey_candidate": profile.get("weighted_journey_candidate"),
+                "journey_marker_resolution": profile.get("journey_marker_resolution") or {},
                 "journey_signals": list(profile.get("journey_signals") or [])[:10],
                 "secondary_journeys": list(profile.get("secondary_journeys") or [])[:3],
             },

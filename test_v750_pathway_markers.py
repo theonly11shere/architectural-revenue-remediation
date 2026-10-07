@@ -16,7 +16,8 @@ def test_restaurant_words_alone_do_not_prove_reservation():
 def test_reservation_requires_explicit_path_marker():
     p=infer_architecture_profile({"title":"Restaurant","page_text":"Reserve a table. Party size. Select date. Select time. Booking confirmation","mobile_cta_types":["reserve"],"reservation_present":True},"restaurant")
     assert p["journey_model"]=="reservation_event"
-    assert p["journey_marker_resolution"]["status"]=="VERIFIED"
+    assert p["journey_marker_resolution"]["status"]=="SUPPORTED"
+    assert p["journey_marker_resolution"]["proof"]["terminal"] == []
 
 def test_all_business_types_have_candidate_search_plan():
     for b,candidates in BUSINESS_JOURNEY_CANDIDATES.items():

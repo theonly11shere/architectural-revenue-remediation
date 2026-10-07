@@ -22,7 +22,7 @@ def test_restaurant_order_external_handoff_is_direct_purchase_2_of_3():
     assert r["status"]=="STRONGLY_SUPPORTED"
     assert r["path_completeness"]=="2/3"
     assert "order" in r["proof"]["action"]
-    assert "external_commerce_handoff" in r["proof"]["progression"]
+    assert "external_handoff" in r["proof"]["progression"]
     assert r["proof"]["terminal"]==[]
 
 def test_generic_hours_date_time_does_not_fake_reservation_progression():

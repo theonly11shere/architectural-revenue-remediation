@@ -794,9 +794,23 @@ def infer_architecture_profile(data: Mapping[str, Any], requested_hint: Any = "a
 
     context_tags, context_reasons = infer_context_tags(data, journey_model, business_type)
     provisional = bool(journey_model == "general" or confidence < 0.72 or (not force_general_journey and int(marker_resolution.get("authority") or 0) < 4) or (business_type == "general" and float(business.get("confidence") or 0.0) < 0.60))
+    # Secondary journeys require their own action + progression evidence. Weighted guesses
+    # remain in score_candidates/differentiation_plan, never in the confirmed secondary list.
+    secondary_journeys = []
+    if not provisional:
+        primary_strength = max(1, next((r.get("strength", 0) for r in marker_resolution.get("ranked_paths", [])
+                                       if r.get("journey_model") == journey_model), 1))
+        for path in marker_resolution.get("ranked_paths", []):
+            model = path.get("journey_model")
+            markers = path.get("markers") or {}
+            if model == journey_model or path.get("authority", 0) < 4 or not markers.get("action") or not markers.get("progression"):
+                continue
+            secondary_journeys.append({"journey_model": model, "journey_label": JOURNEY_LABELS.get(model, model),
+                "relative_strength": round(min(1, path.get("strength", 0) / primary_strength), 2),
+                "score": path.get("strength", 0), "signals": [], "status": path.get("status")})
     secondary = JOURNEY_SECONDARY_CONVERSIONS.get(journey_model, JOURNEY_SECONDARY_CONVERSIONS["general"])
     return {
-        "model_basis": "hierarchical_business_subtype_path_markers_v3",
+        "model_basis": "universal_path_evidence_v4",
         "business_type": business_type,
         "business_type_label": business.get("business_type_label") or BUSINESS_TYPE_LABELS.get(business_type, business_type.replace("_", " ").title()),
         "business_type_confidence": round(float(business.get("confidence") or 0.0), 2),

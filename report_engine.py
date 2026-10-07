@@ -25,6 +25,8 @@ from architecture_model import BUSINESS_TYPE_LABELS, JOURNEY_LABELS, CONTEXT_LAB
 from remediation_intelligence import build_outcome_remediation, contextualize_finding, remediation_knowledge_stats
 
 
+from journey_presentation import build_journey_summary, render_journey_card, customer_action
+
 class ReportGenerator:
     def __init__(self):
         self.resend_api_key = os.environ.get("RESEND_API_KEY", "")
@@ -91,7 +93,7 @@ class ReportGenerator:
         journey_model = str(business_profile.get("journey_model") or audit.get("journey_model") or "general")
 
         return {
-            "report_type": "ADMIN_LEAD_ALERT_V7_7_1_TCEA",
+            "report_type": "ADMIN_LEAD_ALERT_V7_8_1",
             "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "target_domain": audit.get("target_domain", scan.get("domain", "Unknown")),
             "business_type": business_type,
@@ -101,6 +103,9 @@ class ReportGenerator:
             "business_subtype_label": business_profile.get("business_subtype_label"),
             "business_subtype_confidence": business_profile.get("business_subtype_confidence"),
             "journey_marker_resolution": business_profile.get("journey_marker_resolution") or {},
+            "journey_summary": build_journey_summary(business_profile),
+            "weighted_journey_candidate": business_profile.get("weighted_journey_candidate"),
+            "weighted_journey_candidate_confidence": business_profile.get("weighted_journey_candidate_confidence"),
             "business_profile": business_profile,
             "architecture_profile": business_profile,
             "journey_model": journey_model,
@@ -109,7 +114,7 @@ class ReportGenerator:
             "public_journey_map": {
                 "entry": "Visitor arrives from search, ads, social, referral or direct navigation.",
                 "path": str(business_profile.get("journey_label") or JOURNEY_LABELS.get(journey_model, "Customer journey")),
-                "primary_action": str(business_profile.get("primary_conversion") or "Primary customer action"),
+                "primary_action": customer_action(business_profile.get("primary_conversion")),
                 "decision_points": ["clarity", "trust", "proof", "friction", "technical reliability"],
                 "outcome": "The business outcome the public website is trying to create.",
                 "note": "Public-safe journey explanation only; proprietary inference signals and exact weighting remain private.",
@@ -1531,27 +1536,7 @@ class ReportGenerator:
                 '</p></div>'
             )
 
-        public_map = report.get("public_journey_map") if isinstance(report.get("public_journey_map"), dict) else {}
-        if public_map:
-            journey_map_html = (
-                '<div style="background:#111827;border-radius:14px;padding:18px;margin:18px 0;color:#F8FAFC;">'
-                '<div style="font:700 10px Inter,sans-serif;color:#D8B66A;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:10px;">HOW TRILLOKA READ THIS WEBSITE</div>'
-                '<div style="font:700 20px Georgia,serif;margin-bottom:12px;">Public customer-journey map</div>'
-                '<div style="font:12px/1.7 Inter,sans-serif;color:#D1D5DB;">'
-                f'<strong style="color:#fff;">1. Entry:</strong> {esc(public_map.get("entry"))}<br>'
-                f'<strong style="color:#fff;">2. Journey:</strong> {esc(public_map.get("path"))}<br>'
-                f'<strong style="color:#fff;">3. Primary action:</strong> {esc(public_map.get("primary_action"))}<br>'
-                '<strong style="color:#fff;">4. Decision points:</strong> clarity, trust, proof, friction and technical reliability<br>'
-                f'<strong style="color:#fff;">5. Outcome:</strong> {esc(public_map.get("outcome"))}<br>'
-                f'<strong style="color:#fff;">Subtype:</strong> {esc(report.get("business_subtype_label") or report.get("business_subtype") or "Not confidently resolved")}<br>'
-                f'<strong style="color:#fff;">Customer-path authority:</strong> {esc((report.get("journey_marker_resolution") or {}).get("status") or "UNVERIFIED")} '
-                f'({esc((report.get("journey_marker_resolution") or {}).get("path_completeness") or "0/3")})'
-                '</div>'
-                '<p style="font:11px/1.55 Inter,sans-serif;color:#9CA3AF;margin:12px 0 0;">This shows the public logic used to explain the audit. Exact inference signals, weights and calibration rules remain proprietary.</p>'
-                '</div>'
-            )
-        else:
-            journey_map_html = ''
+        journey_map_html = render_journey_card(report.get("architecture_profile") or report.get("business_profile") or report)
 
         finding_cards = []
         for idx, item in enumerate(report.get("verified_revenue_findings") or [], 1):
